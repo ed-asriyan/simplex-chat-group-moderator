@@ -1,0 +1,39 @@
+name: simplex-chat-moderator-bot-dev
+
+services:
+  smp-client:
+    build: smp-client
+    environment:
+      - PORT=5225
+      - DB=/opt/simplex-chat-moderator-bot/simplex-chat/db
+    volumes:
+      - ./simplex-chat-moderator-bot-dev:/opt/simplex-chat-moderator-bot
+    healthcheck:
+      test: [ "CMD", "nc", "-z", "127.0.0.1", "5225" ]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  workspace:
+    build:
+      context: bot
+      dockerfile: Dockerfile
+      target: dev
+    depends_on:
+      smp-client:
+        condition: service_healthy
+    network_mode: "service:smp-client"
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - ./simplex-chat-moderator-bot-dev:/opt/simplex-chat-moderator-bot
+    command: [ "sleep", "infinity" ]
+    environment:
+      - SIMPLEX_WS_URI=ws://localhost:5225
+      - BOT_DISPLAY_NAME=DEV MODERATOR
+      - BOT_FULL_NAME=
+      - BOT_SHORT_DESCRIPTION=DEV MODERATOR
+      - DB_PATH=/opt/simplex-chat-moderator-bot/bot.db
+    restart: unless-stopped

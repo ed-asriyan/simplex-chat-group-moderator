@@ -1,0 +1,8 @@
+name: simplex-chat-moderator-bot-test
+
+services:
+  test:
+    build:
+      context: bot
+      dockerfile: Dockerfile
+      target: test

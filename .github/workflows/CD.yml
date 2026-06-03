@@ -1,0 +1,148 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: "CD"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USERNAME }}
+      REMOTE_BASE: apps/simplex-chat-reminder-bot
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Cache Docker layers
+        uses: actions/cache@v5
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add remote host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Build images from docker-compose.yml
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user pyyaml >/dev/null
+          export PATH="$HOME/.local/bin:$PATH"
+          python3 - <<'PY'
+          import os, sys, subprocess, json
+          try:
+              import yaml
+          except Exception as e:
+              print("PyYAML missing", e)
+              sys.exit(1)
+
+          sha = os.environ.get('GITHUB_SHA','')[:12]
+          repo = os.environ.get('GITHUB_REPOSITORY','repo').lower().replace('/','-')
+          with open('docker-compose.yml','r') as f:
+              compose = yaml.safe_load(f)
+          services = (compose or {}).get('services', {})
+
+          built = {}
+          for name, cfg in services.items():
+              build = cfg.get('build') if isinstance(cfg, dict) else None
+              if not build:
+                  continue
+              context = None
+              dockerfile = None
+              args = None
+              target = None
+              if isinstance(build, str):
+                  context = build
+              if isinstance(build, dict):
+                  context = build.get('context', '.')
+                  dockerfile = build.get('dockerfile')
+                  args = build.get('args')
+                  target = build.get('target')
+              if not context:
+                  context = '.'
+              tag = f"{repo}/{name}:{sha}"
+              cmd = ['docker','buildx','build','-t', tag, '--load']
+              cmd += ['--cache-from', f'type=local,src=/tmp/.buildx-cache']
+              cmd += ['--cache-to', f'type=local,dest=/tmp/.buildx-cache-new,mode=max']
+              if dockerfile:
+                  cmd += ['-f', os.path.join(context, dockerfile)]
+              if target:
+                  cmd += ['--target', target]
+              if isinstance(args, dict):
+                  for k,v in args.items():
+                      cmd += ['--build-arg', f'{k}={v}']
+              cmd += [context]
+              print('+', ' '.join(cmd), flush=True)
+              subprocess.check_call(cmd)
+              built[name] = tag
+
+          override = {'services': {n: {'image': t} for n,t in built.items()}}
+          with open('compose.images.override.yml','w') as out:
+              yaml.dump(override, out, default_flow_style=False, sort_keys=False)
+          with open('built_images.json','w') as outj:
+              json.dump(built, outj)
+          PY
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache || true
+
+      - name: Save built images as tarballs
+        run: |
+          set -euo pipefail
+          mkdir -p images
+          python3 - <<'PY'
+          import json, subprocess
+          imgs = json.load(open('built_images.json'))
+          for svc, tag in imgs.items():
+              out = f"images/{svc}.tar"
+              print('+ docker save -o', out, tag)
+              subprocess.check_call(['docker','save','-o', out, tag])
+          PY
+
+      - name: Upload images and compose to remote
+        run: |
+          set -euo pipefail
+          ssh "$SSH_USER@$SSH_HOST" "rm -fr \"$HOME/$REMOTE_BASE\" && mkdir -p \"$HOME/$REMOTE_BASE/images\""
+          scp docker-compose.yml compose.images.override.yml "$SSH_USER@$SSH_HOST:~/$REMOTE_BASE/"
+          scp images/*.tar "$SSH_USER@$SSH_HOST:~/$REMOTE_BASE/images/"
+
+      - name: Load images and deploy on remote
+        run: |
+          set -euo pipefail
+          ssh "$SSH_USER@$SSH_HOST" REMOTE_BASE="$REMOTE_BASE" bash -s <<'EOS'
+          set -euo pipefail
+          REMOTE_DIR="$HOME/$REMOTE_BASE"
+          cd "$REMOTE_DIR"
+          for f in images/*.tar; do [ -e "$f" ] || continue; docker load -i "$f"; done
+          if docker compose version >/dev/null 2>&1; then
+            COMPOSE="docker compose"
+          else
+            COMPOSE="docker-compose"
+          fi
+          $COMPOSE -f docker-compose.yml -f compose.images.override.yml up -d --no-build --remove-orphans
+          rm -rf images
+          docker container prune -f || true
+          docker image prune -af || true
+          EOS

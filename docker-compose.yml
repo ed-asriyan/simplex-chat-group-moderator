@@ -1,0 +1,35 @@
+name: simplex-chat-moderator-bot-dev
+
+services:
+  smp-client:
+    build: smp-client
+    environment:
+      - PORT=5225
+      - DB=/opt/simplex-chat-moderator-bot/simplex-chat/db
+    volumes:
+      - /opt/simplex-chat-moderator-bot:/opt/simplex-chat-moderator-bot
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "5225"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+    restart: unless-stopped
+      
+  bot:
+    build:
+      context: bot
+      dockerfile: Dockerfile
+      target: bot
+    depends_on:
+      smp-client:
+        condition: service_healthy
+    network_mode: "service:smp-client"
+    volumes:
+      - /opt/simplex-chat-moderator-bot:/opt/simplex-chat-moderator-bot
+    environment:
+      - SIMPLEX_WS_URI=ws://localhost:5225
+      - BOT_DISPLAY_NAME=Moderator Bot
+      - BOT_FULL_NAME=
+      - BOT_SHORT_DESCRIPTION=I delete messages in your groups based on your rules.
+      - DB_PATH=/opt/simplex-chat-moderator-bot/bot.db
+    restart: unless-stopped
