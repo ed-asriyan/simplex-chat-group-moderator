@@ -11,7 +11,10 @@
 //!   cyrillic `р`+`а`, `спам` vs `spam`);
 //! - separators inserted between letters (`s p a m`, `s.p.a.m`, `s-p-a-m`,
 //!   `с_п_а_м`);
-//! - repeated characters (`spaaaaam`, `goooal`).
+//! - repeated characters (`spaaaaam`, `goooal`);
+//! - simple English plural forms (`spams`, `boxes`, `parties`) — both the
+//!   text and the keyword are stripped of trailing `-s`/`-es`/`-ies`, so a
+//!   keyword `spam` matches `spams` and a keyword `spams` matches `spam`.
 //!
 //! Word boundaries are still respected for "ordinary" text — `"ass"` does
 //! **not** match inside `"classic"` (no separators/look-alikes are present
@@ -52,6 +55,7 @@ fn normalize_and_tokenize(s: &str) -> Vec<String> {
         .split(|c: char| !c.is_alphanumeric())
         .filter(|t| !t.is_empty())
         .map(collapse_repeats)
+        .map(|t| depluralize_en(&t))
         .collect()
 }
 
@@ -108,6 +112,53 @@ fn collapse_repeats(s: &str) -> String {
     out
 }
 
+/// Strip common English plural suffixes (`-ies` → `-y`, `-es`, `-s`) from a
+/// token whose characters are already lower-cased and canonicalised.
+///
+/// Only ASCII-letter tokens are touched, so Cyrillic words pass through
+/// unchanged. The stem is required to be at least 3 characters long so that
+/// short legitimate words ending in `s` (e.g. `bus`, `gas`) are not mangled.
+fn depluralize_en(s: &str) -> String {
+    // Only consider tokens made entirely of ASCII letters; anything else
+    // (digits, cyrillic, mixed) is left alone.
+    if s.is_empty() || !s.chars().all(|c| c.is_ascii_lowercase()) {
+        return s.to_string();
+    }
+
+    // `-ies` → `-y` (parties → party, cities → city). Needs a stem of ≥ 2
+    // letters before the `ies` so we don't turn `ties` into `ty`.
+    if s.len() > 4 && s.ends_with("ies") {
+        let mut stem = s[..s.len() - 3].to_string();
+        stem.push('y');
+        return stem;
+    }
+
+    // `-es` after a sibilant cluster (boxes, buses, dishes, churches,
+    // quizzes). Requires a stem of ≥ 3 letters.
+    if s.len() > 4 && s.ends_with("es") {
+        let stem = &s[..s.len() - 2];
+        let ends_in_sibilant = stem.ends_with('s')
+            || stem.ends_with('x')
+            || stem.ends_with('z')
+            || stem.ends_with("sh")
+            || stem.ends_with("ch");
+        if ends_in_sibilant {
+            return stem.to_string();
+        }
+    }
+
+    // Plain `-s`. Requires a stem of ≥ 3 letters and a stem that does not
+    // itself already end in `s` (avoid touching `bus`, `gas`, `class`).
+    if s.len() > 3 && s.ends_with('s') {
+        let stem = &s[..s.len() - 1];
+        if !stem.ends_with('s') {
+            return stem.to_string();
+        }
+    }
+
+    s.to_string()
+}
+
 /// Merge consecutive short tokens (≤ 2 characters) into a single token.
 /// `["s", "p", "a", "m"]` → `["spam"]`. Long tokens are left untouched and
 /// break the run. This is what lets us see through `"s.p.a.m"` while still
@@ -120,13 +171,15 @@ fn merge_short_runs(tokens: &[String]) -> Vec<String> {
             buf.push_str(t);
         } else {
             if !buf.is_empty() {
-                out.push(collapse_repeats(&std::mem::take(&mut buf)));
+                let collapsed = collapse_repeats(&std::mem::take(&mut buf));
+                out.push(depluralize_en(&collapsed));
             }
             out.push(t.clone());
         }
     }
     if !buf.is_empty() {
-        out.push(collapse_repeats(&buf));
+        let collapsed = collapse_repeats(&buf);
+        out.push(depluralize_en(&collapsed));
     }
     out
 }

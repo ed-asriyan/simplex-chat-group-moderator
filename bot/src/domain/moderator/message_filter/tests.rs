@@ -287,3 +287,54 @@ fn partial_overlap_does_not_match() {
 fn keyword_longer_than_text_does_not_match() {
     assert!(!should_moderate("hi", &kws(&["hello there friend"])));
 }
+
+// ---------------------------------------------------------------------------
+// english plural handling
+// ---------------------------------------------------------------------------
+
+#[test]
+fn keyword_matches_plural_in_text_en() {
+    assert!(should_moderate("buy spams now", &kws(&["spam"])));
+    assert!(should_moderate("look at the boxes", &kws(&["box"])));
+    assert!(should_moderate("two parties tonight", &kws(&["party"])));
+}
+
+#[test]
+fn plural_keyword_matches_singular_in_text_en() {
+    assert!(should_moderate("this is spam", &kws(&["spams"])));
+    assert!(should_moderate("one box only", &kws(&["boxes"])));
+    assert!(should_moderate("the party", &kws(&["parties"])));
+}
+
+#[test]
+fn plural_handles_es_after_sibilants_en() {
+    assert!(should_moderate("the dishes are clean", &kws(&["dish"])));
+    assert!(should_moderate("two churches", &kws(&["church"])));
+    assert!(should_moderate("many quizzes", &kws(&["quiz"])));
+}
+
+#[test]
+fn plural_survives_bypass_tricks_en() {
+    // separators + leet + a trailing plural `s`
+    assert!(should_moderate("5-p-a-m-s incoming", &kws(&["spam"])));
+    assert!(should_moderate("s p a m s", &kws(&["spam"])));
+    assert!(should_moderate("spaaaams", &kws(&["spam"])));
+}
+
+#[test]
+fn plural_stripping_does_not_mangle_short_words_en() {
+    // "bus", "gas", "ads" are too short / end in `s` already → must NOT
+    // be stripped down to "bu"/"ga"/"ad" and accidentally match.
+    assert!(!should_moderate("the bus is late", &kws(&["bu"])));
+    assert!(!should_moderate("no gas left", &kws(&["ga"])));
+    assert!(!should_moderate("see the ads", &kws(&["ad"])));
+}
+
+#[test]
+fn plural_stripping_does_not_affect_ru() {
+    // Russian text uses cyrillic letters, so the EN plural rule must not
+    // touch it: keyword "спам" still only matches the bare word.
+    assert!(should_moderate("это спам", &kws(&["спам"])));
+    // and a non-matching cyrillic word stays non-matching.
+    assert!(!should_moderate("барак обама", &kws(&["рак"])));
+}
