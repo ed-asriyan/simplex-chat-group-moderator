@@ -1,5 +1,5 @@
 mod application;
-mod keyword_matcher;
+mod message_filter;
 pub mod ports;
 
 pub use application::ModeratorApplication;

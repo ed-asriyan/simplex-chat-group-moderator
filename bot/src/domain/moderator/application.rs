@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use super::keyword_matcher::contains_keyword;
+use super::message_filter::should_moderate;
 use super::ports::{
     Err, Group, GroupId, GroupInvitation, GroupMessage, GroupModerator, MessengerGroupId,
     ModerationEngine, ModerationRepository, UserId,
@@ -35,7 +35,7 @@ impl ModerationEngine for ModeratorApplication {
             return Ok(());
         }
 
-        if contains_keyword(&group_message.text, &keywords) {
+        if should_moderate(&group_message.text, &keywords) {
             self.group_moderator
                 .delete_message(&group_message.group.id, &group_message.message_id)
                 .await?;

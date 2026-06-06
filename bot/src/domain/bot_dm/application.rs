@@ -1,34 +1,33 @@
-use async_trait::async_trait;
-use std::sync::Arc;
-
-use crate::domain::bot_dm::ports::Group;
-
 use super::ports::{
     BotDmReceiver, BotMessenger, Err, GroupId, GroupInvitation, GroupOperations, UserId,
 };
-
-const START: &str = "\
-Hi, invite me to a group with a moderator role. Then you can semd me list of keywords and I will automatically delete all messages containing those words. You can manage multiple groups.
-Send /help to read more.
-";
+use crate::domain::bot_dm::ports::Group;
+use async_trait::async_trait;
+use const_format::formatcp;
+use std::sync::Arc;
 
 const HELP: &str = "\
-1. You invite me to a group with a moderator role.
+How to use this bot:
 
-2. I send you commands how to set the keywords for the group.
+1. Invite me to your group and make me a moderator so I have permission to delete messages.
+2. Send me a list of words or phrases you want to block in that group.
+3. I will automatically monitor the chat and delete any message that triggers your list.
 
-2. You send me a list of keywords to block in that group.
+You can update your blocked words or remove me from the group at any time.
 
-3. When I receive a message in that group, I check it against the list of keywords. If criteria are met, I delete the message. You can update the list of keywords or even remove me from the group at any time.
-
-Criteria for deleting a message:
-- The message contains at least one of the keywords (case-insensitive, exact match).
+Deletion criteria:
+- The message contains at least one of your blocked words or phrases (case-insensitive).
 
 Commands:
-  /start, /help              Show this message.
+  /start, /help              Show this guide.
   /source                    Link to my source code.
-  /groups                    List groups I moderate for you.
+  /groups                    List and manage groups I moderate for you.
 ";
+
+const START: &str = formatcp!(
+    "Hi! Invite me to your group and grant me moderator permissions. Then, you can send me a list of words or phrases to block, and I will automatically delete any messages containing them. You can manage multiple groups with me.\n\n{}",
+    HELP,
+);
 
 pub struct BotDmApplication {
     messenger: Arc<dyn BotMessenger>,
@@ -107,7 +106,9 @@ fn parse(text: &str) -> ParsedDm {
 
 fn render_group(group: &Group) -> String {
     format!(
-        "{}\nSee keywords to moderate: /getkeywords_{}\nSet keywords: /setkeywords_{}",
+        "*{}*\n\
+        View blocked words: /getkeywords_{}\n\
+        Set blocked words: /setkeywords_{} <word1, word2, ...>",
         group.name, group.id, group.id
     )
 }
@@ -140,10 +141,13 @@ impl BotDmReceiver for BotDmApplication {
                     }
                     Some(keywords) => {
                         self.messenger
-                            .send_dm(&user_id, "Blocked keywords for this group:")
+                            .send_dm(&user_id, "Here are the blocked words and phrases for this group. You can copy the message, edit the list, and send it back.")
                             .await?;
                         self.messenger
-                            .send_dm(&user_id, &keywords.join(", "))
+                            .send_dm(
+                                &user_id,
+                                &format!("/setkeywords_{} {}", group_id, keywords.join(", ")),
+                            )
                             .await?;
                     }
                     None => {
@@ -168,7 +172,7 @@ impl BotDmReceiver for BotDmApplication {
                         .send_dm(
                             &user_id,
                             &format!(
-                                "Your groups:\n\n{}\nTo delete one, just remove me from your group",
+                                "Your groups:\n\n{}\n\nTo delete one, just remove me from your group",
                                 items,
                             ),
                         )
