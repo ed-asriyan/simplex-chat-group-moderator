@@ -32,8 +32,8 @@ services:
     command: [ "sleep", "infinity" ]
     environment:
       - SIMPLEX_WS_URI=ws://localhost:5225
-      - BOT_DISPLAY_NAME=DEV MODERATOR
+      - BOT_DISPLAY_NAME=DEV Moderator Bot
       - BOT_FULL_NAME=
-      - BOT_SHORT_DESCRIPTION=DEV MODERATOR
+      - BOT_SHORT_DESCRIPTION=I help keep your groups clean by automatically removing unwanted messages
       - DB_PATH=/opt/simplex-chat-moderator-bot/bot.db
     restart: unless-stopped

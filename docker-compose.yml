@@ -30,6 +30,6 @@ services:
       - SIMPLEX_WS_URI=ws://localhost:5225
       - BOT_DISPLAY_NAME=Moderator Bot
       - BOT_FULL_NAME=
-      - BOT_SHORT_DESCRIPTION=I delete messages in your groups based on your rules.
+      - BOT_SHORT_DESCRIPTION=I help keep your groups clean by automatically removing unwanted messages
       - DB_PATH=/opt/simplex-chat-moderator-bot/bot.db
     restart: unless-stopped
