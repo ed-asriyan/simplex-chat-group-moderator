@@ -17,7 +17,7 @@ jobs:
     env:
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USERNAME }}
-      REMOTE_BASE: apps/simplex-chat-reminder-bot
+      REMOTE_BASE: apps/simplex-chat-group-moderator-bot
     steps:
       - name: Checkout
         uses: actions/checkout@v6
