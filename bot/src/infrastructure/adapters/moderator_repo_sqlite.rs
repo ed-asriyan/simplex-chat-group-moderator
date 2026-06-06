@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use rand::Rng;
+use rand::RngExt;
 use rusqlite::{Connection, params};
 use std::sync::{Arc, Mutex};
 
