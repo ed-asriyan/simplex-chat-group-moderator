@@ -335,6 +335,23 @@ async fn handle_event(
                 _ => None,
             })
             .collect::<Vec<SimplexEvent>>()),
+        Event::ChatItemUpdated(chat_item) => {
+            if let CIContent::RcvMsgContent { msg_content, .. } =
+                &chat_item.chat_item.chat_item.content
+                && let MsgContent::Text { text, .. } = &msg_content
+                && let ChatInfo::Group { group_info, .. } = &chat_item.chat_item.chat_info
+            {
+                Ok(vec![SimplexEvent::GroupMessage {
+                    group_id: group_info.group_id,
+                    author_id: group_info.group_id,
+                    group_name: group_info.group_profile.display_name.clone(),
+                    message_id: chat_item.chat_item.chat_item.meta.item_id,
+                    text: text.clone(),
+                }])
+            } else {
+                Ok(vec![])
+            }
+        }
         Event::NewMemberContactReceivedInv(req) => {
             client
                 .send_raw(format!(
