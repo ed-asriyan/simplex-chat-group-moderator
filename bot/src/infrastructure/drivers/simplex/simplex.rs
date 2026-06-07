@@ -3,10 +3,10 @@ use async_stream::stream;
 use futures::TryStreamExt as _;
 use futures::stream::Stream;
 use simploxide_client::events::Event;
-use simploxide_client::prelude::{ApiSendMessages};
+use simploxide_client::prelude::ApiSendMessages;
 use simploxide_client::types::{
-    CIContent, ChatBotCommand, ChatInfo, ChatPeerType, ChatRef, ChatType,
-    ComposedMessage, FeatureAllowed, GroupMemberRole, MsgContent, SimplePreference,
+    CIContent, ChatBotCommand, ChatInfo, ChatPeerType, ChatRef, ChatType, ComposedMessage,
+    FeatureAllowed, GroupMemberRole, MsgContent, SimplePreference,
 };
 use simploxide_client::{
     Client, ClientApi, EventStream,
@@ -251,6 +251,9 @@ async fn handle_event(
     user_id: UserId,
 ) -> Result<Vec<SimplexEvent>, Box<dyn Error + Send + Sync>> {
     match event {
+        Event::GroupDeleted(group) => Ok(vec![SimplexEvent::RemovedFromGroup {
+            group_id: group.group_info.group_id,
+        }]),
         Event::ContactConnected(connected) => Ok(vec![SimplexEvent::Connected {
             user_id: connected.contact.contact_id,
         }]),
