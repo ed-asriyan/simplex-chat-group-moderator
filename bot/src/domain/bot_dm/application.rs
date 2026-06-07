@@ -11,24 +11,40 @@ How to use this bot:
 
 1. Invite me to your group and make me a moderator so I have permission to delete messages.
 2. Send me a list of words or phrases you want to block in that group.
-3. I will automatically monitor the chat and delete any message that triggers your list.
+   (Don't know what to block? Use /wordlists to get ready-made templates).
+3. I will automatically monitor the chat and delete any message that triggers your list. I check not only direct matches, but also messages that try to obfuscate the blocked words (e.g. `s.p.a.m` or `spaaam` will match `spam`).
 
-You can update your blocked words or remove me from the group at any time.
-
-Deletion criteria:
-- The message contains at least one of your blocked words or phrases (case-insensitive).
+If you want me to stop moderating a group, just kick me from it.
 
 Commands:
-  /start, /help - Show this guide.
-  /source - Link to my source code.
-  /groups - List and manage groups I moderate for you.
-  /
+  /start     - Show this guide.
+  /help      - Show this guide.
+  /wordlists - Get links to ready-to-use lists of bad words.
+  /source    - Link to my source code.
+  /groups    - List and manage groups I moderate for you.
 ";
 
 const START: &str = formatcp!(
-    "Hi! Invite me to your group and grant me moderator permissions. Then, you can send me a list of words or phrases to block, and I will automatically delete any messages containing them. You can manage multiple groups with me.\n\n{}",
+    "Hi! Invite me to your group and grant me moderator permissions. \
+    Then, you can send me a list of words or phrases to block (or use /wordlists for ready-made templates), \
+    and I will automatically delete any messages containing them. \
+    You can manage multiple groups with me.\n\n{}",
     HELP,
 );
+
+const WORD_LISTS: &str = "\
+Here are some ready-to-use lists of words to block.
+Open a link, copy the words you need, and reply to the group management message for your group. Each message you send will replace the whole list, so if you want to combine multiple lists, copy all the words into the single message.
+
+*🔞 List of Dirty, Naughty, Obscene, and Otherwise Bad Words (multilanguage, ~400 en, ~1700 total)*
+https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words
+
+*☕ Google Profanity Words (multilanguage, ~1k en, ~1600 total)*
+https://github.com/coffee-and-fun/google-profanity-words/tree/main/data
+
+*💬 Comment Blocklist for WordPress (multilanguage, ~64k total)*
+https://github.com/splorp/wordpress-comment-blocklist
+";
 
 fn group_anchor(group: &Group) -> String {
     format!("#{}", group.id)
@@ -64,6 +80,7 @@ enum ParsedDm {
         group_id: GroupId,
     },
     GetGroups,
+    WordLists,
     Source,
     Unknown,
 }
@@ -94,6 +111,7 @@ fn parse(message: &Message) -> ParsedDm {
                 "/start" => ParsedDm::Start,
                 "/help" => ParsedDm::Help,
                 "/source" => ParsedDm::Source,
+                "/wordlists" => ParsedDm::WordLists,
                 "/groups" => ParsedDm::GetGroups,
                 _ if let Some(id_str) = trimmed.strip_prefix("/getkeywords_") => {
                     match id_str.trim().parse() {
@@ -111,11 +129,31 @@ fn render_group(group: &Group) -> String {
     format!(
         "*{}* {}\n\
         View blocked words: /getkeywords_{}\n\
-        Reply to this message with a list of words or phrases to block in this group, each on a new line.",
+        Reply to this message with a list of words or phrases to block in this group, each on a new line. Each message rewrites the whole list!",
         group.name,
         group_anchor(group),
         group.id,
     )
+}
+
+fn format_keywords(keywords: Vec<String>) -> Vec<String> {
+    const MAX_KEYWORDS_PER_MESSAGE: usize = 1000;
+    let mut result = vec![];
+    let mut message = String::new();
+    for keyword in keywords {
+        if message.len() + keyword.len() + 1 > MAX_KEYWORDS_PER_MESSAGE {
+            result.push(message.clone());
+            message.clear();
+        }
+        if !message.is_empty() {
+            message.push('\n');
+        }
+        message.push_str(&keyword);
+    }
+    if !message.is_empty() {
+        result.push(message);
+    }
+    result
 }
 
 #[async_trait]
@@ -145,9 +183,9 @@ impl BotDmReceiver for BotDmApplication {
                             .await?;
                     }
                     Some(keywords) => {
-                        self.messenger
-                            .send_dm(&user_id, &keywords.join("\n"))
-                            .await?;
+                        for message in format_keywords(keywords) {
+                            self.messenger.send_dm(&user_id, &message).await?;
+                        }
                     }
                     None => {
                         self.messenger
@@ -172,6 +210,9 @@ impl BotDmReceiver for BotDmApplication {
                         .send_dm(&user_id, "To delete one, just kick me from the group.")
                         .await?;
                 }
+            }
+            ParsedDm::WordLists => {
+                self.messenger.send_dm(&user_id, WORD_LISTS).await?;
             }
             ParsedDm::Source => {
                 self.messenger

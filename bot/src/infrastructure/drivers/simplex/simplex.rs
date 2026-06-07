@@ -214,6 +214,12 @@ impl SimplexDriver {
                                     undocumented: Default::default(),
                                 },
                                 ChatBotCommand::Command {
+                                    keyword: "wordlists".to_string(),
+                                    label: "Ready-to-use lists of bad words".to_string(),
+                                    params: None,
+                                    undocumented: Default::default(),
+                                },
+                                ChatBotCommand::Command {
                                     keyword: "help".to_string(),
                                     label: "Show help information".to_string(),
                                     params: None,
