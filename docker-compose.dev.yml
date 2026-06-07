@@ -34,6 +34,8 @@ services:
       - SIMPLEX_WS_URI=ws://localhost:5225
       - BOT_DISPLAY_NAME=DEV Moderator Bot
       - BOT_FULL_NAME=
-      - BOT_SHORT_DESCRIPTION=I help keep your groups clean by automatically removing unwanted messages
+      - "BOT_SHORT_DESCRIPTION=I help keep your groups clean by automatically removing unwanted messages
+      
+       https://simplex-directory.asriyan.me/#/bots/63d110f4-9f70-4128-b0e7-5a8958299f96"
       - DB_PATH=/opt/simplex-chat-moderator-bot/bot.db
     restart: unless-stopped
