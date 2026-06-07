@@ -19,9 +19,10 @@ Deletion criteria:
 - The message contains at least one of your blocked words or phrases (case-insensitive).
 
 Commands:
-  /start, /help              Show this guide.
-  /source                    Link to my source code.
-  /groups                    List and manage groups I moderate for you.
+  /start, /help - Show this guide.
+  /source - Link to my source code.
+  /groups - List and manage groups I moderate for you.
+  /
 ";
 
 const START: &str = formatcp!(
@@ -68,7 +69,7 @@ enum ParsedDm {
 }
 
 fn parse_keywords(text: &str) -> Vec<String> {
-    text.split(',')
+    text.split('\n')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
@@ -110,7 +111,7 @@ fn render_group(group: &Group) -> String {
     format!(
         "*{}* {}\n\
         View blocked words: /getkeywords_{}\n\
-        Reply to this message with a comma-separated list of words or phrases to block in this group.",
+        Reply to this message with a list of words or phrases to block in this group, each on a new line.",
         group.name,
         group_anchor(group),
         group.id,
@@ -145,7 +146,7 @@ impl BotDmReceiver for BotDmApplication {
                     }
                     Some(keywords) => {
                         self.messenger
-                            .send_dm(&user_id, &keywords.join(", "))
+                            .send_dm(&user_id, &keywords.join("\n"))
                             .await?;
                     }
                     None => {
