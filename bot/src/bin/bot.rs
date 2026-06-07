@@ -1,5 +1,5 @@
 use bot::domain::bot_dm::BotDmApplication;
-use bot::domain::bot_dm::ports::{BotDmReceiver, BotMessenger, GroupOperations};
+use bot::domain::bot_dm::ports::{BotDmReceiver, BotMessenger, GroupOperations, Message};
 use bot::domain::moderator::ModeratorApplication;
 use bot::domain::moderator::ports::{
     GroupMessage, GroupModerator, MessengerGroup, ModerationEngine, ModerationRepository,
@@ -133,8 +133,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let mut stream = Box::pin(simplex_stream);
         while let Some(event) = stream.next().await {
             match event {
-                SimplexEvent::Message { user_id, text, .. } => {
-                    let _ = dm_receiver.handle_dm(user_id, text).await;
+                SimplexEvent::Message {
+                    user_id,
+                    text,
+                    reply_message_text,
+                    ..
+                } => {
+                    let _ = dm_receiver
+                        .handle_dm(
+                            user_id,
+                            &Message {
+                                text,
+                                reply_to_message: reply_message_text,
+                            },
+                        )
+                        .await;
                 }
                 SimplexEvent::GroupMessage {
                     group_id,
@@ -154,7 +167,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     let _ = moderator.process_group_message(group_message).await;
                 }
                 SimplexEvent::Connected { user_id } => {
-                    let _ = dm_receiver.handle_dm(user_id, "/start".to_owned()).await;
+                    let _ = dm_receiver
+                        .handle_dm(
+                            user_id,
+                            &Message {
+                                text: "/start".to_string(),
+                                reply_to_message: None,
+                            },
+                        )
+                        .await;
                 }
                 SimplexEvent::Disconnected { user_id } => {
                     info!("user disconnected: {}", user_id);

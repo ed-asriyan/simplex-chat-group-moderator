@@ -24,7 +24,7 @@ pub enum SimplexEvent {
         user_id: UserId,
         text: String,
         message_id: MessageId,
-        reply_id: Option<MessageId>,
+        reply_message_text: Option<String>,
     },
     GroupMessage {
         group_id: GroupId,
@@ -286,10 +286,12 @@ async fn handle_event(
                             user_id: contact.contact_id,
                             message_id: chat_item.chat_item.meta.item_id,
                             text: text.clone(),
-                            reply_id: chat_item
-                                .chat_item
-                                .quoted_item
-                                .and_then(|item| item.item_id),
+                            reply_message_text: chat_item.chat_item.quoted_item.and_then(|item| {
+                                match item.content {
+                                    MsgContent::Text { text, .. } => Some(text),
+                                    _ => None,
+                                }
+                            }),
                         })
                     } else if let CIContent::RcvGroupInvitation {
                         group_invitation,

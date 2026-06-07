@@ -1,7 +1,7 @@
 use super::ports::{
     BotDmReceiver, BotMessenger, Err, GroupId, GroupInvitation, GroupOperations, UserId,
 };
-use crate::domain::bot_dm::ports::Group;
+use crate::domain::bot_dm::ports::{Group, Message};
 use async_trait::async_trait;
 use const_format::formatcp;
 use std::sync::Arc;
@@ -28,6 +28,15 @@ const START: &str = formatcp!(
     "Hi! Invite me to your group and grant me moderator permissions. Then, you can send me a list of words or phrases to block, and I will automatically delete any messages containing them. You can manage multiple groups with me.\n\n{}",
     HELP,
 );
+
+fn group_anchor(group: &Group) -> String {
+    format!("#{}", group.id)
+}
+
+fn find_group_by_anchor<'a>(text: &str) -> Option<GroupId> {
+    text.split_whitespace()
+        .find_map(|word| word.strip_prefix('#')?.parse().ok())
+}
 
 pub struct BotDmApplication {
     messenger: Arc<dyn BotMessenger>,
@@ -58,65 +67,60 @@ enum ParsedDm {
     Unknown,
 }
 
-fn parse(text: &str) -> ParsedDm {
-    let trimmed = text.trim();
+fn parse_keywords(text: &str) -> Vec<String> {
+    text.split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
 
-    if trimmed.is_empty() {
-        return ParsedDm::Unknown;
-    }
-
-    match trimmed {
-        "/start" => return ParsedDm::Start,
-        "/help" => return ParsedDm::Help,
-        "/source" => return ParsedDm::Source,
-        "/groups" => return ParsedDm::GetGroups,
-        _ => {}
-    }
-
-    if let Some(rest) = trimmed.strip_prefix("/setkeywords_") {
-        let (id_str, kw_str) = match rest.split_once(char::is_whitespace) {
-            Some((id, kw)) => (id, kw),
-            None => (rest, ""),
-        };
-        let group_id: GroupId = match id_str.parse() {
-            Ok(g) => g,
-            Err(_) => return ParsedDm::Unknown,
-        };
-        let keywords: Vec<String> = kw_str
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        if keywords.is_empty() {
-            return ParsedDm::Unknown;
+fn parse(message: &Message) -> ParsedDm {
+    if let Some(group_id) = message
+        .reply_to_message
+        .as_ref()
+        .and_then(|reply| find_group_by_anchor(reply))
+    {
+        ParsedDm::SetBlockKeywords {
+            group_id,
+            keywords: parse_keywords(&message.text),
         }
-        return ParsedDm::SetBlockKeywords { group_id, keywords };
+    } else {
+        let trimmed = message.text.trim();
+        if trimmed.is_empty() {
+            ParsedDm::Unknown
+        } else {
+            match trimmed {
+                "/start" => ParsedDm::Start,
+                "/help" => ParsedDm::Help,
+                "/source" => ParsedDm::Source,
+                "/groups" => ParsedDm::GetGroups,
+                _ if let Some(id_str) = trimmed.strip_prefix("/getkeywords_") => {
+                    match id_str.trim().parse() {
+                        Ok(group_id) => ParsedDm::GetBlockKeywords { group_id },
+                        Err(_) => ParsedDm::Unknown,
+                    }
+                } // handled below
+                _ => ParsedDm::Unknown,
+            }
+        }
     }
-
-    if let Some(id_str) = trimmed.strip_prefix("/getkeywords_") {
-        let group_id: GroupId = match id_str.trim().parse() {
-            Ok(g) => g,
-            Err(_) => return ParsedDm::Unknown,
-        };
-        return ParsedDm::GetBlockKeywords { group_id };
-    }
-
-    ParsedDm::Unknown
 }
 
 fn render_group(group: &Group) -> String {
     format!(
-        "*{}*\n\
+        "*{}* {}\n\
         View blocked words: /getkeywords_{}\n\
-        Set blocked words: /setkeywords_{} <word1, word2, ...>",
-        group.name, group.id, group.id
+        Reply to this message with a comma-separated list of words or phrases to block in this group.",
+        group.name,
+        group_anchor(group),
+        group.id,
     )
 }
 
 #[async_trait]
 impl BotDmReceiver for BotDmApplication {
-    async fn handle_dm(&self, user_id: UserId, text: String) -> Result<(), Err> {
-        match parse(&text) {
+    async fn handle_dm(&self, user_id: UserId, message: &Message) -> Result<(), Err> {
+        match parse(message) {
             ParsedDm::Start => {
                 self.messenger.send_dm(&user_id, START).await?;
             }
@@ -141,13 +145,7 @@ impl BotDmReceiver for BotDmApplication {
                     }
                     Some(keywords) => {
                         self.messenger
-                            .send_dm(&user_id, "Here are the blocked words and phrases for this group. You can copy the message, edit the list, and send it back.")
-                            .await?;
-                        self.messenger
-                            .send_dm(
-                                &user_id,
-                                &format!("/setkeywords_{} {}", group_id, keywords.join(", ")),
-                            )
+                            .send_dm(&user_id, &keywords.join(", "))
                             .await?;
                     }
                     None => {
@@ -163,19 +161,14 @@ impl BotDmReceiver for BotDmApplication {
                     self.messenger.send_dm(&user_id, "You don't have any groups registered. Send me a group invite link to get started!")
                         .await?;
                 } else {
-                    let items = groups
-                        .iter()
-                        .map(render_group)
-                        .collect::<Vec<String>>()
-                        .join("\n\n");
+                    for group in &groups {
+                        self.messenger
+                            .send_dm(&user_id, &render_group(group))
+                            .await?;
+                    }
+
                     self.messenger
-                        .send_dm(
-                            &user_id,
-                            &format!(
-                                "Your groups:\n\n{}\n\nTo delete one, just remove me from your group",
-                                items,
-                            ),
-                        )
+                        .send_dm(&user_id, "To delete one, just kick me from the group.")
                         .await?;
                 }
             }

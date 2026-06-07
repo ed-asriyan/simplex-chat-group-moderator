@@ -9,6 +9,12 @@ pub type Err = Box<dyn Error + Send + Sync>;
 
 pub type JoinError = Box<dyn Error + Send + Sync>;
 
+#[derive(Debug)]
+pub struct Message {
+    pub text: String,
+    pub reply_to_message: Option<String>,
+}
+
 pub struct Group {
     pub id: GroupId,
     pub name: String,
@@ -22,7 +28,7 @@ pub struct GroupInvitation {
 /// Inbound port: entry point for direct messages addressed to the bot.
 #[async_trait]
 pub trait BotDmReceiver: Send + Sync {
-    async fn handle_dm(&self, user_id: UserId, text: String) -> Result<(), Err>;
+    async fn handle_dm(&self, user_id: UserId, message: &Message) -> Result<(), Err>;
 
     async fn handle_group_invitation(
         &self,
