@@ -88,6 +88,12 @@ pub trait ModerationRepository: Send + Sync {
 
     async fn save_keywords(&self, group_id: &GroupId, keywords: Vec<String>) -> Result<(), Err>;
 
+    async fn set_group_name(
+        &self,
+        messenger_group_id: &MessengerGroupId,
+        name: &str,
+    ) -> Result<(), Err>;
+
     async fn get_keywords(&self, group_id: &GroupId) -> Result<Vec<String>, Err>;
 
     async fn get_keywords_by_messenger_id(

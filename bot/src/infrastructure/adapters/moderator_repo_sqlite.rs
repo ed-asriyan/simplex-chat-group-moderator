@@ -179,6 +179,27 @@ impl ModerationRepository for SqliteModerationRepository {
         .map_err(|e| -> Err { e.to_string().into() })
     }
 
+    async fn set_group_name(
+        &self,
+        messenger_group_id: &MessengerGroupId,
+        name: &str,
+    ) -> Result<(), Err> {
+        let conn = self.conn.clone();
+        let mid = *messenger_group_id;
+        let name = name.to_string();
+        tokio::task::spawn_blocking(move || -> Result<(), rusqlite::Error> {
+            let guard = conn.lock().expect("moderation repo connection poisoned");
+            guard.execute(
+                "UPDATE moderation_groups SET group_name = ?2 WHERE messenger_group_id = ?1",
+                params![mid, name],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| -> Err { e.to_string().into() })?
+        .map_err(|e| -> Err { e.to_string().into() })
+    }
+
     async fn get_keywords(&self, group_id: &GroupId) -> Result<Vec<String>, Err> {
         let conn = self.conn.clone();
         let gid = *group_id;

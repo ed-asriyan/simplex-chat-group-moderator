@@ -151,6 +151,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
                 SimplexEvent::GroupMessage {
                     group_id,
+                    group_name,
                     author_id,
                     message_id,
                     text,
@@ -158,7 +159,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     let group_message = GroupMessage {
                         group: MessengerGroup {
                             id: group_id,
-                            name: String::new(),
+                            name: group_name,
                         },
                         message_id,
                         author_id,

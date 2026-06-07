@@ -31,15 +31,17 @@ impl ModerationEngine for ModeratorApplication {
             .repository
             .get_keywords_by_messenger_id(&group_message.group.id)
             .await?;
-        if keywords.is_empty() {
-            return Ok(());
-        }
 
         if should_moderate(&group_message.text, &keywords) {
             self.group_moderator
                 .delete_message(&group_message.group.id, &group_message.message_id)
                 .await?;
         }
+
+        self.repository
+            .set_group_name(&group_message.group.id, &group_message.group.name)
+            .await?;
+
         Ok(())
     }
 

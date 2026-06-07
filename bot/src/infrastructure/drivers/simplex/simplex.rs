@@ -28,6 +28,7 @@ pub enum SimplexEvent {
     },
     GroupMessage {
         group_id: GroupId,
+        group_name: String,
         author_id: UserId,
         message_id: MessageId,
         text: String,
@@ -323,6 +324,7 @@ async fn handle_event(
                         Some(SimplexEvent::GroupMessage {
                             group_id: group_info.group_id,
                             author_id: group_info.group_id,
+                            group_name: group_info.group_profile.display_name.clone(),
                             message_id: chat_item.chat_item.meta.item_id,
                             text: text.clone(),
                         })
