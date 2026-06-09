@@ -7,6 +7,12 @@ use super::ports::{
     ModerationEngine, ModerationNotifier, ModerationRepository, UserId,
 };
 
+/// Maximum number of keywords allowed per group.
+const MAX_KEYWORDS_PER_GROUP: usize = 10_000;
+
+/// Maximum length (in characters) allowed for a single keyword.
+const MAX_KEYWORD_LENGTH: usize = 100;
+
 pub struct ModeratorApplication {
     repository: Arc<dyn ModerationRepository>,
     group_moderator: Arc<dyn GroupModerator>,
@@ -67,6 +73,26 @@ impl ModerationEngine for ModeratorApplication {
         group_id: GroupId,
         keywords: Vec<String>,
     ) -> Result<(), Err> {
+        if keywords.len() > MAX_KEYWORDS_PER_GROUP {
+            return Err(format!(
+                "Too many keywords: {} provided, maximum is {}",
+                keywords.len(),
+                MAX_KEYWORDS_PER_GROUP
+            )
+            .into());
+        }
+        if let Some(keyword) = keywords
+            .iter()
+            .find(|keyword| keyword.chars().count() > MAX_KEYWORD_LENGTH)
+        {
+            return Err(format!(
+                "Keyword too long: {} characters, maximum is {}",
+                keyword.chars().count(),
+                MAX_KEYWORD_LENGTH
+            )
+            .into());
+        }
+
         let owner = self.repository.get_owner_by_id(&group_id).await?;
         match owner {
             None => Err(format!("Group {} is not registered", group_id).into()),
