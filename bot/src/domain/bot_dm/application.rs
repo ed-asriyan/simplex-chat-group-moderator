@@ -23,6 +23,8 @@ Commands:
   /wordlists - Get links to ready-to-use lists of bad words.
   /source    - Link to my source code.
   /groups    - List and manage groups I moderate for you.
+
+For each group you can also turn moderation notifications on or off (use /groups to get the links). When enabled, I'll DM you whenever I delete a message.
 ";
 
 const START: &str = formatcp!(
@@ -118,13 +120,13 @@ fn parse(message: &Message) -> ParsedDm {
                 "/source" => ParsedDm::Source,
                 "/wordlists" => ParsedDm::WordLists,
                 "/groups" => ParsedDm::GetGroups,
-                _ if let Some(id_str) = trimmed.strip_prefix("/getkeywords_") => {
+                _ if let Some(id_str) = trimmed.strip_prefix("/keywords_") => {
                     match id_str.trim().parse() {
                         Ok(group_id) => ParsedDm::GetBlockKeywords { group_id },
                         Err(_) => ParsedDm::Unknown,
                     }
                 } // handled below
-                _ if let Some(id_str) = trimmed.strip_prefix("/moderation_notifications_on_") => {
+                _ if let Some(id_str) = trimmed.strip_prefix("/notify_on_") => {
                     match id_str.trim().parse() {
                         Ok(group_id) => ParsedDm::SetNotifications {
                             group_id,
@@ -133,7 +135,7 @@ fn parse(message: &Message) -> ParsedDm {
                         Err(_) => ParsedDm::Unknown,
                     }
                 }
-                _ if let Some(id_str) = trimmed.strip_prefix("/moderation_notifications_off_") => {
+                _ if let Some(id_str) = trimmed.strip_prefix("/notify_off_") => {
                     match id_str.trim().parse() {
                         Ok(group_id) => ParsedDm::SetNotifications {
                             group_id,
@@ -150,21 +152,15 @@ fn parse(message: &Message) -> ParsedDm {
 
 fn render_group(group: &Group) -> String {
     let notifications_command = if group.notifications_enabled {
-        format!(
-            "Disable moderation notifications: /moderation_notifications_off_{}",
-            group.id
-        )
+        format!("Stop notifying me on delete: /notify_off_{}", group.id)
     } else {
-        format!(
-            "Enable moderation notifications: /moderation_notifications_on_{}",
-            group.id
-        )
+        format!("Notify me on delete: /notify_on_{}", group.id)
     };
     format!(
         "*{}* {}\n\
-        View blocked words: /getkeywords_{}\n\
-        {}\n\
-        Reply to this message with a list of words or phrases to block in this group, each on a new line. Each message rewrites the whole list!",
+        Blocked words: /keywords_{}\n\
+        {}\
+        ",
         group.name,
         group_anchor(group),
         group.id,
@@ -203,12 +199,22 @@ impl BotDmReceiver for BotDmApplication {
                 self.messenger.send_dm(&user_id, HELP).await?;
             }
             ParsedDm::SetBlockKeywords { group_id, keywords } => {
-                self.group_operator
+                match self
+                    .group_operator
                     .set_keywords(user_id, group_id, keywords)
-                    .await?;
-                self.messenger
-                    .send_dm(&user_id, "Keywords updated successfully.")
-                    .await?;
+                    .await
+                {
+                    Ok(()) => {
+                        self.messenger
+                            .send_dm(&user_id, "Keywords updated successfully.")
+                            .await?;
+                    }
+                    Err(_) => {
+                        self.messenger
+                            .send_dm(&user_id, "Group not found or not managed by you.")
+                            .await?;
+                    }
+                }
             }
             ParsedDm::GetBlockKeywords { group_id } => {
                 let keywords = self.group_operator.get_keywords(user_id, group_id).await?;
@@ -243,20 +249,36 @@ impl BotDmReceiver for BotDmApplication {
                     }
 
                     self.messenger
-                        .send_dm(&user_id, "To delete one, just kick me from the group.")
+                        .send_dm(
+                            &user_id,
+                            "To set the blocked words for a group, reply to that group's \
+                             message above with a list of words or phrases, each on a new line. \
+                             Each reply rewrites the whole list!\n\n\
+                             If you want me to stop moderating a group, just kick me from it.",
+                        )
                         .await?;
                 }
             }
             ParsedDm::SetNotifications { group_id, enabled } => {
-                self.group_operator
+                match self
+                    .group_operator
                     .set_notifications(user_id, group_id, enabled)
-                    .await?;
-                let reply = if enabled {
-                    "Moderation notifications enabled. I'll DM you whenever I delete a message in this group."
-                } else {
-                    "Moderation notifications disabled."
-                };
-                self.messenger.send_dm(&user_id, reply).await?;
+                    .await
+                {
+                    Ok(()) => {
+                        let reply = if enabled {
+                            "Moderation notifications enabled. I'll DM you whenever I delete a message in this group."
+                        } else {
+                            "Moderation notifications disabled."
+                        };
+                        self.messenger.send_dm(&user_id, reply).await?;
+                    }
+                    Err(_) => {
+                        self.messenger
+                            .send_dm(&user_id, "Group not found or not managed by you.")
+                            .await?;
+                    }
+                }
             }
             ParsedDm::WordLists => {
                 self.messenger.send_dm(&user_id, WORD_LISTS).await?;
@@ -330,10 +352,8 @@ impl ModerationNotificationReceiver for BotDmApplication {
         message: &str,
     ) -> Result<(), Err> {
         let text = format!(
-            "🛡 I moderated a message in *{}* {}:\n\n{}",
-            group.name,
-            group_anchor(group),
-            message,
+            "🛡 I moderated a message in *{}*:\n\n{}",
+            group.name, message,
         );
         self.messenger.send_dm(&user_id, &text).await
     }
