@@ -108,12 +108,14 @@ impl ModerationRepository for SqliteModerationRepository {
         tokio::task::spawn_blocking(move || -> Result<Vec<Group>, rusqlite::Error> {
             let guard = conn.lock().expect("moderation repo connection poisoned");
             let mut stmt = guard.prepare(
-                "SELECT group_id, group_name FROM moderation_groups WHERE owner_id = ?1",
+                "SELECT group_id, group_name, notifications_enabled FROM moderation_groups WHERE owner_id = ?1",
             )?;
             let rows = stmt.query_map(params![oid], |row| {
                 Ok(Group {
                     id: row.get::<_, i64>(0)?,
+                    owner_id: oid,
                     name: row.get::<_, String>(1)?,
+                    notifications_enabled: row.get::<_, i64>(2)? != 0,
                 })
             })?;
             let mut out = Vec::new();
@@ -237,6 +239,56 @@ impl ModerationRepository for SqliteModerationRepository {
                 params![mid],
             )?;
             tx.commit()?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| -> Err { e.to_string().into() })?
+        .map_err(|e| -> Err { e.to_string().into() })
+    }
+
+    async fn get_group_by_messenger_id(
+        &self,
+        messenger_group_id: &MessengerGroupId,
+    ) -> Result<Option<Group>, Err> {
+        let conn = self.conn.clone();
+        let mid = *messenger_group_id;
+        tokio::task::spawn_blocking(move || -> Result<Option<Group>, rusqlite::Error> {
+            let guard = conn.lock().expect("moderation repo connection poisoned");
+            let mut stmt = guard.prepare(
+                "SELECT group_id, owner_id, group_name, notifications_enabled
+                 FROM moderation_groups WHERE messenger_group_id = ?1",
+            )?;
+            let mut rows = stmt.query(params![mid])?;
+            if let Some(row) = rows.next()? {
+                Ok(Some(Group {
+                    id: row.get(0)?,
+                    owner_id: row.get(1)?,
+                    name: row.get(2)?,
+                    notifications_enabled: row.get::<_, i64>(3)? != 0,
+                }))
+            } else {
+                Ok(None)
+            }
+        })
+        .await
+        .map_err(|e| -> Err { e.to_string().into() })?
+        .map_err(|e| -> Err { e.to_string().into() })
+    }
+
+    async fn set_notifications_enabled(
+        &self,
+        group_id: &GroupId,
+        enabled: bool,
+    ) -> Result<(), Err> {
+        let conn = self.conn.clone();
+        let gid = *group_id;
+        let value: i64 = if enabled { 1 } else { 0 };
+        tokio::task::spawn_blocking(move || -> Result<(), rusqlite::Error> {
+            let guard = conn.lock().expect("moderation repo connection poisoned");
+            guard.execute(
+                "UPDATE moderation_groups SET notifications_enabled = ?2 WHERE group_id = ?1",
+                params![gid, value],
+            )?;
             Ok(())
         })
         .await

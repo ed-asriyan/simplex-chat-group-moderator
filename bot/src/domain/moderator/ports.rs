@@ -10,7 +10,9 @@ pub type Err = Box<dyn Error + Send + Sync>;
 
 pub struct Group {
     pub id: GroupId,
+    pub owner_id: UserId,
     pub name: String,
+    pub notifications_enabled: bool,
 }
 
 pub struct MessengerGroup {
@@ -53,6 +55,24 @@ pub trait ModerationEngine: Send + Sync {
     async fn remove_group(&self, messenger_group_id: MessengerGroupId) -> Result<(), Err>;
 
     async fn get_groups_by_owner_id(&self, owner_id: &UserId) -> Result<Vec<Group>, Err>;
+
+    async fn set_notifications(
+        &self,
+        user_id: UserId,
+        group_id: GroupId,
+        enabled: bool,
+    ) -> Result<(), Err>;
+}
+
+/// Outbound port: notify a group owner that a message was moderated.
+#[async_trait]
+pub trait ModerationNotifier: Send + Sync {
+    async fn notify_moderated_message(
+        &self,
+        user_id: UserId,
+        group: &Group,
+        message: &str,
+    ) -> Result<(), Err>;
 }
 
 /// Outbound port: actions the moderator performs in a group.
@@ -102,4 +122,12 @@ pub trait ModerationRepository: Send + Sync {
     ) -> Result<Vec<String>, Err>;
 
     async fn delete_group_data(&self, messenger_group_id: &MessengerGroupId) -> Result<(), Err>;
+
+    async fn get_group_by_messenger_id(
+        &self,
+        messenger_group_id: &MessengerGroupId,
+    ) -> Result<Option<Group>, Err>;
+
+    async fn set_notifications_enabled(&self, group_id: &GroupId, enabled: bool)
+    -> Result<(), Err>;
 }

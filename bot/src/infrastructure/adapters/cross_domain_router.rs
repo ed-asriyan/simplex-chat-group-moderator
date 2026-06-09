@@ -43,6 +43,7 @@ impl GroupOperations for CrossDomainRouter {
         Ok(Group {
             id: group_id,
             name: invitation.group.name.clone(),
+            notifications_enabled: false,
         })
     }
 
@@ -69,6 +70,7 @@ impl GroupOperations for CrossDomainRouter {
                     .map(|group| Group {
                         id: group.id,
                         name: group.name,
+                        notifications_enabled: group.notifications_enabled,
                     })
                     .collect()
             })
@@ -85,5 +87,17 @@ impl GroupOperations for CrossDomainRouter {
             .await
             .map_err(|e| -> BotDmErr { e.to_string().into() })?;
         Ok(Some(keywords))
+    }
+
+    async fn set_notifications(
+        &self,
+        user_id: BotDmUserId,
+        group_id: BotDmGroupId,
+        enabled: bool,
+    ) -> Result<(), BotDmErr> {
+        self.moderator
+            .set_notifications(user_id, group_id, enabled)
+            .await
+            .map_err(|e| -> BotDmErr { e.to_string().into() })
     }
 }

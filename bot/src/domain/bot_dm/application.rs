@@ -1,5 +1,6 @@
 use super::ports::{
-    BotDmReceiver, BotMessenger, Err, GroupId, GroupInvitation, GroupOperations, UserId,
+    BotDmReceiver, BotMessenger, Err, GroupId, GroupInvitation, GroupOperations,
+    ModerationNotificationReceiver, UserId,
 };
 use crate::domain::bot_dm::ports::{Group, Message};
 use async_trait::async_trait;
@@ -80,6 +81,10 @@ enum ParsedDm {
         group_id: GroupId,
     },
     GetGroups,
+    SetNotifications {
+        group_id: GroupId,
+        enabled: bool,
+    },
     WordLists,
     Source,
     Unknown,
@@ -119,6 +124,24 @@ fn parse(message: &Message) -> ParsedDm {
                         Err(_) => ParsedDm::Unknown,
                     }
                 } // handled below
+                _ if let Some(id_str) = trimmed.strip_prefix("/moderation_notifications_on_") => {
+                    match id_str.trim().parse() {
+                        Ok(group_id) => ParsedDm::SetNotifications {
+                            group_id,
+                            enabled: true,
+                        },
+                        Err(_) => ParsedDm::Unknown,
+                    }
+                }
+                _ if let Some(id_str) = trimmed.strip_prefix("/moderation_notifications_off_") => {
+                    match id_str.trim().parse() {
+                        Ok(group_id) => ParsedDm::SetNotifications {
+                            group_id,
+                            enabled: false,
+                        },
+                        Err(_) => ParsedDm::Unknown,
+                    }
+                }
                 _ => ParsedDm::Unknown,
             }
         }
@@ -126,13 +149,26 @@ fn parse(message: &Message) -> ParsedDm {
 }
 
 fn render_group(group: &Group) -> String {
+    let notifications_command = if group.notifications_enabled {
+        format!(
+            "Disable moderation notifications: /moderation_notifications_off_{}",
+            group.id
+        )
+    } else {
+        format!(
+            "Enable moderation notifications: /moderation_notifications_on_{}",
+            group.id
+        )
+    };
     format!(
         "*{}* {}\n\
         View blocked words: /getkeywords_{}\n\
+        {}\n\
         Reply to this message with a list of words or phrases to block in this group, each on a new line. Each message rewrites the whole list!",
         group.name,
         group_anchor(group),
         group.id,
+        notifications_command,
     )
 }
 
@@ -211,6 +247,17 @@ impl BotDmReceiver for BotDmApplication {
                         .await?;
                 }
             }
+            ParsedDm::SetNotifications { group_id, enabled } => {
+                self.group_operator
+                    .set_notifications(user_id, group_id, enabled)
+                    .await?;
+                let reply = if enabled {
+                    "Moderation notifications enabled. I'll DM you whenever I delete a message in this group."
+                } else {
+                    "Moderation notifications disabled."
+                };
+                self.messenger.send_dm(&user_id, reply).await?;
+            }
             ParsedDm::WordLists => {
                 self.messenger.send_dm(&user_id, WORD_LISTS).await?;
             }
@@ -271,5 +318,23 @@ impl BotDmReceiver for BotDmApplication {
                 .await?;
         }
         Ok(())
+    }
+}
+
+#[async_trait]
+impl ModerationNotificationReceiver for BotDmApplication {
+    async fn send_moderation_notification(
+        &self,
+        user_id: UserId,
+        group: &Group,
+        message: &str,
+    ) -> Result<(), Err> {
+        let text = format!(
+            "🛡 I moderated a message in *{}* {}:\n\n{}",
+            group.name,
+            group_anchor(group),
+            message,
+        );
+        self.messenger.send_dm(&user_id, &text).await
     }
 }

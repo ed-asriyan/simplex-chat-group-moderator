@@ -18,6 +18,7 @@ pub struct Message {
 pub struct Group {
     pub id: GroupId,
     pub name: String,
+    pub notifications_enabled: bool,
 }
 
 pub struct GroupInvitation {
@@ -41,6 +42,18 @@ pub trait BotDmReceiver: Send + Sync {
 #[async_trait]
 pub trait BotMessenger: Send + Sync {
     async fn send_dm(&self, user_id: &UserId, text: &str) -> Result<(), Err>;
+}
+
+/// Inbound port: deliver a notification to a group owner that the bot moderated
+/// a message in their group.
+#[async_trait]
+pub trait ModerationNotificationReceiver: Send + Sync {
+    async fn send_moderation_notification(
+        &self,
+        user_id: UserId,
+        group: &Group,
+        message: &str,
+    ) -> Result<(), Err>;
 }
 
 /// Outbound port: group lifecycle operations the bot triggers from DMs.
@@ -67,4 +80,11 @@ pub trait GroupOperations: Send + Sync {
         user_id: UserId,
         group_id: GroupId,
     ) -> Result<Option<Vec<String>>, Err>;
+
+    async fn set_notifications(
+        &self,
+        user_id: UserId,
+        group_id: GroupId,
+        enabled: bool,
+    ) -> Result<(), Err>;
 }

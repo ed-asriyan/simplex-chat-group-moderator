@@ -4,22 +4,25 @@ use std::sync::Arc;
 use super::message_filter::should_moderate;
 use super::ports::{
     Err, Group, GroupId, GroupInvitation, GroupMessage, GroupModerator, MessengerGroupId,
-    ModerationEngine, ModerationRepository, UserId,
+    ModerationEngine, ModerationNotifier, ModerationRepository, UserId,
 };
 
 pub struct ModeratorApplication {
     repository: Arc<dyn ModerationRepository>,
     group_moderator: Arc<dyn GroupModerator>,
+    notifier: Arc<dyn ModerationNotifier>,
 }
 
 impl ModeratorApplication {
     pub fn new(
         repository: Arc<dyn ModerationRepository>,
         group_moderator: Arc<dyn GroupModerator>,
+        notifier: Arc<dyn ModerationNotifier>,
     ) -> Self {
         Self {
             repository,
             group_moderator,
+            notifier,
         }
     }
 }
@@ -36,6 +39,19 @@ impl ModerationEngine for ModeratorApplication {
             self.group_moderator
                 .delete_message(&group_message.group.id, &group_message.message_id)
                 .await?;
+
+            if let Some(group) = self
+                .repository
+                .get_group_by_messenger_id(&group_message.group.id)
+                .await?
+                && group.notifications_enabled
+            {
+                // Best-effort: a failed notification must not undo moderation.
+                let _ = self
+                    .notifier
+                    .notify_moderated_message(group.owner_id, &group, &group_message.text)
+                    .await;
+            }
         }
 
         self.repository
@@ -102,5 +118,26 @@ impl ModerationEngine for ModeratorApplication {
 
     async fn get_groups_by_owner_id(&self, owner_id: &UserId) -> Result<Vec<Group>, Err> {
         self.repository.get_groups_by_owner_id(owner_id).await
+    }
+
+    async fn set_notifications(
+        &self,
+        user_id: UserId,
+        group_id: GroupId,
+        enabled: bool,
+    ) -> Result<(), Err> {
+        let owner = self.repository.get_owner_by_id(&group_id).await?;
+        match owner {
+            None => Err(format!("Group {} is not registered", group_id).into()),
+            Some(owner_id) if owner_id != user_id => {
+                Err(format!("User {} is not the owner of group {}", user_id, group_id).into())
+            }
+            Some(_) => {
+                self.repository
+                    .set_notifications_enabled(&group_id, enabled)
+                    .await?;
+                Ok(())
+            }
+        }
     }
 }

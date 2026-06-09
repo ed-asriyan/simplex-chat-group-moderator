@@ -1,10 +1,14 @@
 use bot::domain::bot_dm::BotDmApplication;
-use bot::domain::bot_dm::ports::{BotDmReceiver, BotMessenger, GroupOperations, Message};
+use bot::domain::bot_dm::ports::{
+    BotDmReceiver, BotMessenger, GroupOperations, Message, ModerationNotificationReceiver,
+};
 use bot::domain::moderator::ModeratorApplication;
 use bot::domain::moderator::ports::{
-    GroupMessage, GroupModerator, MessengerGroup, ModerationEngine, ModerationRepository,
+    GroupMessage, GroupModerator, MessengerGroup, ModerationEngine, ModerationNotifier,
+    ModerationRepository,
 };
 use bot::infrastructure::adapters::cross_domain_router::CrossDomainRouter;
+use bot::infrastructure::adapters::moderation_notification_router::ModerationNotificationRouter;
 use bot::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository;
 use bot::infrastructure::adapters::simplex_adapter::SimplexAdapter;
 use bot::infrastructure::drivers::simplex::{SimpleXConfig, SimplexDriver, SimplexEvent};
@@ -114,8 +118,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let bot_messenger: Arc<dyn BotMessenger> = simplex_adapter.clone();
     let group_moderator: Arc<dyn GroupModerator> = simplex_adapter.clone();
 
+    // ---- notification router (moderator -> bot_dm), receiver wired below ----
+    let notification_router = Arc::new(ModerationNotificationRouter::new());
+    let moderation_notifier: Arc<dyn ModerationNotifier> = notification_router.clone();
+
     // ---- moderator bounded context (inbound port) ----
-    let moderator_app = Arc::new(ModeratorApplication::new(moderation_repo, group_moderator));
+    let moderator_app = Arc::new(ModeratorApplication::new(
+        moderation_repo,
+        group_moderator,
+        moderation_notifier,
+    ));
     let moderator_engine: Arc<dyn ModerationEngine> = moderator_app.clone();
 
     // ---- cross-domain adapter (bot_dm::GroupOperations -> moderator engine) ----
@@ -123,8 +135,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Arc::new(CrossDomainRouter::new(moderator_engine.clone()));
 
     // ---- bot_dm bounded context ----
-    let bot_dm_app: Arc<dyn BotDmReceiver> =
-        Arc::new(BotDmApplication::new(bot_messenger, group_operations));
+    let bot_dm_app = Arc::new(BotDmApplication::new(bot_messenger, group_operations));
+    let bot_dm_app: Arc<dyn BotDmReceiver> = {
+        let notification_receiver: Arc<dyn ModerationNotificationReceiver> = bot_dm_app.clone();
+        notification_router.set_receiver(notification_receiver);
+        bot_dm_app
+    };
 
     // ---- driver event loop ----
     let dm_receiver = bot_dm_app.clone();
@@ -191,6 +207,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         group: bot::domain::bot_dm::ports::Group {
                             id: group_id,
                             name: group_name,
+                            notifications_enabled: false,
                         },
                         is_moderator,
                     };
