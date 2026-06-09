@@ -12,6 +12,7 @@ clap = { version = "4.5", features = ["derive"] }
 const_format = "0.2.36"
 env_logger = "0.11.8"
 futures = "0.3.31"
+include_dir = "0.7.4"
 log = "0.4.29"
 rand = "0.10"
 regex = "1"

@@ -8,6 +8,7 @@ use bot::infrastructure::adapters::cross_domain_router::CrossDomainRouter;
 use bot::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository;
 use bot::infrastructure::adapters::simplex_adapter::SimplexAdapter;
 use bot::infrastructure::drivers::simplex::{SimpleXConfig, SimplexDriver, SimplexEvent};
+use bot::infrastructure::migrations;
 use chrono::Local;
 use clap::{Arg, Command};
 use env_logger::Builder;
@@ -89,6 +90,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // ---- drivers ----
     let conn = Arc::new(Mutex::new(Connection::open(db_path)?));
+    migrations::run(conn.clone())
+        .await
+        .map_err(|e| -> Box<dyn Error> { e.to_string().into() })?;
     let simplex_config = SimpleXConfig {
         simplex_uri: simplex_uri.clone(),
         display_name: display_name.clone(),
@@ -104,10 +108,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // ---- moderator outbound adapters ----
     let moderation_repo = SqliteModerationRepository::new(conn.clone());
-    moderation_repo
-        .init()
-        .await
-        .map_err(|e| -> Box<dyn Error> { e.to_string().into() })?;
     let moderation_repo: Arc<dyn ModerationRepository> = Arc::new(moderation_repo);
 
     let simplex_adapter = Arc::new(SimplexAdapter::new(simplex_driver.clone()));
