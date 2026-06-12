@@ -116,6 +116,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
 name = "bitflags"
 version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1087,7 +1093,6 @@ version = "4.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "207f67b28fe90fb596503a9bf0bf1ea5e831e21307658e177c5dfcdfc3ab8a0a"
 dependencies = [
- "chrono",
  "serde",
  "serde-value",
  "serde_json",
@@ -1165,9 +1170,9 @@ dependencies = [
 
 [[package]]
 name = "simploxide-api-types"
-version = "0.6.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26a336b6dbc066833d08f1d3f024d346231f853bfb0d005480eabe5de5e4b636"
+checksum = "e3f716c757c57390fff38762560b046885dd28fa1f277916428b7372d28c4251"
 dependencies = [
  "bon",
  "serde",
@@ -1177,27 +1182,42 @@ dependencies = [
 
 [[package]]
 name = "simploxide-client"
-version = "0.8.1"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0867f97c5d987dc10d6261f5b056dc553e46f18719b917f550716943cfb0d04f"
+checksum = "3f5f76cf9bc62eca5e77f903142d95dc1d46eefe7c76a036815744a43eaa31ab"
 dependencies = [
+ "base64",
  "futures",
+ "log",
+ "serde",
+ "serde-aux",
  "serde_json",
  "simploxide-api-types",
  "simploxide-core",
+ "simploxide-ws-core",
  "tokio",
 ]
 
 [[package]]
 name = "simploxide-core"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26cc184b279dbb985190ba0308e9cb405e33ef0601a4e137f40ccbeeb099bc15"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "simploxide-ws-core"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d43b34b06f122a0735461f2e3e49093f0ad3ad8bdcf2c3adffdeedca1ba140d5"
+checksum = "3de9f879bf750eb53bda8a0c2bc166ea9062d7b07d2547328e35ac9bfbc4fca2"
 dependencies = [
  "futures",
  "log",
  "serde",
  "serde_json",
+ "simploxide-core",
  "tokio",
  "tokio-stream",
  "tokio-tungstenite",
@@ -1321,9 +1341,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-tungstenite"
-version = "0.28.0"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d25a406cddcc431a75d3d9afc6a7c0f7428d4891dd973e4d54c56b46127bf857"
+checksum = "8f72a05e828585856dacd553fba484c242c46e391fb0e58917c942ee9202915c"
 dependencies = [
  "futures-util",
  "log",
@@ -1346,9 +1366,9 @@ dependencies = [
 
 [[package]]
 name = "tungstenite"
-version = "0.28.0"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8628dcc84e5a09eb3d8423d6cb682965dea9133204e8fb3efee74c2a0c259442"
+checksum = "6c01152af293afb9c7c2a57e4b559c5620b421f6d133261c60dd2d0cdb38e6b8"
 dependencies = [
  "bytes",
  "data-encoding",
@@ -1358,7 +1378,6 @@ dependencies = [
  "rand 0.9.4",
  "sha1",
  "thiserror",
- "utf-8",
 ]
 
 [[package]]
@@ -1378,12 +1397,6 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
-
-[[package]]
-name = "utf-8"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
 
 [[package]]
 name = "utf8parse"
