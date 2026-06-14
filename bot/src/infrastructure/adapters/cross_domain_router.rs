@@ -44,6 +44,7 @@ impl GroupOperations for CrossDomainRouter {
             id: group_id,
             name: invitation.group.name.clone(),
             notifications_enabled: false,
+            dry_mode_enabled: false,
         })
     }
 
@@ -71,6 +72,7 @@ impl GroupOperations for CrossDomainRouter {
                         id: group.id,
                         name: group.name,
                         notifications_enabled: group.notifications_enabled,
+                        dry_mode_enabled: group.dry_mode_enabled,
                     })
                     .collect()
             })
@@ -97,6 +99,18 @@ impl GroupOperations for CrossDomainRouter {
     ) -> Result<(), BotDmErr> {
         self.moderator
             .set_notifications(user_id, group_id, enabled)
+            .await
+            .map_err(|e| -> BotDmErr { e.to_string().into() })
+    }
+
+    async fn set_dry_mode(
+        &self,
+        user_id: BotDmUserId,
+        group_id: BotDmGroupId,
+        enabled: bool,
+    ) -> Result<(), BotDmErr> {
+        self.moderator
+            .set_dry_mode(user_id, group_id, enabled)
             .await
             .map_err(|e| -> BotDmErr { e.to_string().into() })
     }

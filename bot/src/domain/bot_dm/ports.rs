@@ -19,6 +19,7 @@ pub struct Group {
     pub id: GroupId,
     pub name: String,
     pub notifications_enabled: bool,
+    pub dry_mode_enabled: bool,
 }
 
 pub struct GroupInvitation {
@@ -83,6 +84,13 @@ pub trait GroupOperations: Send + Sync {
     ) -> Result<Option<Vec<String>>, Err>;
 
     async fn set_notifications(
+        &self,
+        user_id: UserId,
+        group_id: GroupId,
+        enabled: bool,
+    ) -> Result<(), Err>;
+
+    async fn set_dry_mode(
         &self,
         user_id: UserId,
         group_id: GroupId,

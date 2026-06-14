@@ -13,6 +13,7 @@ pub struct Group {
     pub owner_id: UserId,
     pub name: String,
     pub notifications_enabled: bool,
+    pub dry_mode_enabled: bool,
 }
 
 pub struct MessengerGroup {
@@ -57,6 +58,13 @@ pub trait ModerationEngine: Send + Sync {
     async fn get_groups_by_owner_id(&self, owner_id: &UserId) -> Result<Vec<Group>, Err>;
 
     async fn set_notifications(
+        &self,
+        user_id: UserId,
+        group_id: GroupId,
+        enabled: bool,
+    ) -> Result<(), Err>;
+
+    async fn set_dry_mode(
         &self,
         user_id: UserId,
         group_id: GroupId,
@@ -131,4 +139,6 @@ pub trait ModerationRepository: Send + Sync {
 
     async fn set_notifications_enabled(&self, group_id: &GroupId, enabled: bool)
     -> Result<(), Err>;
+
+    async fn set_dry_mode_enabled(&self, group_id: &GroupId, enabled: bool) -> Result<(), Err>;
 }

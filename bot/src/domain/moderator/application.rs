@@ -42,14 +42,20 @@ impl ModerationEngine for ModeratorApplication {
             .await?;
 
         if let Some(phrase) = should_moderate(&group_message.text, &keywords) {
-            self.group_moderator
-                .delete_message(&group_message.group.id, &group_message.message_id)
-                .await?;
-
-            if let Some(group) = self
+            let group = self
                 .repository
                 .get_group_by_messenger_id(&group_message.group.id)
-                .await?
+                .await?;
+
+            let dry_mode = group.as_ref().is_some_and(|g| g.dry_mode_enabled);
+
+            if !dry_mode {
+                self.group_moderator
+                    .delete_message(&group_message.group.id, &group_message.message_id)
+                    .await?;
+            }
+
+            if let Some(group) = group
                 && group.notifications_enabled
             {
                 // Best-effort: a failed notification must not undo moderation.
@@ -162,6 +168,34 @@ impl ModerationEngine for ModeratorApplication {
                 self.repository
                     .set_notifications_enabled(&group_id, enabled)
                     .await?;
+                Ok(())
+            }
+        }
+    }
+
+    async fn set_dry_mode(
+        &self,
+        user_id: UserId,
+        group_id: GroupId,
+        enabled: bool,
+    ) -> Result<(), Err> {
+        let owner = self.repository.get_owner_by_id(&group_id).await?;
+        match owner {
+            None => Err(format!("Group {} is not registered", group_id).into()),
+            Some(owner_id) if owner_id != user_id => {
+                Err(format!("User {} is not the owner of group {}", user_id, group_id).into())
+            }
+            Some(_) => {
+                self.repository
+                    .set_dry_mode_enabled(&group_id, enabled)
+                    .await?;
+                // Turning dry mode on also enables notifications so the owner can
+                // see what the bot *would* have moderated.
+                if enabled {
+                    self.repository
+                        .set_notifications_enabled(&group_id, true)
+                        .await?;
+                }
                 Ok(())
             }
         }

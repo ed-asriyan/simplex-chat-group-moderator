@@ -47,6 +47,7 @@ impl ModerationNotifier for ModerationNotificationRouter {
             id: group.id,
             name: group.name.clone(),
             notifications_enabled: group.notifications_enabled,
+            dry_mode_enabled: group.dry_mode_enabled,
         };
         receiver
             .send_moderation_notification(user_id, &bot_dm_group, message, phrase)

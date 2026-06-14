@@ -25,6 +25,8 @@ Commands:
   /groups    - List and manage groups I moderate for you.
 
 For each group you can also turn moderation notifications on or off (use /groups to get the links). When enabled, I'll DM you whenever I delete a message.
+
+You can also enable dry mode for a group. In dry mode I run all checks and notify you about what I would delete, but I don't actually delete anything. Use /groups to get the links.
 ";
 
 const START: &str = formatcp!(
@@ -87,6 +89,10 @@ enum ParsedDm {
         group_id: GroupId,
         enabled: bool,
     },
+    SetDryMode {
+        group_id: GroupId,
+        enabled: bool,
+    },
     WordLists,
     Source,
     Unknown,
@@ -144,6 +150,24 @@ fn parse(message: &Message) -> ParsedDm {
                         Err(_) => ParsedDm::Unknown,
                     }
                 }
+                _ if let Some(id_str) = trimmed.strip_prefix("/dry_on_") => {
+                    match id_str.trim().parse() {
+                        Ok(group_id) => ParsedDm::SetDryMode {
+                            group_id,
+                            enabled: true,
+                        },
+                        Err(_) => ParsedDm::Unknown,
+                    }
+                }
+                _ if let Some(id_str) = trimmed.strip_prefix("/dry_off_") => {
+                    match id_str.trim().parse() {
+                        Ok(group_id) => ParsedDm::SetDryMode {
+                            group_id,
+                            enabled: false,
+                        },
+                        Err(_) => ParsedDm::Unknown,
+                    }
+                }
                 _ => ParsedDm::Unknown,
             }
         }
@@ -156,15 +180,22 @@ fn render_group(group: &Group) -> String {
     } else {
         format!("Notify me on delete: /notify_on_{}", group.id)
     };
+    let dry_mode_command = if group.dry_mode_enabled {
+        format!("Disable dry mode: /dry_off_{}", group.id)
+    } else {
+        format!("Enable dry mode: /dry_on_{}", group.id)
+    };
     format!(
         "*{}* {}\n\
         Blocked words: /keywords_{}\n\
+        {}\n\
         {}\
         ",
         group.name,
         group_anchor(group),
         group.id,
         notifications_command,
+        dry_mode_command,
     )
 }
 
@@ -280,6 +311,27 @@ impl BotDmReceiver for BotDmApplication {
                     }
                 }
             }
+            ParsedDm::SetDryMode { group_id, enabled } => {
+                match self
+                    .group_operator
+                    .set_dry_mode(user_id, group_id, enabled)
+                    .await
+                {
+                    Ok(()) => {
+                        let reply = if enabled {
+                            "Dry mode enabled. I'll run all checks and notify you, but I won't actually delete any messages in this group. Notifications have been turned on."
+                        } else {
+                            "Dry mode disabled. I'll moderate messages in this group again."
+                        };
+                        self.messenger.send_dm(&user_id, reply).await?;
+                    }
+                    Err(_) => {
+                        self.messenger
+                            .send_dm(&user_id, "Group not found or not managed by you.")
+                            .await?;
+                    }
+                }
+            }
             ParsedDm::WordLists => {
                 self.messenger.send_dm(&user_id, WORD_LISTS).await?;
             }
@@ -353,8 +405,15 @@ impl ModerationNotificationReceiver for BotDmApplication {
         phrase: &str,
     ) -> Result<(), Err> {
         let text = format!(
-            "🛡 I moderated a message in *{}*!\n\n*The message:*\n{}\n\n*Phrase found:*\n{}",
-            group.name, message, phrase,
+            "{} a message in *{}*!\n\n*The message:*\n{}\n\n*Phrase found:*\n{}",
+            if group.dry_mode_enabled {
+                "🛡 I would moderate"
+            } else {
+                "🛡 I moderated"
+            },
+            group.name,
+            message,
+            phrase,
         );
         self.messenger.send_dm(&user_id, &text).await
     }

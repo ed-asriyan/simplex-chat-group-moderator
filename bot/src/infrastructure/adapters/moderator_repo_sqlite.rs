@@ -108,7 +108,7 @@ impl ModerationRepository for SqliteModerationRepository {
         tokio::task::spawn_blocking(move || -> Result<Vec<Group>, rusqlite::Error> {
             let guard = conn.lock().expect("moderation repo connection poisoned");
             let mut stmt = guard.prepare(
-                "SELECT group_id, group_name, notifications_enabled FROM moderation_groups WHERE owner_id = ?1",
+                "SELECT group_id, group_name, notifications_enabled, dry_mode_enabled FROM moderation_groups WHERE owner_id = ?1",
             )?;
             let rows = stmt.query_map(params![oid], |row| {
                 Ok(Group {
@@ -116,6 +116,7 @@ impl ModerationRepository for SqliteModerationRepository {
                     owner_id: oid,
                     name: row.get::<_, String>(1)?,
                     notifications_enabled: row.get::<_, i64>(2)? != 0,
+                    dry_mode_enabled: row.get::<_, i64>(3)? != 0,
                 })
             })?;
             let mut out = Vec::new();
@@ -255,7 +256,7 @@ impl ModerationRepository for SqliteModerationRepository {
         tokio::task::spawn_blocking(move || -> Result<Option<Group>, rusqlite::Error> {
             let guard = conn.lock().expect("moderation repo connection poisoned");
             let mut stmt = guard.prepare(
-                "SELECT group_id, owner_id, group_name, notifications_enabled
+                "SELECT group_id, owner_id, group_name, notifications_enabled, dry_mode_enabled
                  FROM moderation_groups WHERE messenger_group_id = ?1",
             )?;
             let mut rows = stmt.query(params![mid])?;
@@ -265,6 +266,7 @@ impl ModerationRepository for SqliteModerationRepository {
                     owner_id: row.get(1)?,
                     name: row.get(2)?,
                     notifications_enabled: row.get::<_, i64>(3)? != 0,
+                    dry_mode_enabled: row.get::<_, i64>(4)? != 0,
                 }))
             } else {
                 Ok(None)
@@ -287,6 +289,23 @@ impl ModerationRepository for SqliteModerationRepository {
             let guard = conn.lock().expect("moderation repo connection poisoned");
             guard.execute(
                 "UPDATE moderation_groups SET notifications_enabled = ?2 WHERE group_id = ?1",
+                params![gid, value],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| -> Err { e.to_string().into() })?
+        .map_err(|e| -> Err { e.to_string().into() })
+    }
+
+    async fn set_dry_mode_enabled(&self, group_id: &GroupId, enabled: bool) -> Result<(), Err> {
+        let conn = self.conn.clone();
+        let gid = *group_id;
+        let value: i64 = if enabled { 1 } else { 0 };
+        tokio::task::spawn_blocking(move || -> Result<(), rusqlite::Error> {
+            let guard = conn.lock().expect("moderation repo connection poisoned");
+            guard.execute(
+                "UPDATE moderation_groups SET dry_mode_enabled = ?2 WHERE group_id = ?1",
                 params![gid, value],
             )?;
             Ok(())

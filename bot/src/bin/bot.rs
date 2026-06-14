@@ -208,6 +208,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             id: group_id,
                             name: group_name,
                             notifications_enabled: false,
+                            dry_mode_enabled: false,
                         },
                         is_moderator,
                     };
