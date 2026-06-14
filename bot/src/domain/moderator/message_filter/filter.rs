@@ -11,7 +11,10 @@
 //!   cyrillic `р`+`а`, `спам` vs `spam`);
 //! - separators inserted between letters (`s p a m`, `s.p.a.m`, `s-p-a-m`,
 //!   `с_п_а_м`);
-//! - repeated characters (`spaaaaam`, `goooal`);
+//! - flooded characters (`spaaaaam`, `goooal`) — runs of three or more
+//!   identical characters collapse to one, while legitimate doubled letters
+//!   (`butt`, `pass`, `hello`) are preserved so a keyword `butt` does **not**
+//!   match the ordinary word `but`;
 //! - simple English plural forms (`spams`, `boxes`, `parties`) — both the
 //!   text and the keyword are stripped of trailing `-s`/`-es`/`-ies`, so a
 //!   keyword `spam` matches `spams` and a keyword `spams` matches `spam`.
@@ -59,7 +62,7 @@ fn normalize_and_tokenize(s: &str) -> Vec<String> {
     normalized
         .split(|c: char| !c.is_alphanumeric())
         .filter(|t| !t.is_empty())
-        .map(collapse_repeats)
+        .map(collapse_floods)
         .map(|t| depluralize_en(&t))
         .collect()
 }
@@ -103,9 +106,36 @@ fn canonicalize(c: char) -> char {
     }
 }
 
-/// Collapse runs of the same character down to a single occurrence.
-/// `"spaaaam"` → `"spam"`, `"goooooal"` → `"goal"`.
-fn collapse_repeats(s: &str) -> String {
+/// Collapse *flooded* characters: a run of three or more identical characters
+/// is reduced to a single occurrence, while runs of one or two characters are
+/// left intact. This sees through flooding bypasses (`"spaaaam"` → `"spam"`,
+/// `"goooooal"` → `"goal"`) without destroying legitimate doubled letters, so
+/// `"butt"` stays `"butt"` and does not collide with `"but"`.
+fn collapse_floods(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(chars.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let mut j = i + 1;
+        while j < chars.len() && chars[j] == c {
+            j += 1;
+        }
+        let run = j - i;
+        let keep = if run >= 3 { 1 } else { run };
+        for _ in 0..keep {
+            out.push(c);
+        }
+        i = j;
+    }
+    out
+}
+
+/// Collapse every run of the same character down to a single occurrence.
+/// Used only on the merge path, where single letters separated by junk
+/// (`"s p a m"`, `"4 4"`) are reassembled — there, repeated single letters are
+/// a flooding bypass rather than a legitimate doubled letter.
+fn collapse_all_repeats(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut prev: Option<char> = None;
     for c in s.chars() {
@@ -148,6 +178,12 @@ fn depluralize_en(s: &str) -> String {
             || stem.ends_with("sh")
             || stem.ends_with("ch");
         if ends_in_sibilant {
+            // Words ending in `z` double it before `-es` (quiz → quizzes).
+            // Undo that doubling so the stem matches the singular keyword,
+            // but leave genuinely doubled stems like `glass` (glasses) alone.
+            if let Some(base) = stem.strip_suffix("zz") {
+                return format!("{base}z");
+            }
             return stem.to_string();
         }
     }
@@ -176,14 +212,14 @@ fn merge_short_runs(tokens: &[String]) -> Vec<String> {
             buf.push_str(t);
         } else {
             if !buf.is_empty() {
-                let collapsed = collapse_repeats(&std::mem::take(&mut buf));
+                let collapsed = collapse_all_repeats(&std::mem::take(&mut buf));
                 out.push(depluralize_en(&collapsed));
             }
             out.push(t.clone());
         }
     }
     if !buf.is_empty() {
-        let collapsed = collapse_repeats(&buf);
+        let collapsed = collapse_all_repeats(&buf);
         out.push(depluralize_en(&collapsed));
     }
     out

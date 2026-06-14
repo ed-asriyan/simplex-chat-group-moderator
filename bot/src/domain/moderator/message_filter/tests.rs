@@ -30,11 +30,7 @@ fn text_without_letters_is_allowed() {
 
 #[test]
 fn non_matching_text_is_allowed() {
-    assert!(should_moderate(
-        "the quick brown fox",
-        &kws(&["spam", "ads"])
-    )
-    .is_none());
+    assert!(should_moderate("the quick brown fox", &kws(&["spam", "ads"])).is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -74,21 +70,13 @@ fn ignores_surrounding_punctuation_en() {
 
 #[test]
 fn matches_multi_word_keyword_en() {
-    assert!(should_moderate(
-        "buy cheap pills now",
-        &kws(&["cheap pills"])
-    )
-    .is_some());
+    assert!(should_moderate("buy cheap pills now", &kws(&["cheap pills"])).is_some());
     assert!(should_moderate("cheap and pills", &kws(&["cheap pills"])).is_none());
 }
 
 #[test]
 fn any_matching_keyword_triggers_en() {
-    assert!(should_moderate(
-        "the quick brown fox",
-        &kws(&["lazy", "fox"])
-    )
-    .is_some());
+    assert!(should_moderate("the quick brown fox", &kws(&["lazy", "fox"])).is_some());
 }
 
 #[test]
@@ -97,6 +85,69 @@ fn does_not_match_substring_inside_ordinary_word_en() {
     // so the merge-heuristic does not apply.
     assert!(should_moderate("classic music", &kws(&["ass"])).is_none());
     assert!(should_moderate("therapist", &kws(&["rapist"])).is_none());
+}
+
+// ---------------------------------------------------------------------------
+// doubled letters must be preserved (regression: keyword "butt" vs word "but")
+// ---------------------------------------------------------------------------
+
+#[test]
+fn double_letter_keyword_does_not_match_single_letter_word() {
+    // Real-world false positive: keyword "butt" must NOT flag the ordinary
+    // word "but". Flood-collapsing used to fold "butt" → "but".
+    assert!(
+        should_moderate(
+            "I cannot scroll back but when I click nothing happens",
+            &kws(&["butt"])
+        )
+        .is_none()
+    );
+    assert!(should_moderate("but", &kws(&["butt"])).is_none());
+    assert!(should_moderate("pass the test", &kws(&["pas"])).is_none());
+    assert!(should_moderate("hello", &kws(&["helo"])).is_none());
+}
+
+#[test]
+fn double_letter_keyword_still_matches_real_word() {
+    assert!(should_moderate("what a butt", &kws(&["butt"])).is_some());
+    assert!(should_moderate("nice butt!", &kws(&["butt"])).is_some());
+}
+
+#[test]
+fn double_letter_keyword_survives_flooding() {
+    // Flooding a *non-doubled* letter still collapses onto the keyword.
+    assert!(should_moderate("buuutt", &kws(&["butt"])).is_some());
+    assert!(should_moderate("greeeat butt", &kws(&["butt"])).is_some());
+}
+
+// ---------------------------------------------------------------------------
+// doubled letters in the *keyword* must not collapse onto innocent words
+// (regression: keyword "ass"/"a55" matched "as still" in normal prose)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ass_keyword_does_not_match_as_plus_following_word() {
+    // Real-world false positive: "a55"/"ass" flagged the sentence below
+    // because full flood-collapsing folded "ass" → "as" and the merge
+    // heuristic glued "as" onto a neighbouring "s".
+    let msg = "So I was testing the self destruct feature on my alt account and \
+               it doesn't actually delete the account? I can still see it \
+               unconnected to the various groups it was in and I can still \
+               message it as well.";
+    assert!(should_moderate(msg, &kws(&["a55"])).is_none());
+    assert!(should_moderate(msg, &kws(&["ass"])).is_none());
+}
+
+#[test]
+fn ass_keyword_does_not_match_plain_as() {
+    assert!(should_moderate("as well as before", &kws(&["ass"])).is_none());
+    assert!(should_moderate("as soon as possible", &kws(&["ass"])).is_none());
+}
+
+#[test]
+fn ass_keyword_still_matches_real_word() {
+    assert!(should_moderate("don't be an ass", &kws(&["ass"])).is_some());
+    assert!(should_moderate("such an a55", &kws(&["ass"])).is_some());
 }
 
 // ---------------------------------------------------------------------------
@@ -122,16 +173,8 @@ fn ignores_surrounding_punctuation_ru() {
 
 #[test]
 fn matches_multi_word_keyword_ru() {
-    assert!(should_moderate(
-        "купи дешёвые таблетки сейчас",
-        &kws(&["дешёвые таблетки"])
-    )
-    .is_some());
-    assert!(should_moderate(
-        "дешёвые и таблетки",
-        &kws(&["дешёвые таблетки"])
-    )
-    .is_none());
+    assert!(should_moderate("купи дешёвые таблетки сейчас", &kws(&["дешёвые таблетки"])).is_some());
+    assert!(should_moderate("дешёвые и таблетки", &kws(&["дешёвые таблетки"])).is_none());
 }
 
 #[test]
@@ -152,11 +195,7 @@ fn does_not_match_substring_inside_ordinary_word_ru() {
 
 #[test]
 fn detects_space_separated_letters_en() {
-    assert!(should_moderate(
-        "watch out: s p a m incoming",
-        &kws(&["spam"])
-    )
-    .is_some());
+    assert!(should_moderate("watch out: s p a m incoming", &kws(&["spam"])).is_some());
 }
 
 #[test]
@@ -278,11 +317,13 @@ fn detects_combined_tricks_ru() {
 
 #[test]
 fn multi_word_keyword_survives_separators() {
-    assert!(should_moderate(
-        "купи д.е.ш.ё.в.ы.е таблетки сейчас",
-        &kws(&["дешёвые таблетки"])
-    )
-    .is_some());
+    assert!(
+        should_moderate(
+            "купи д.е.ш.ё.в.ы.е таблетки сейчас",
+            &kws(&["дешёвые таблетки"])
+        )
+        .is_some()
+    );
 }
 
 // ---------------------------------------------------------------------------
