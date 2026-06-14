@@ -50,8 +50,10 @@ pub fn should_moderate(text: &str, blocked_keywords: &[String]) -> Option<String
 // internals
 // ---------------------------------------------------------------------------
 
-/// Lowercase + canonicalise + split on non-alphanumerics + collapse runs of
-/// repeated characters within each token.
+/// Lowercase + canonicalise + split on non-alphanumerics. Repeated characters
+/// are *not* collapsed here — their run lengths are preserved so that matching
+/// can be run-length-aware (a flooded `"booooob"` still carries enough `o`s to
+/// satisfy a doubled-letter keyword like `"boob"`).
 fn normalize_and_tokenize(s: &str) -> Vec<String> {
     let normalized: String = s
         .chars()
@@ -62,8 +64,7 @@ fn normalize_and_tokenize(s: &str) -> Vec<String> {
     normalized
         .split(|c: char| !c.is_alphanumeric())
         .filter(|t| !t.is_empty())
-        .map(collapse_floods)
-        .map(|t| depluralize_en(&t))
+        .map(depluralize_en)
         .collect()
 }
 
@@ -108,9 +109,10 @@ fn canonicalize(c: char) -> char {
 
 /// Collapse *flooded* characters: a run of three or more identical characters
 /// is reduced to a single occurrence, while runs of one or two characters are
-/// left intact. This sees through flooding bypasses (`"spaaaam"` → `"spam"`,
-/// `"goooooal"` → `"goal"`) without destroying legitimate doubled letters, so
-/// `"butt"` stays `"butt"` and does not collide with `"but"`.
+/// left intact. Used only to decide whether a token is "short" enough to take
+/// part in the merge heuristic (so a flooded single letter like `"aaa"` still
+/// counts as a separated letter). The merged token itself keeps its original
+/// run lengths for run-length-aware matching.
 fn collapse_floods(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
     let mut out = String::with_capacity(chars.len());
@@ -127,22 +129,6 @@ fn collapse_floods(s: &str) -> String {
             out.push(c);
         }
         i = j;
-    }
-    out
-}
-
-/// Collapse every run of the same character down to a single occurrence.
-/// Used only on the merge path, where single letters separated by junk
-/// (`"s p a m"`, `"4 4"`) are reassembled — there, repeated single letters are
-/// a flooding bypass rather than a legitimate doubled letter.
-fn collapse_all_repeats(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut prev: Option<char> = None;
-    for c in s.chars() {
-        if Some(c) != prev {
-            out.push(c);
-            prev = Some(c);
-        }
     }
     out
 }
@@ -204,32 +190,69 @@ fn depluralize_en(s: &str) -> String {
 /// `["s", "p", "a", "m"]` → `["spam"]`. Long tokens are left untouched and
 /// break the run. This is what lets us see through `"s.p.a.m"` while still
 /// keeping `"classic"` as one token (so `"ass"` will not match inside it).
+///
+/// "Shortness" is judged on the flood-collapsed form, so a flooded single
+/// letter (`"aaa"`) still counts as a separated letter and joins the run,
+/// while a long token (`"booooob"`) is pushed unchanged with its run lengths
+/// intact for run-length-aware matching.
 fn merge_short_runs(tokens: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::with_capacity(tokens.len());
     let mut buf = String::new();
     for t in tokens {
-        if t.chars().count() <= 2 {
-            buf.push_str(t);
+        let collapsed = collapse_floods(t);
+        if collapsed.chars().count() <= 2 {
+            buf.push_str(&collapsed);
         } else {
             if !buf.is_empty() {
-                let collapsed = collapse_all_repeats(&std::mem::take(&mut buf));
-                out.push(depluralize_en(&collapsed));
+                out.push(depluralize_en(&std::mem::take(&mut buf)));
             }
             out.push(t.clone());
         }
     }
     if !buf.is_empty() {
-        let collapsed = collapse_all_repeats(&buf);
-        out.push(depluralize_en(&collapsed));
+        out.push(depluralize_en(&buf));
     }
     out
 }
 
+/// Run-length encode a token: `"boob"` → `[('b',1),('o',2),('b',1)]`.
+fn rle(s: &str) -> Vec<(char, usize)> {
+    let mut out: Vec<(char, usize)> = Vec::new();
+    for c in s.chars() {
+        match out.last_mut() {
+            Some(last) if last.0 == c => last.1 += 1,
+            _ => out.push((c, 1)),
+        }
+    }
+    out
+}
+
+/// True iff `text_tok` matches `kw_tok` allowing flooded (repeated) letters:
+/// both must have the same sequence of distinct letters and, for each letter,
+/// the text must repeat it *at least* as many times as the keyword. So
+/// `"booooob"` matches `"boob"`, but `"bob"` does not, and `"but"` does not
+/// match `"butt"`.
+fn token_matches(text_tok: &str, kw_tok: &str) -> bool {
+    let a = rle(text_tok);
+    let b = rle(kw_tok);
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter()
+        .zip(b.iter())
+        .all(|(&(tc, tn), &(kc, kn))| tc == kc && tn >= kn)
+}
+
 /// Returns true iff `needle` appears as a contiguous run of tokens inside
-/// `haystack` (whole-token equality, no substring).
+/// `haystack`, matching each token with [`token_matches`] (run-length-aware,
+/// no substring).
 fn contains_subsequence(haystack: &[String], needle: &[String]) -> bool {
     if needle.is_empty() || needle.len() > haystack.len() {
         return false;
     }
-    haystack.windows(needle.len()).any(|w| w == needle)
+    haystack.windows(needle.len()).any(|w| {
+        w.iter()
+            .zip(needle.iter())
+            .all(|(h, n)| token_matches(h, n))
+    })
 }

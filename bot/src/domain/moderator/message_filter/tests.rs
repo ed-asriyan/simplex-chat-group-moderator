@@ -94,7 +94,8 @@ fn does_not_match_substring_inside_ordinary_word_en() {
 #[test]
 fn double_letter_keyword_does_not_match_single_letter_word() {
     // Real-world false positive: keyword "butt" must NOT flag the ordinary
-    // word "but". Flood-collapsing used to fold "butt" → "but".
+    // word "but". A keyword with a doubled letter requires *at least* that
+    // many repeats in the text, so "but" (single `t`) is not a match.
     assert!(
         should_moderate(
             "I cannot scroll back but when I click nothing happens",
@@ -103,8 +104,10 @@ fn double_letter_keyword_does_not_match_single_letter_word() {
         .is_none()
     );
     assert!(should_moderate("but", &kws(&["butt"])).is_none());
-    assert!(should_moderate("pass the test", &kws(&["pas"])).is_none());
-    assert!(should_moderate("hello", &kws(&["helo"])).is_none());
+    // keyword "pass" (double `s`) must not match the bare word "pas".
+    assert!(should_moderate("pas de deux", &kws(&["pass"])).is_none());
+    // keyword "hello" (double `l`) must not match "helo".
+    assert!(should_moderate("say helo", &kws(&["hello"])).is_none());
 }
 
 #[test]
@@ -118,6 +121,25 @@ fn double_letter_keyword_survives_flooding() {
     // Flooding a *non-doubled* letter still collapses onto the keyword.
     assert!(should_moderate("buuutt", &kws(&["butt"])).is_some());
     assert!(should_moderate("greeeat butt", &kws(&["butt"])).is_some());
+}
+
+#[test]
+fn doubled_letter_keyword_matches_flooded_double_en() {
+    // Real-world false negative: keyword "boob" (with a doubled `o`) must
+    // still catch heavily flooded forms where the doubled letter is flooded
+    // and/or extra trailing letters are appended.
+    assert!(should_moderate("boob", &kws(&["boob"])).is_some());
+    assert!(should_moderate("booob", &kws(&["boob"])).is_some());
+    assert!(should_moderate("booooobs everywhere", &kws(&["boob"])).is_some());
+    assert!(should_moderate("booooob", &kws(&["boob"])).is_some());
+    assert!(should_moderate("boooooobb", &kws(&["boob"])).is_some());
+}
+
+#[test]
+fn doubled_letter_keyword_still_respects_word_boundaries() {
+    // "boob" must not fire on unrelated words that merely share letters.
+    assert!(should_moderate("the job is done", &kws(&["boob"])).is_none());
+    assert!(should_moderate("a big bob", &kws(&["boob"])).is_none());
 }
 
 // ---------------------------------------------------------------------------
