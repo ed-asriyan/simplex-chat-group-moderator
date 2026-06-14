@@ -41,7 +41,7 @@ impl ModerationEngine for ModeratorApplication {
             .get_keywords_by_messenger_id(&group_message.group.id)
             .await?;
 
-        if should_moderate(&group_message.text, &keywords) {
+        if let Some(phrase) = should_moderate(&group_message.text, &keywords) {
             self.group_moderator
                 .delete_message(&group_message.group.id, &group_message.message_id)
                 .await?;
@@ -55,7 +55,7 @@ impl ModerationEngine for ModeratorApplication {
                 // Best-effort: a failed notification must not undo moderation.
                 let _ = self
                     .notifier
-                    .notify_moderated_message(group.owner_id, &group, &group_message.text)
+                    .notify_moderated_message(group.owner_id, &group, &group_message.text, &phrase)
                     .await;
             }
         }

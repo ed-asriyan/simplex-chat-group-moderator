@@ -20,21 +20,26 @@
 //! **not** match inside `"classic"` (no separators/look-alikes are present
 //! so the merging heuristic is not applied to that token).
 
-/// Returns `true` iff `text` should be moderated (deleted) given the list
-/// of `blocked_keywords`. Empty / whitespace-only keywords are ignored.
-pub fn should_moderate(text: &str, blocked_keywords: &[String]) -> bool {
+/// Returns the first matched keyword iff `text` should be moderated (deleted)
+/// given the list of `blocked_keywords`, or `None` if no keyword matches.
+/// Empty / whitespace-only keywords are ignored.
+pub fn should_moderate(text: &str, blocked_keywords: &[String]) -> Option<String> {
     let tokens = normalize_and_tokenize(text);
     if tokens.is_empty() {
-        return false;
+        return None;
     }
     let merged = merge_short_runs(&tokens);
 
-    blocked_keywords.iter().any(|kw| {
+    blocked_keywords.iter().find_map(|kw| {
         let needle = normalize_and_tokenize(kw);
         if needle.is_empty() {
-            return false;
+            return None;
         }
-        contains_subsequence(&tokens, &needle) || contains_subsequence(&merged, &needle)
+        if contains_subsequence(&tokens, &needle) || contains_subsequence(&merged, &needle) {
+            Some(kw.clone())
+        } else {
+            None
+        }
     })
 }
 

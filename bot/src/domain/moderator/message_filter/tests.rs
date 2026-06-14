@@ -10,30 +10,31 @@ fn kws(items: &[&str]) -> Vec<String> {
 
 #[test]
 fn empty_text_is_allowed() {
-    assert!(!should_moderate("", &kws(&["spam"])));
+    assert!(should_moderate("", &kws(&["spam"])).is_none());
 }
 
 #[test]
 fn empty_keyword_list_is_allowed() {
-    assert!(!should_moderate("hello world", &[]));
+    assert!(should_moderate("hello world", &[]).is_none());
 }
 
 #[test]
 fn whitespace_only_keyword_is_ignored() {
-    assert!(!should_moderate("hello", &kws(&["", "   ", "\t"])));
+    assert!(should_moderate("hello", &kws(&["", "   ", "\t"])).is_none());
 }
 
 #[test]
 fn text_without_letters_is_allowed() {
-    assert!(!should_moderate("!!! ??? ...", &kws(&["spam"])));
+    assert!(should_moderate("!!! ??? ...", &kws(&["spam"])).is_none());
 }
 
 #[test]
 fn non_matching_text_is_allowed() {
-    assert!(!should_moderate(
+    assert!(should_moderate(
         "the quick brown fox",
         &kws(&["spam", "ads"])
-    ));
+    )
+    .is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -42,21 +43,33 @@ fn non_matching_text_is_allowed() {
 
 #[test]
 fn matches_exact_word_en() {
-    assert!(should_moderate("hello world", &kws(&["hello"])));
+    assert!(should_moderate("hello world", &kws(&["hello"])).is_some());
+}
+
+#[test]
+fn returns_matched_keyword() {
+    assert_eq!(
+        should_moderate("hello world", &kws(&["hello"])).as_deref(),
+        Some("hello")
+    );
+    assert_eq!(
+        should_moderate("the quick brown fox", &kws(&["lazy", "fox"])).as_deref(),
+        Some("fox")
+    );
 }
 
 #[test]
 fn is_case_insensitive_en() {
-    assert!(should_moderate("Hello WORLD", &kws(&["world"])));
-    assert!(should_moderate("HELLO", &kws(&["hello"])));
-    assert!(should_moderate("hello", &kws(&["HELLO"])));
+    assert!(should_moderate("Hello WORLD", &kws(&["world"])).is_some());
+    assert!(should_moderate("HELLO", &kws(&["hello"])).is_some());
+    assert!(should_moderate("hello", &kws(&["HELLO"])).is_some());
 }
 
 #[test]
 fn ignores_surrounding_punctuation_en() {
-    assert!(should_moderate("hello, world!", &kws(&["world"])));
-    assert!(should_moderate("(spam).", &kws(&["spam"])));
-    assert!(should_moderate("end-of-line", &kws(&["line"])));
+    assert!(should_moderate("hello, world!", &kws(&["world"])).is_some());
+    assert!(should_moderate("(spam).", &kws(&["spam"])).is_some());
+    assert!(should_moderate("end-of-line", &kws(&["line"])).is_some());
 }
 
 #[test]
@@ -64,8 +77,9 @@ fn matches_multi_word_keyword_en() {
     assert!(should_moderate(
         "buy cheap pills now",
         &kws(&["cheap pills"])
-    ));
-    assert!(!should_moderate("cheap and pills", &kws(&["cheap pills"])));
+    )
+    .is_some());
+    assert!(should_moderate("cheap and pills", &kws(&["cheap pills"])).is_none());
 }
 
 #[test]
@@ -73,15 +87,16 @@ fn any_matching_keyword_triggers_en() {
     assert!(should_moderate(
         "the quick brown fox",
         &kws(&["lazy", "fox"])
-    ));
+    )
+    .is_some());
 }
 
 #[test]
 fn does_not_match_substring_inside_ordinary_word_en() {
     // "ass" must not match inside "classic" — no separators / look-alikes,
     // so the merge-heuristic does not apply.
-    assert!(!should_moderate("classic music", &kws(&["ass"])));
-    assert!(!should_moderate("therapist", &kws(&["rapist"])));
+    assert!(should_moderate("classic music", &kws(&["ass"])).is_none());
+    assert!(should_moderate("therapist", &kws(&["rapist"])).is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -90,19 +105,19 @@ fn does_not_match_substring_inside_ordinary_word_en() {
 
 #[test]
 fn matches_exact_word_ru() {
-    assert!(should_moderate("привет мир", &kws(&["привет"])));
+    assert!(should_moderate("привет мир", &kws(&["привет"])).is_some());
 }
 
 #[test]
 fn is_case_insensitive_ru() {
-    assert!(should_moderate("ПРИВЕТ", &kws(&["привет"])));
-    assert!(should_moderate("Привет", &kws(&["ПРИВЕТ"])));
+    assert!(should_moderate("ПРИВЕТ", &kws(&["привет"])).is_some());
+    assert!(should_moderate("Привет", &kws(&["ПРИВЕТ"])).is_some());
 }
 
 #[test]
 fn ignores_surrounding_punctuation_ru() {
-    assert!(should_moderate("привет, мир!", &kws(&["мир"])));
-    assert!(should_moderate("(спам).", &kws(&["спам"])));
+    assert!(should_moderate("привет, мир!", &kws(&["мир"])).is_some());
+    assert!(should_moderate("(спам).", &kws(&["спам"])).is_some());
 }
 
 #[test]
@@ -110,23 +125,25 @@ fn matches_multi_word_keyword_ru() {
     assert!(should_moderate(
         "купи дешёвые таблетки сейчас",
         &kws(&["дешёвые таблетки"])
-    ));
-    assert!(!should_moderate(
+    )
+    .is_some());
+    assert!(should_moderate(
         "дешёвые и таблетки",
         &kws(&["дешёвые таблетки"])
-    ));
+    )
+    .is_none());
 }
 
 #[test]
 fn yo_is_equivalent_to_ye_ru() {
-    assert!(should_moderate("ёлка", &kws(&["елка"])));
-    assert!(should_moderate("елка", &kws(&["ёлка"])));
+    assert!(should_moderate("ёлка", &kws(&["елка"])).is_some());
+    assert!(should_moderate("елка", &kws(&["ёлка"])).is_some());
 }
 
 #[test]
 fn does_not_match_substring_inside_ordinary_word_ru() {
     // "рак" must not match inside "барак"
-    assert!(!should_moderate("барак обама", &kws(&["рак"])));
+    assert!(should_moderate("барак обама", &kws(&["рак"])).is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -138,42 +155,43 @@ fn detects_space_separated_letters_en() {
     assert!(should_moderate(
         "watch out: s p a m incoming",
         &kws(&["spam"])
-    ));
+    )
+    .is_some());
 }
 
 #[test]
 fn detects_dot_separated_letters_en() {
-    assert!(should_moderate("s.p.a.m here", &kws(&["spam"])));
+    assert!(should_moderate("s.p.a.m here", &kws(&["spam"])).is_some());
 }
 
 #[test]
 fn detects_dash_separated_letters_en() {
-    assert!(should_moderate("s-p-a-m here", &kws(&["spam"])));
+    assert!(should_moderate("s-p-a-m here", &kws(&["spam"])).is_some());
 }
 
 #[test]
 fn detects_underscore_separated_letters_en() {
-    assert!(should_moderate("s_p_a_m here", &kws(&["spam"])));
+    assert!(should_moderate("s_p_a_m here", &kws(&["spam"])).is_some());
 }
 
 #[test]
 fn detects_mixed_separator_letters_en() {
-    assert!(should_moderate("s. p-a_m!", &kws(&["spam"])));
+    assert!(should_moderate("s. p-a_m!", &kws(&["spam"])).is_some());
 }
 
 #[test]
 fn detects_space_separated_letters_ru() {
-    assert!(should_moderate("с п а м прямо тут", &kws(&["спам"])));
+    assert!(should_moderate("с п а м прямо тут", &kws(&["спам"])).is_some());
 }
 
 #[test]
 fn detects_dot_separated_letters_ru() {
-    assert!(should_moderate("с.п.а.м здесь", &kws(&["спам"])));
+    assert!(should_moderate("с.п.а.м здесь", &kws(&["спам"])).is_some());
 }
 
 #[test]
 fn detects_dash_separated_letters_ru() {
-    assert!(should_moderate("с-п-а-м здесь", &kws(&["спам"])));
+    assert!(should_moderate("с-п-а-м здесь", &kws(&["спам"])).is_some());
 }
 
 // ---------------------------------------------------------------------------
@@ -182,13 +200,13 @@ fn detects_dash_separated_letters_ru() {
 
 #[test]
 fn detects_repeated_letters_en() {
-    assert!(should_moderate("spaaaaam everywhere", &kws(&["spam"])));
-    assert!(should_moderate("ssssspppaaammm", &kws(&["spam"])));
+    assert!(should_moderate("spaaaaam everywhere", &kws(&["spam"])).is_some());
+    assert!(should_moderate("ssssspppaaammm", &kws(&["spam"])).is_some());
 }
 
 #[test]
 fn detects_repeated_letters_ru() {
-    assert!(should_moderate("спаааам везде", &kws(&["спам"])));
+    assert!(should_moderate("спаааам везде", &kws(&["спам"])).is_some());
 }
 
 // ---------------------------------------------------------------------------
@@ -197,22 +215,22 @@ fn detects_repeated_letters_ru() {
 
 #[test]
 fn detects_leet_digits() {
-    assert!(should_moderate("5p4m incoming", &kws(&["spam"])));
-    assert!(should_moderate("5P@M", &kws(&["spam"])));
-    assert!(should_moderate("$pam", &kws(&["spam"])));
+    assert!(should_moderate("5p4m incoming", &kws(&["spam"])).is_some());
+    assert!(should_moderate("5P@M", &kws(&["spam"])).is_some());
+    assert!(should_moderate("$pam", &kws(&["spam"])).is_some());
 }
 
 #[test]
 fn detects_leet_with_repeats_and_separators() {
-    assert!(should_moderate("5-p-4-a-m", &kws(&["spam"])));
-    assert!(should_moderate("5 p 4 4 m", &kws(&["spam"])));
+    assert!(should_moderate("5-p-4-a-m", &kws(&["spam"])).is_some());
+    assert!(should_moderate("5 p 4 4 m", &kws(&["spam"])).is_some());
 }
 
 #[test]
 fn keyword_written_in_leet_also_works() {
     // even if the user stores the keyword in leet, normalisation makes it
     // equivalent to the plain form.
-    assert!(should_moderate("spam here", &kws(&["5p4m"])));
+    assert!(should_moderate("spam here", &kws(&["5p4m"])).is_some());
 }
 
 // ---------------------------------------------------------------------------
@@ -229,19 +247,19 @@ fn detects_cyrillic_lookalikes_in_latin_keyword() {
     //   м                            → 'm'
     // Keyword stored as cyrillic "спам" also normalises the same way, so
     // we should still catch this when the keyword is the cyrillic form.
-    assert!(should_moderate("сообщение: спам", &kws(&["спам"])));
+    assert!(should_moderate("сообщение: спам", &kws(&["спам"])).is_some());
 }
 
 #[test]
 fn detects_mixed_cyrillic_latin_in_word() {
     // "scаm" with cyrillic `а` — keyword "scam" in pure latin.
-    assert!(should_moderate("this is a scаm offer", &kws(&["scam"])));
+    assert!(should_moderate("this is a scаm offer", &kws(&["scam"])).is_some());
 }
 
 #[test]
 fn detects_latin_lookalikes_for_cyrillic_keyword() {
     // word "сос" (Russian for SOS) typed with latin `c`, `o`, `c`
-    assert!(should_moderate("помогите cоc!", &kws(&["сос"])));
+    assert!(should_moderate("помогите cоc!", &kws(&["сос"])).is_some());
 }
 
 // ---------------------------------------------------------------------------
@@ -250,12 +268,12 @@ fn detects_latin_lookalikes_for_cyrillic_keyword() {
 
 #[test]
 fn detects_combined_separators_repeats_and_leet() {
-    assert!(should_moderate("5--p..aaa  M!!!", &kws(&["spam"])));
+    assert!(should_moderate("5--p..aaa  M!!!", &kws(&["spam"])).is_some());
 }
 
 #[test]
 fn detects_combined_tricks_ru() {
-    assert!(should_moderate("с-п-аааа-м!!!", &kws(&["спам"])));
+    assert!(should_moderate("с-п-аааа-м!!!", &kws(&["спам"])).is_some());
 }
 
 #[test]
@@ -263,7 +281,8 @@ fn multi_word_keyword_survives_separators() {
     assert!(should_moderate(
         "купи д.е.ш.ё.в.ы.е таблетки сейчас",
         &kws(&["дешёвые таблетки"])
-    ));
+    )
+    .is_some());
 }
 
 // ---------------------------------------------------------------------------
@@ -274,18 +293,18 @@ fn multi_word_keyword_survives_separators() {
 fn unrelated_text_with_short_words_is_allowed() {
     // Bunch of legit short words should not accidentally merge into a banned
     // word.
-    assert!(!should_moderate("I am at my own home", &kws(&["spam"])));
+    assert!(should_moderate("I am at my own home", &kws(&["spam"])).is_none());
 }
 
 #[test]
 fn partial_overlap_does_not_match() {
     // keyword "spamster" should NOT match text "spam" alone
-    assert!(!should_moderate("spam", &kws(&["spamster"])));
+    assert!(should_moderate("spam", &kws(&["spamster"])).is_none());
 }
 
 #[test]
 fn keyword_longer_than_text_does_not_match() {
-    assert!(!should_moderate("hi", &kws(&["hello there friend"])));
+    assert!(should_moderate("hi", &kws(&["hello there friend"])).is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -294,47 +313,47 @@ fn keyword_longer_than_text_does_not_match() {
 
 #[test]
 fn keyword_matches_plural_in_text_en() {
-    assert!(should_moderate("buy spams now", &kws(&["spam"])));
-    assert!(should_moderate("look at the boxes", &kws(&["box"])));
-    assert!(should_moderate("two parties tonight", &kws(&["party"])));
+    assert!(should_moderate("buy spams now", &kws(&["spam"])).is_some());
+    assert!(should_moderate("look at the boxes", &kws(&["box"])).is_some());
+    assert!(should_moderate("two parties tonight", &kws(&["party"])).is_some());
 }
 
 #[test]
 fn plural_keyword_matches_singular_in_text_en() {
-    assert!(should_moderate("this is spam", &kws(&["spams"])));
-    assert!(should_moderate("one box only", &kws(&["boxes"])));
-    assert!(should_moderate("the party", &kws(&["parties"])));
+    assert!(should_moderate("this is spam", &kws(&["spams"])).is_some());
+    assert!(should_moderate("one box only", &kws(&["boxes"])).is_some());
+    assert!(should_moderate("the party", &kws(&["parties"])).is_some());
 }
 
 #[test]
 fn plural_handles_es_after_sibilants_en() {
-    assert!(should_moderate("the dishes are clean", &kws(&["dish"])));
-    assert!(should_moderate("two churches", &kws(&["church"])));
-    assert!(should_moderate("many quizzes", &kws(&["quiz"])));
+    assert!(should_moderate("the dishes are clean", &kws(&["dish"])).is_some());
+    assert!(should_moderate("two churches", &kws(&["church"])).is_some());
+    assert!(should_moderate("many quizzes", &kws(&["quiz"])).is_some());
 }
 
 #[test]
 fn plural_survives_bypass_tricks_en() {
     // separators + leet + a trailing plural `s`
-    assert!(should_moderate("5-p-a-m-s incoming", &kws(&["spam"])));
-    assert!(should_moderate("s p a m s", &kws(&["spam"])));
-    assert!(should_moderate("spaaaams", &kws(&["spam"])));
+    assert!(should_moderate("5-p-a-m-s incoming", &kws(&["spam"])).is_some());
+    assert!(should_moderate("s p a m s", &kws(&["spam"])).is_some());
+    assert!(should_moderate("spaaaams", &kws(&["spam"])).is_some());
 }
 
 #[test]
 fn plural_stripping_does_not_mangle_short_words_en() {
     // "bus", "gas", "ads" are too short / end in `s` already → must NOT
     // be stripped down to "bu"/"ga"/"ad" and accidentally match.
-    assert!(!should_moderate("the bus is late", &kws(&["bu"])));
-    assert!(!should_moderate("no gas left", &kws(&["ga"])));
-    assert!(!should_moderate("see the ads", &kws(&["ad"])));
+    assert!(should_moderate("the bus is late", &kws(&["bu"])).is_none());
+    assert!(should_moderate("no gas left", &kws(&["ga"])).is_none());
+    assert!(should_moderate("see the ads", &kws(&["ad"])).is_none());
 }
 
 #[test]
 fn plural_stripping_does_not_affect_ru() {
     // Russian text uses cyrillic letters, so the EN plural rule must not
     // touch it: keyword "спам" still only matches the bare word.
-    assert!(should_moderate("это спам", &kws(&["спам"])));
+    assert!(should_moderate("это спам", &kws(&["спам"])).is_some());
     // and a non-matching cyrillic word stays non-matching.
-    assert!(!should_moderate("барак обама", &kws(&["рак"])));
+    assert!(should_moderate("барак обама", &kws(&["рак"])).is_none());
 }
