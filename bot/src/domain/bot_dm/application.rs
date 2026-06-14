@@ -199,26 +199,6 @@ fn render_group(group: &Group) -> String {
     )
 }
 
-fn format_keywords(keywords: Vec<String>) -> Vec<String> {
-    const MAX_KEYWORDS_PER_MESSAGE: usize = 1000;
-    let mut result = vec![];
-    let mut message = String::new();
-    for keyword in keywords {
-        if message.len() + keyword.len() + 1 > MAX_KEYWORDS_PER_MESSAGE {
-            result.push(message.clone());
-            message.clear();
-        }
-        if !message.is_empty() {
-            message.push('\n');
-        }
-        message.push_str(&keyword);
-    }
-    if !message.is_empty() {
-        result.push(message);
-    }
-    result
-}
-
 #[async_trait]
 impl BotDmReceiver for BotDmApplication {
     async fn handle_dm(&self, user_id: UserId, message: &Message) -> Result<(), Err> {
@@ -256,9 +236,9 @@ impl BotDmReceiver for BotDmApplication {
                             .await?;
                     }
                     Some(keywords) => {
-                        for message in format_keywords(keywords) {
-                            self.messenger.send_dm(&user_id, &message).await?;
-                        }
+                        self.messenger
+                            .send_dm(&user_id, &keywords.join("\n"))
+                            .await?;
                     }
                     None => {
                         self.messenger

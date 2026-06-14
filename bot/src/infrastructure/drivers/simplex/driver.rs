@@ -1,4 +1,6 @@
+use super::consts::MESSAGE_MAX_LENGTH_IN_BYTES;
 use super::consts::{BOT_PHOTO, TTL};
+use super::message_split::split_lines_by_byte_limit;
 use async_stream::stream;
 use futures::TryStreamExt as _;
 use futures::stream::Stream;
@@ -91,7 +93,7 @@ impl SimplexDriver {
         }
     }
 
-    pub async fn send_message_text(
+    async fn send_message_text_raw(
         &self,
         user_id: UserId,
         text: String,
@@ -139,6 +141,19 @@ impl SimplexDriver {
             .item_id;
 
         Ok(message_id)
+    }
+
+    pub async fn send_message_text(
+        &self,
+        user_id: UserId,
+        text: String,
+        reply_id: Option<i64>,
+    ) -> Result<i64, Box<dyn Error>> {
+        let mut last_message_id = None;
+        for chunk in split_lines_by_byte_limit(&text, MESSAGE_MAX_LENGTH_IN_BYTES) {
+            last_message_id = Some(self.send_message_text_raw(user_id, chunk, reply_id).await?);
+        }
+        last_message_id.ok_or_else(|| "No message was sent".into())
     }
 
     /// Join a group/contact via a SimpleX invite link.

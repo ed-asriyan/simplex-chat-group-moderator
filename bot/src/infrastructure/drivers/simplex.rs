@@ -1,4 +1,5 @@
 mod consts;
-mod simplex;
+mod driver;
+mod message_split;
 
-pub use simplex::{GroupId, MessageId, SimpleXConfig, SimplexDriver, SimplexEvent, UserId};
+pub use driver::{GroupId, MessageId, SimpleXConfig, SimplexDriver, SimplexEvent, UserId};
