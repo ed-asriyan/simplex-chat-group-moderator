@@ -142,6 +142,18 @@ fn doubled_letter_keyword_still_respects_word_boundaries() {
     assert!(should_moderate("a big bob", &kws(&["boob"])).is_none());
 }
 
+#[test]
+fn doubled_letter_keyword_matches_ies_plural_en() {
+    // Real-world false negative: keyword "boob" must catch "boobies"
+    // (the `-y` → `-ies` plural), not just "boob"/"boobs". The `-ies` rule
+    // used to rewrite it to "booby" and miss the match.
+    assert!(should_moderate("look at the boobies", &kws(&["boob"])).is_some());
+    assert!(should_moderate("BOOBIES", &kws(&["boob"])).is_some());
+    // combined with flooding / leet bypasses.
+    assert!(should_moderate("b00bies everywhere", &kws(&["boob"])).is_some());
+    assert!(should_moderate("booooobies", &kws(&["boob"])).is_some());
+}
+
 // ---------------------------------------------------------------------------
 // doubled letters in the *keyword* must not collapse onto innocent words
 // (regression: keyword "ass"/"a55" matched "as still" in normal prose)
@@ -287,6 +299,22 @@ fn detects_leet_with_repeats_and_separators() {
     assert!(should_moderate("5 p 4 4 m", &kws(&["spam"])).is_some());
 }
 
+// ---------------------------------------------------------------------------
+// @-prefixed mentions
+// ---------------------------------------------------------------------------
+
+#[test]
+fn at_prefixed_mention_matches_bare_keyword() {
+    assert!(should_moderate("ping @crawlerbot now", &kws(&["crawlerbot"])).is_some());
+    assert!(should_moderate("@spam", &kws(&["spam"])).is_some());
+}
+
+#[test]
+fn mid_word_at_is_still_leet_a() {
+    // `@` inside a word stays the letter `a`, so leet bypass keeps working.
+    assert!(should_moderate("5P@M", &kws(&["spam"])).is_some());
+}
+
 #[test]
 fn keyword_written_in_leet_also_works() {
     // even if the user stores the keyword in leet, normalisation makes it
@@ -393,6 +421,7 @@ fn plural_handles_es_after_sibilants_en() {
     assert!(should_moderate("the dishes are clean", &kws(&["dish"])).is_some());
     assert!(should_moderate("two churches", &kws(&["church"])).is_some());
     assert!(should_moderate("many quizzes", &kws(&["quiz"])).is_some());
+    assert!(should_moderate("stop calling them bitches", &kws(&["bitch"])).is_some());
 }
 
 #[test]
@@ -419,4 +448,237 @@ fn plural_stripping_does_not_affect_ru() {
     assert!(should_moderate("это спам", &kws(&["спам"])).is_some());
     // and a non-matching cyrillic word stays non-matching.
     assert!(should_moderate("барак обама", &kws(&["рак"])).is_none());
+}
+
+// ---------------------------------------------------------------------------
+// compound word: joined vs split (blowjob <-> blow job)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn compound_keyword_matches_split_text_en() {
+    assert!(should_moderate("that was a blow job", &kws(&["blowjob"])).is_some());
+}
+
+#[test]
+fn split_keyword_matches_joined_text_en() {
+    assert!(should_moderate("blowjob here", &kws(&["blow job"])).is_some());
+}
+
+// ---------------------------------------------------------------------------
+// spelling-variant family: dog / doggy / doggie (+ style joined or split)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn doggy_style_variants_are_equivalent() {
+    let texts = [
+        "doggy style",
+        "doggie style",
+        "dogy style",
+        "doggystyle",
+        "doggiestyle",
+        "doggies style",
+        "dog style",
+    ];
+    let keywords = [
+        "doggie style",
+        "doggy style",
+        "doggystyle",
+        "doggiestyle",
+        "dog style",
+    ];
+    for kw in keywords {
+        for text in texts {
+            assert!(
+                should_moderate(text, &kws(&[kw])).is_some(),
+                "keyword {kw:?} should flag text {text:?}"
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// verb / derivational forms: masturbate / masturbation / masturbating
+// ---------------------------------------------------------------------------
+
+#[test]
+fn masturbate_matches_derived_forms_en() {
+    assert!(should_moderate("stop masturbation talk", &kws(&["masturbate"])).is_some());
+    assert!(should_moderate("he is masturbating", &kws(&["masturbate"])).is_some());
+}
+
+// ---------------------------------------------------------------------------
+// -y / -ies, derivational -y, -ly, -ity families
+// ---------------------------------------------------------------------------
+
+#[test]
+fn panty_matches_panties_en() {
+    assert!(should_moderate("pink panties", &kws(&["panty"])).is_some());
+}
+
+#[test]
+fn sex_matches_sexy_en() {
+    assert!(should_moderate("so sexy tonight", &kws(&["sex"])).is_some());
+}
+
+#[test]
+fn sexual_matches_sexually_and_sexuality_en() {
+    assert!(should_moderate("acting sexually", &kws(&["sexual"])).is_some());
+    assert!(should_moderate("about sexuality", &kws(&["sexual"])).is_some());
+}
+
+// ---------------------------------------------------------------------------
+// tit family: tit / tits / titty / titties — all mutually equivalent
+// ---------------------------------------------------------------------------
+
+#[test]
+fn tit_family_variants_are_equivalent() {
+    let forms = ["tit", "tits", "titty", "titties"];
+    for kw in forms {
+        for form in forms {
+            let text = format!("look at the {form} over there");
+            assert!(
+                should_moderate(&text, &kws(&[kw])).is_some(),
+                "keyword {kw:?} should flag text containing {form:?}"
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// false-positive guards: ordinary, legitimate messages must NOT be moderated
+// even when a blocked keyword is a substring of an innocent longer word.
+// ---------------------------------------------------------------------------
+
+/// A realistic set of blocked keywords a moderator might configure.
+fn typical_blocklist() -> Vec<String> {
+    kws(&[
+        "spam",
+        "ass",
+        "sex",
+        "tit",
+        "anal",
+        "cum",
+        "hell",
+        "boob",
+        "butt",
+        "sexual",
+        "masturbate",
+        "blowjob",
+        "dog style",
+    ])
+}
+
+#[test]
+fn does_not_flag_innocent_words_containing_keyword_substrings() {
+    let blocklist = typical_blocklist();
+    let innocent = [
+        // "ass" hiding in ordinary words
+        "the class starts at noon",
+        "please pass the salt",
+        "a brass band played",
+        "the embassy is closed today",
+        "let me assess the situation",
+        "I assume you are coming",
+        // "sex" hiding in place / ordinary words
+        "we drove through Essex on holiday",
+        "the sextant is a navigation tool",
+        "she studies middlesex county records",
+        // "tit" hiding in ordinary words
+        "the title of the book is great",
+        "the constitution protects rights",
+        "I signed the online petition",
+        "competition was fierce this year",
+        "his attitude has improved",
+        // "anal" hiding in ordinary words
+        "the data analysis looks correct",
+        "we need to analyze the logs",
+        "the canal boat trip was lovely",
+        // "cum" hiding in ordinary words
+        "the cucumber salad was fresh",
+        "please read the documentation",
+        "under the circumstances we agree",
+        "savings accumulate over time",
+        // "hell" hiding in ordinary words
+        "she sells sea shells",
+        "the turtle hid in its shell",
+        // "dog" near "style" but unrelated meaning
+        "my dog has a nice coat",
+        "I like that coding style",
+    ];
+    for msg in innocent {
+        assert!(
+            should_moderate(msg, &blocklist).is_none(),
+            "innocent message was wrongly moderated: {msg:?} (matched {:?})",
+            should_moderate(msg, &blocklist)
+        );
+    }
+}
+
+#[test]
+fn does_not_flag_everyday_conversation() {
+    let blocklist = typical_blocklist();
+    let messages = [
+        "Hey everyone, what time is the meeting tomorrow?",
+        "Thanks for the help, that fixed my bug!",
+        "Could someone share the link to the docs?",
+        "I just deployed the new version, please test it.",
+        "Happy birthday! Hope you have a wonderful day.",
+        "The weather is lovely today, perfect for a walk.",
+        "Does anyone know a good restaurant nearby?",
+        "I'll be out of office next week on vacation.",
+        "Great presentation, really clear explanations.",
+        "Can we reschedule the call to 3pm?",
+    ];
+    for msg in messages {
+        assert!(
+            should_moderate(msg, &blocklist).is_none(),
+            "everyday message was wrongly moderated: {msg:?}"
+        );
+    }
+}
+
+#[test]
+fn does_not_flag_when_keyword_appears_only_as_word_part_ru() {
+    // Cyrillic look-alikes must not cause innocent Russian words to match.
+    let blocklist = kws(&["рак", "спам", "сос"]);
+    let innocent = [
+        "барак был большой",    // contains "рак" as substring
+        "это просто сообщение", // contains "сос"? no — guard anyway
+        "красивый закат сегодня",
+        "сосна растёт в лесу", // "сос" inside "сосна"
+    ];
+    for msg in innocent {
+        assert!(
+            should_moderate(msg, &blocklist).is_none(),
+            "innocent RU message was wrongly moderated: {msg:?}"
+        );
+    }
+}
+
+#[test]
+fn does_not_flag_code_or_urls() {
+    let blocklist = typical_blocklist();
+    let messages = [
+        "see https://example.com/assets/main.css for details",
+        "run `cargo test --package bot` to verify",
+        "the class ClassName implements Trait",
+        "git commit -m \"fix: assertion in parser\"",
+    ];
+    for msg in messages {
+        assert!(
+            should_moderate(msg, &blocklist).is_none(),
+            "code/url message was wrongly moderated: {msg:?}"
+        );
+    }
+}
+
+#[test]
+fn equivalence_groups_do_not_over_match_innocent_words() {
+    // The curated equivalence groups must only fire on their own forms, not
+    // on unrelated words that merely share a prefix/substring.
+    assert!(should_moderate("the sexton rang the bell", &kws(&["sex"])).is_none());
+    assert!(should_moderate("a homosexual rights march", &kws(&["sexual"])).is_none());
+    assert!(should_moderate("the titanic sank in 1912", &kws(&["tit"])).is_none());
+    assert!(should_moderate("a dogma is a fixed belief", &kws(&["dog style"])).is_none());
+    assert!(should_moderate("the masterpiece was stunning", &kws(&["masturbate"])).is_none());
 }

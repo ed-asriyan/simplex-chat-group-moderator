@@ -6,7 +6,10 @@
 //! The filter is intentionally bypass-resistant. It transparently sees through:
 //!
 //! - case differences (`Spam`, `SPAM`, `sPaM`);
-//! - leet substitutions (`5p4m`, `$pam`, `@ss`);
+//! - leet substitutions (`5p4m`, `$pam`, `5p@m`);
+//! - `@`-prefixed mentions (`@crawlerbot` matches the keyword `crawlerbot`) —
+//!   a `@` at the start of a word is treated as a mention sigil and dropped,
+//!   while a `@` inside a word is still read as the letter `a`;
 //! - cyrillic look-alikes mixed into latin and vice versa (`sраm` with
 //!   cyrillic `р`+`а`, `спам` vs `spam`);
 //! - separators inserted between letters (`s p a m`, `s.p.a.m`, `s-p-a-m`,
@@ -17,7 +20,17 @@
 //!   match the ordinary word `but`;
 //! - simple English plural forms (`spams`, `boxes`, `parties`) — both the
 //!   text and the keyword are stripped of trailing `-s`/`-es`/`-ies`, so a
-//!   keyword `spam` matches `spams` and a keyword `spams` matches `spam`.
+//!   keyword `spam` matches `spams` and a keyword `spams` matches `spam`;
+//! - common derivational / inflectional suffixes (`sex`→`sexy`,
+//!   `sexual`→`sexually`/`sexuality`, `masturbate`→`masturbation`/
+//!   `masturbating`, `dog`→`doggy`/`doggie`) — a token is reduced to a base
+//!   form by stripping one recognised suffix and undoing the consonant
+//!   doubling such a suffix triggers (`titty`→`titt`→`tit`), so morphological
+//!   variants of a keyword still match;
+//! - compound words written joined or split (`blowjob` ⇄ `blow job`,
+//!   `doggystyle` ⇄ `doggy style`) — for longer keywords the tokens are glued
+//!   and fuzzily normalised so a window of text tokens matches regardless of
+//!   where word boundaries fall.
 //!
 //! Word boundaries are still respected for "ordinary" text — `"ass"` does
 //! **not** match inside `"classic"` (no separators/look-alikes are present
@@ -38,12 +51,68 @@ pub fn should_moderate(text: &str, blocked_keywords: &[String]) -> Option<String
         if needle.is_empty() {
             return None;
         }
-        if contains_subsequence(&tokens, &needle) || contains_subsequence(&merged, &needle) {
-            Some(kw.clone())
-        } else {
-            None
+        if needle_present(&tokens, &merged, &needle) || compound_present(&tokens, &needle) {
+            return Some(kw.clone());
         }
+        None
     })
+}
+
+/// True iff `needle` appears in either the plain or the short-run-merged view
+/// of the text tokens.
+fn needle_present(tokens: &[String], merged: &[String], needle: &[String]) -> bool {
+    contains_subsequence(tokens, needle) || contains_subsequence(merged, needle)
+}
+
+/// Generic join/split compound matcher. Glues the keyword tokens into one
+/// string, fuzzily normalises it (collapse repeats, `ie`→`y`, drop the soft
+/// `y`/`i` vowels that mark spelling/diminutive variants) and looks for a
+/// contiguous window of text tokens whose glued+normalised form is identical.
+///
+/// This is what lets `blowjob` match `blow job` and `dog style` match
+/// `doggystyle`, irrespective of where the word boundaries land. It only fires
+/// for keywords whose normalised form is reasonably long (≥ 5 chars), so short
+/// keywords like `ass`/`cum`/`tit` keep strict per-token word boundaries and
+/// never collapse onto innocent neighbours.
+fn compound_present(haystack: &[String], needle: &[String]) -> bool {
+    let gn = fuzzy_compound(&needle.concat());
+    if gn.chars().count() < 5 {
+        return false;
+    }
+    let gn_len = gn.chars().count();
+    for start in 0..haystack.len() {
+        let mut glued = String::new();
+        for tok in &haystack[start..] {
+            glued.push_str(tok);
+            let gw = fuzzy_compound(&glued);
+            if gw == gn {
+                return true;
+            }
+            if gw.chars().count() > gn_len {
+                break;
+            }
+        }
+    }
+    false
+}
+
+/// Collapse all repeated characters to one, fold `ie`→`y`, then drop the soft
+/// vowels `y`/`i`. Used only by [`compound_present`] to reconcile spelling and
+/// diminutive variants of compound words (`dog`/`doggy`/`doggie`).
+fn fuzzy_compound(s: &str) -> String {
+    let mut collapsed = String::with_capacity(s.len());
+    let mut last: Option<char> = None;
+    for c in s.chars() {
+        if Some(c) != last {
+            collapsed.push(c);
+            last = Some(c);
+        }
+    }
+    collapsed
+        .replace("ie", "y")
+        .chars()
+        .filter(|&c| c != 'y' && c != 'i')
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -55,16 +124,30 @@ pub fn should_moderate(text: &str, blocked_keywords: &[String]) -> Option<String
 /// can be run-length-aware (a flooded `"booooob"` still carries enough `o`s to
 /// satisfy a doubled-letter keyword like `"boob"`).
 fn normalize_and_tokenize(s: &str) -> Vec<String> {
-    let normalized: String = s
-        .chars()
-        .flat_map(|c| c.to_lowercase())
-        .map(canonicalize)
-        .collect();
+    // Lower-case first so positional checks below see the final characters.
+    let lowered: Vec<char> = s.chars().flat_map(|c| c.to_lowercase()).collect();
+
+    let mut normalized = String::with_capacity(lowered.len());
+    for (i, &c) in lowered.iter().enumerate() {
+        if c == '@' {
+            // A `@` that opens a word is a mention sigil (`@crawlerbot`): emit a
+            // separator so it splits off rather than becoming the letter `a`.
+            // A `@` inside a word stays leet-`a` (`5p@m` -> `spam`).
+            let prev_is_alnum = i > 0 && lowered[i - 1].is_alphanumeric();
+            if prev_is_alnum {
+                normalized.push('a');
+            } else {
+                normalized.push(' ');
+            }
+        } else {
+            normalized.push(canonicalize(c));
+        }
+    }
 
     normalized
         .split(|c: char| !c.is_alphanumeric())
         .filter(|t| !t.is_empty())
-        .map(depluralize_en)
+        .map(|t| t.to_string())
         .collect()
 }
 
@@ -87,7 +170,6 @@ fn canonicalize(c: char) -> char {
         '7' => 't',
         '8' => 'b',
         '9' => 'g',
-        '@' => 'a',
         '$' => 's',
         // cyrillic → latin look-alikes
         'а' => 'a',
@@ -133,25 +215,40 @@ fn collapse_floods(s: &str) -> String {
     out
 }
 
-/// Strip common English plural suffixes (`-ies` → `-y`, `-es`, `-s`) from a
-/// token whose characters are already lower-cased and canonicalised.
+/// Produce candidate singular forms for an (already lower-cased / canonicalised)
+/// token, used for run-length-aware matching. The token itself is always a
+/// candidate; recognised English plural suffixes contribute additional stems.
 ///
-/// Only ASCII-letter tokens are touched, so Cyrillic words pass through
-/// unchanged. The stem is required to be at least 3 characters long so that
-/// short legitimate words ending in `s` (e.g. `bus`, `gas`) are not mangled.
-fn depluralize_en(s: &str) -> String {
+/// Only ASCII-letter tokens get extra candidates, so Cyrillic words pass
+/// through unchanged. Generating *several* stems (rather than committing to a
+/// single guess) lets a keyword like `boob` match both `boobs` (`-s`) and
+/// `boobies` (`-y` → `-ies`, whose bare stem is also offered).
+fn singular_candidates(s: &str) -> Vec<String> {
+    let mut out = vec![s.to_string()];
+
     // Only consider tokens made entirely of ASCII letters; anything else
     // (digits, cyrillic, mixed) is left alone.
     if s.is_empty() || !s.chars().all(|c| c.is_ascii_lowercase()) {
-        return s.to_string();
+        return out;
     }
 
-    // `-ies` → `-y` (parties → party, cities → city). Needs a stem of ≥ 2
-    // letters before the `ies` so we don't turn `ties` into `ty`.
+    // Collect every base form reachable by stripping a single recognised
+    // suffix. Each stem also contributes its "un-doubled" variant, undoing the
+    // consonant doubling a suffix triggers (`titty`→`titt`→`tit`,
+    // `doggy`→`dogg`→`dog`). The doubling is only undone on stems produced by
+    // stripping a suffix — never on the bare token — so `butt`/`pass`/`hello`
+    // keep their doubled letters and a keyword `butt` still does not match
+    // `but`.
+    let mut stems: Vec<String> = Vec::new();
+
+    // `-ies`: offer both the `-y` form (parties → party, cities → city) and
+    // the bare stem (boobies → boob, cookies → cook).
     if s.len() > 4 && s.ends_with("ies") {
-        let mut stem = s[..s.len() - 3].to_string();
-        stem.push('y');
-        return stem;
+        let stem = &s[..s.len() - 3];
+        stems.push(format!("{stem}y"));
+        if stem.len() >= 3 {
+            stems.push(stem.to_string());
+        }
     }
 
     // `-es` after a sibilant cluster (boxes, buses, dishes, churches,
@@ -168,9 +265,10 @@ fn depluralize_en(s: &str) -> String {
             // Undo that doubling so the stem matches the singular keyword,
             // but leave genuinely doubled stems like `glass` (glasses) alone.
             if let Some(base) = stem.strip_suffix("zz") {
-                return format!("{base}z");
+                stems.push(format!("{base}z"));
+            } else {
+                stems.push(stem.to_string());
             }
-            return stem.to_string();
         }
     }
 
@@ -179,11 +277,47 @@ fn depluralize_en(s: &str) -> String {
     if s.len() > 3 && s.ends_with('s') {
         let stem = &s[..s.len() - 1];
         if !stem.ends_with('s') {
-            return stem.to_string();
+            stems.push(stem.to_string());
         }
     }
 
-    s.to_string()
+    // Derivational / diminutive / inflectional suffixes that reduce a word to a
+    // shorter base form. Listed longest-first so the most specific one wins.
+    for suffix in ["ation", "ing", "ion", "ity", "ly", "ie", "y", "e"] {
+        if let Some(stem) = s.strip_suffix(suffix) {
+            if stem.len() >= 3 {
+                stems.push(stem.to_string());
+            }
+        }
+    }
+
+    for stem in stems {
+        if let Some(undoubled) = undouble_final(&stem) {
+            out.push(undoubled);
+        }
+        out.push(stem);
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// If `s` ends in a doubled consonant (`titt`, `dogg`, `embass`), return the
+/// form with a single final consonant (`tit`, `dog`, `embas`); otherwise
+/// `None`. Vowels are never un-doubled (so `boob`/`bee` are untouched).
+fn undouble_final(s: &str) -> Option<String> {
+    let b = s.as_bytes();
+    let n = b.len();
+    if n >= 2 && b[n - 1] == b[n - 2] && is_consonant(b[n - 1]) {
+        Some(s[..n - 1].to_string())
+    } else {
+        None
+    }
+}
+
+/// True for ASCII consonants (an ASCII letter that is not a vowel).
+fn is_consonant(c: u8) -> bool {
+    c.is_ascii_alphabetic() && !matches!(c, b'a' | b'e' | b'i' | b'o' | b'u')
 }
 
 /// Merge consecutive short tokens (≤ 2 characters) into a single token.
@@ -204,13 +338,13 @@ fn merge_short_runs(tokens: &[String]) -> Vec<String> {
             buf.push_str(&collapsed);
         } else {
             if !buf.is_empty() {
-                out.push(depluralize_en(&std::mem::take(&mut buf)));
+                out.push(std::mem::take(&mut buf));
             }
             out.push(t.clone());
         }
     }
     if !buf.is_empty() {
-        out.push(depluralize_en(&buf));
+        out.push(buf);
     }
     out
 }
@@ -227,20 +361,31 @@ fn rle(s: &str) -> Vec<(char, usize)> {
     out
 }
 
-/// True iff `text_tok` matches `kw_tok` allowing flooded (repeated) letters:
-/// both must have the same sequence of distinct letters and, for each letter,
-/// the text must repeat it *at least* as many times as the keyword. So
-/// `"booooob"` matches `"boob"`, but `"bob"` does not, and `"but"` does not
-/// match `"butt"`.
-fn token_matches(text_tok: &str, kw_tok: &str) -> bool {
-    let a = rle(text_tok);
-    let b = rle(kw_tok);
+/// True iff `a`'s run-length encoding "covers" `b`'s: same sequence of distinct
+/// letters and, for each letter, `a` repeats it *at least* as many times as
+/// `b`. So `"booooob"` covers `"boob"`, but `"bob"` does not, and `"but"` does
+/// not cover `"butt"`.
+fn rle_covers(a: &str, b: &str) -> bool {
+    let a = rle(a);
+    let b = rle(b);
     if a.len() != b.len() {
         return false;
     }
     a.iter()
         .zip(b.iter())
-        .all(|(&(tc, tn), &(kc, kn))| tc == kc && tn >= kn)
+        .all(|(&(ac, an), &(bc, bn))| ac == bc && an >= bn)
+}
+
+/// True iff `text_tok` matches `kw_tok`, tolerating flooded (repeated) letters
+/// and English plural forms on either side. Each token contributes a few
+/// candidate singular stems; a match on any text-candidate / keyword-candidate
+/// pair counts.
+fn token_matches(text_tok: &str, kw_tok: &str) -> bool {
+    let text_cands = singular_candidates(text_tok);
+    let kw_cands = singular_candidates(kw_tok);
+    text_cands
+        .iter()
+        .any(|tc| kw_cands.iter().any(|kc| rle_covers(tc, kc)))
 }
 
 /// Returns true iff `needle` appears as a contiguous run of tokens inside
