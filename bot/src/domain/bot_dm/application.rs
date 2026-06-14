@@ -350,10 +350,11 @@ impl ModerationNotificationReceiver for BotDmApplication {
         user_id: UserId,
         group: &Group,
         message: &str,
+        phrase: &str,
     ) -> Result<(), Err> {
         let text = format!(
-            "🛡 I moderated a message in *{}*:\n\n{}",
-            group.name, message,
+            "🛡 I moderated a message in *{}*!\n\n*The message:*\n{}\n\n*Phrase found:*\n{}",
+            group.name, message, phrase,
         );
         self.messenger.send_dm(&user_id, &text).await
     }
