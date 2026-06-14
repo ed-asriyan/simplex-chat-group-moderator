@@ -24,6 +24,13 @@ pub async fn run(conn: Arc<Mutex<Connection>>) -> Result<(), Err> {
 }
 
 fn apply(conn: &mut Connection) -> Result<(), Err> {
+    // SQLite disables foreign key enforcement per-connection by default. Enable
+    // it here so ON DELETE CASCADE constraints (e.g. group -> keywords) are
+    // honoured for both the migrations below and all later queries on this
+    // connection. This pragma is a no-op inside a transaction, so it must be set
+    // before the per-migration transactions begin.
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+
     let current: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     let current = current.max(0) as usize;
 

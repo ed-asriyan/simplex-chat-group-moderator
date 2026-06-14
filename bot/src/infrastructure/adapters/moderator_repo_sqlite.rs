@@ -226,20 +226,13 @@ impl ModerationRepository for SqliteModerationRepository {
         let conn = self.conn.clone();
         let mid = *messenger_group_id;
         tokio::task::spawn_blocking(move || -> Result<(), rusqlite::Error> {
-            let mut guard = conn.lock().expect("moderation repo connection poisoned");
-            let tx = guard.transaction()?;
-            tx.execute(
-                "DELETE FROM moderation_group_keywords
-                 WHERE group_id IN (
-                     SELECT group_id FROM moderation_groups WHERE messenger_group_id = ?1
-                 )",
-                params![mid],
-            )?;
-            tx.execute(
+            let guard = conn.lock().expect("moderation repo connection poisoned");
+            // Keywords are removed automatically via the ON DELETE CASCADE
+            // foreign key on moderation_group_keywords.group_id.
+            guard.execute(
                 "DELETE FROM moderation_groups WHERE messenger_group_id = ?1",
                 params![mid],
             )?;
-            tx.commit()?;
             Ok(())
         })
         .await
