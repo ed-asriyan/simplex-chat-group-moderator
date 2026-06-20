@@ -4,7 +4,7 @@ mod links;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "parameters")]
+#[serde(tag = "type")]
 pub enum ModerationRule {
     WordsBlacklist { keywords: Vec<String> },
     LinksBlacklist { blocked: Vec<String> },
