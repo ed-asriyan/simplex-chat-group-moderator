@@ -7,7 +7,6 @@ use crate::domain::bot_dm::ports::{
 };
 use crate::domain::moderator::ports::{
     GroupInvitation as ModGroupInvitation, MessengerGroup, ModerationEngine, ModerationRule,
-    ModerationRuleType,
 };
 
 /// Bridges the `bot_dm` bounded context to the `moderator` bounded context by

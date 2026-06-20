@@ -3,10 +3,9 @@ use rand::RngExt;
 use rusqlite::{Connection, params};
 use std::sync::{Arc, Mutex};
 
-use crate::domain::moderator::message_filter::ModerationRuleLink;
 use crate::domain::moderator::ports::{
     Err, Group, GroupId, MessengerGroupId, ModerationRepository, ModerationRule,
-    ModerationRuleType, OwnedModerationRule, UserId,
+    OwnedModerationRule, UserId,
 };
 const GROUP_ID_MIN: i64 = 1;
 const GROUP_ID_MAX: i64 = 1_000_000;
@@ -203,17 +202,19 @@ impl ModerationRepository for SqliteModerationRepository {
              
              let mut rng = rand::rng();
              for rule in rules {
-                 let rule_type_str = match rule.rule_type {
-                     ModerationRuleType::Keywords(_) => "keywords",
-                     ModerationRuleType::Link(_) => "link",
+                 let rule_type_str = match rule {
+                     ModerationRule::WordsBlacklist { .. } => "words_blacklist",
+                     ModerationRule::LinksBlacklist { .. } => "links_blacklist",
+                     ModerationRule::LinksWhitelist { .. } => "links_whitelist",
+                     ModerationRule::LinksWhitelistTop100 {} => "links_whitelist_top100",
                  };
 
                  let mut rule_id: i64 = 0;
                  for _ in 0..GROUP_ID_ALLOC_MAX_ATTEMPTS {
                      let id_candidate: i64 = rng.random_range(GROUP_ID_MIN..GROUP_ID_MAX);
                      let res = tx.execute(
-                         "INSERT INTO moderation_rules (id, group_id, rule_type, enabled) VALUES (?1, ?2, ?3, ?4)",
-                         rusqlite::params![id_candidate, gid, rule_type_str, rule.enabled]
+                         "INSERT INTO moderation_rules (id, group_id, rule_type) VALUES (?1, ?2, ?3)",
+                         rusqlite::params![id_candidate, gid, rule_type_str]
                      );
                      match res {
                          Ok(_) => {
@@ -231,24 +232,29 @@ impl ModerationRepository for SqliteModerationRepository {
                      return Err("failed to allocate a unique rule_id".into());
                  }
 
-                 match rule.rule_type {
-                     ModerationRuleType::Keywords(k) => {
+                 match rule {
+                     ModerationRule::WordsBlacklist { keywords: k } => {
                           let mut stmt = tx.prepare("INSERT INTO moderation_rule_keywords (rule_id, keyword) VALUES (?1, ?2)").map_err(|e| -> Err { e.to_string().into() })?;
                           for kw in k.iter().filter(|k| !k.is_empty()) {
                               stmt.execute(rusqlite::params![rule_id, kw]).map_err(|e| -> Err { e.to_string().into() })?;
                           }
                      },
-                     ModerationRuleType::Link(link) => {
-                         tx.execute("INSERT INTO moderation_rule_links (rule_id, inclusive, allow_top100) VALUES (?1, ?2, ?3)", rusqlite::params![rule_id, link.inclusive, link.allow_top100]).map_err(|e| -> Err { e.to_string().into() })?;
-                         let mut stmt = tx.prepare("INSERT INTO moderation_rule_link_domains (rule_id, domain, is_allowed) VALUES (?1, ?2, ?3)").map_err(|e| -> Err { e.to_string().into() })?;
-                         for domain in link.allowed {
-                             stmt.execute(rusqlite::params![rule_id, domain, true]).map_err(|e| -> Err { e.to_string().into() })?;
-                         }
-                         for domain in link.blocked {
-                             stmt.execute(rusqlite::params![rule_id, domain, false]).map_err(|e| -> Err { e.to_string().into() })?;
-                         }
+                     ModerationRule::LinksBlacklist { blocked } => {
+                     let mut stmt = tx.prepare("INSERT INTO moderation_rule_link_domains (rule_id, domain) VALUES (?1, ?2)").map_err(|e| -> Err { e.to_string().into() })?;
+                     for domain in blocked {
+                         stmt.execute(rusqlite::params![rule_id, domain]).map_err(|e| -> Err { e.to_string().into() })?;
+                     }
+                 },
+                 ModerationRule::LinksWhitelist { allowed } => {
+                     let mut stmt = tx.prepare("INSERT INTO moderation_rule_link_domains (rule_id, domain) VALUES (?1, ?2)").map_err(|e| -> Err { e.to_string().into() })?;
+                     for domain in allowed {
+                         stmt.execute(rusqlite::params![rule_id, domain]).map_err(|e| -> Err { e.to_string().into() })?;
                      }
                  }
+                 ModerationRule::LinksWhitelistTop100 {} => {
+                     // No domain data to store — the list is built into the binary.
+                 }
+             }
              }
 
              tx.commit().map_err(|e| -> Err { e.to_string().into() })?;

@@ -4,13 +4,9 @@ use std::sync::Arc;
 use super::message_filter::should_moderate;
 use super::ports::{
     Err, Group, GroupId, GroupInvitation, GroupMessage, GroupModerator, MessengerGroupId,
-    ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule, ModerationRuleType,
+    ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule,
     OwnedModerationRule, UserId,
 };
-
-/// Stable identifier of the single keyword rule that the keyword-based
-/// repository exposes for a group until per-rule persistence exists.
-const KEYWORDS_RULE_ID: usize = 0;
 
 /// Maximum number of keywords allowed per group.
 const MAX_KEYWORDS_PER_GROUP: usize = 10_000;
@@ -116,8 +112,8 @@ impl ModerationEngine for ModeratorApplication {
         }
 
         for rule in &rules {
-            match &rule.rule_type {
-                ModerationRuleType::Keywords(keywords) => {
+            match rule {
+                ModerationRule::WordsBlacklist { keywords, .. } => {
                     if keywords.len() > MAX_KEYWORDS_PER_GROUP {
                         return Err(format!(
                             "Too many keywords: {} provided, maximum is {}",
@@ -138,10 +134,12 @@ impl ModerationEngine for ModeratorApplication {
                         .into());
                     }
                 }
-                ModerationRuleType::Link(_) => {}
+                ModerationRule::LinksBlacklist { .. } => {}
+                ModerationRule::LinksWhitelist { .. } => {}
+                ModerationRule::LinksWhitelistTop100 {} => {}
             }
         }
-        
+
         self.repository.set_group_rules(&group_id, &rules).await?;
         Ok(())
     }

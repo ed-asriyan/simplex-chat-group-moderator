@@ -169,10 +169,10 @@ fn render_group(group: &Group) -> String {
     };
     format!(
         "*{}* {}
-        View & Edit Rules: /rules_{}
-        {}
-        {}\
-        ",
+View & Edit Rules: /rules_{}
+{}
+{}\
+",
         group.name,
         group_anchor(group),
         group.id,
@@ -226,7 +226,7 @@ To change the rules:
 2. Edit it.
 3. Reply back to *this message* with your new YAML text to apply the changes.
 
-Docs: https://github.com/simplex-chat/group-moderator/blob/master/docs/RULES.md",
+Docs: https://github.com/ed-asriyan/simplex-chat-group-moderator/blob/master/docs/RULES.md",
                             group_anchor(&Group {
                                 id: group_id,
                                 name: String::new(),
@@ -254,16 +254,6 @@ Docs: https://github.com/simplex-chat/group-moderator/blob/master/docs/RULES.md"
                             .send_dm(&user_id, &render_group(group))
                             .await?;
                     }
-
-                    self.messenger
-                        .send_dm(
-                            &user_id,
-                            "To set the blocked words for a group, reply to that group's \
-                             message above with a list of words or phrases, each on a new line. \
-                             Each reply rewrites the whole list!\n\n\
-                             If you want me to stop moderating a group, just kick me from it.",
-                        )
-                        .await?;
                 }
             }
             ParsedDm::SetNotifications { group_id, enabled } => {
