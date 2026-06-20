@@ -191,7 +191,15 @@ impl ModerationRepository for SqliteModerationRepository {
         let conn = self.conn.clone();
         let gid = *group_id;
         
-        let rules = rules.to_vec();
+        let mut rules = rules.to_vec();
+        for rule in &mut rules {
+            match rule {
+                ModerationRule::WordsBlacklist { keywords } => { keywords.sort(); keywords.dedup(); }
+                ModerationRule::LinksBlacklist { blocked } => { blocked.sort(); blocked.dedup(); }
+                ModerationRule::LinksWhitelist { allowed } => { allowed.sort(); allowed.dedup(); }
+                ModerationRule::LinksWhitelistTop100 {} => {}
+            }
+        }
 
         tokio::task::spawn_blocking(move || -> Result<(), Err> {
              let mut guard = conn.lock().unwrap();
