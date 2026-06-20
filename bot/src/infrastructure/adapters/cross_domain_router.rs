@@ -6,7 +6,8 @@ use crate::domain::bot_dm::ports::{
     GroupOperations, JoinError, UserId as BotDmUserId,
 };
 use crate::domain::moderator::ports::{
-    GroupInvitation as ModGroupInvitation, MessengerGroup, ModerationEngine,
+    GroupInvitation as ModGroupInvitation, MessengerGroup, ModerationEngine, ModerationRule,
+    ModerationRuleType,
 };
 
 /// Bridges the `bot_dm` bounded context to the `moderator` bounded context by
@@ -48,14 +49,15 @@ impl GroupOperations for CrossDomainRouter {
         })
     }
 
-    async fn set_keywords(
+    async fn set_rules_yaml(
         &self,
         user_id: BotDmUserId,
         group_id: BotDmGroupId,
-        keywords: Vec<String>,
+        yaml: &str,
     ) -> Result<(), BotDmErr> {
+        let rules: Vec<ModerationRule> = serde_yaml::from_str(yaml).map_err(|e| -> BotDmErr { e.to_string().into() })?;
         self.moderator
-            .set_keywords(user_id, group_id, keywords)
+            .set_group_rules(user_id, group_id, rules)
             .await
             .map_err(|e| -> BotDmErr { e.to_string().into() })
     }
@@ -78,17 +80,20 @@ impl GroupOperations for CrossDomainRouter {
             })
     }
 
-    async fn get_keywords(
+    async fn get_rules_yaml(
         &self,
         user_id: BotDmUserId,
         group_id: BotDmGroupId,
-    ) -> Result<Option<Vec<String>>, BotDmErr> {
-        let keywords = self
+    ) -> Result<Option<String>, BotDmErr> {
+        let rules = self
             .moderator
-            .get_keywords(user_id, group_id)
+            .get_group_rules(user_id, group_id)
             .await
             .map_err(|e| -> BotDmErr { e.to_string().into() })?;
-        Ok(Some(keywords))
+        
+        let rules_list: Vec<ModerationRule> = rules.into_iter().map(|o| o.rule).collect();
+        let yaml = serde_yaml::to_string(&rules_list).map_err(|e| -> BotDmErr { e.to_string().into() })?;
+        Ok(Some(yaml))
     }
 
     async fn set_notifications(

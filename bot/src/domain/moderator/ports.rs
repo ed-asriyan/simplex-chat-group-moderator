@@ -1,3 +1,4 @@
+pub use super::message_filter::{ModerationRule, ModerationRuleLink, ModerationRuleType};
 use async_trait::async_trait;
 use std::error::Error;
 
@@ -33,16 +34,27 @@ pub struct GroupMessage {
     pub text: String,
 }
 
+pub struct OwnedModerationRule {
+    pub id: usize,
+    pub rule: ModerationRule,
+}
+
 /// Inbound port: the moderator bounded context's use cases.
 #[async_trait]
 pub trait ModerationEngine: Send + Sync {
     async fn process_group_message(&self, group_message: GroupMessage) -> Result<(), Err>;
 
-    async fn set_keywords(
+    async fn get_group_rules(
         &self,
         user_id: UserId,
         group_id: GroupId,
-        keywords: Vec<String>,
+    ) -> Result<Vec<OwnedModerationRule>, Err>;
+
+    async fn set_group_rules(
+        &self,
+        user_id: UserId,
+        group_id: GroupId,
+        rules: Vec<ModerationRule>,
     ) -> Result<(), Err>;
 
     async fn try_join_group(
@@ -50,8 +62,6 @@ pub trait ModerationEngine: Send + Sync {
         owner_id: UserId,
         invitation: &GroupInvitation,
     ) -> Result<GroupId, Err>;
-
-    async fn get_keywords(&self, user_id: UserId, group_id: GroupId) -> Result<Vec<String>, Err>;
 
     async fn remove_group(&self, messenger_group_id: MessengerGroupId) -> Result<(), Err>;
 
@@ -115,20 +125,24 @@ pub trait ModerationRepository: Send + Sync {
 
     async fn get_owner_by_id(&self, group_id: &GroupId) -> Result<Option<UserId>, Err>;
 
-    async fn save_keywords(&self, group_id: &GroupId, keywords: Vec<String>) -> Result<(), Err>;
-
     async fn set_group_name(
         &self,
         messenger_group_id: &MessengerGroupId,
         name: &str,
     ) -> Result<(), Err>;
 
-    async fn get_keywords(&self, group_id: &GroupId) -> Result<Vec<String>, Err>;
+    async fn get_group_rules(&self, group_id: &GroupId) -> Result<Vec<OwnedModerationRule>, Err>;
 
-    async fn get_keywords_by_messenger_id(
+    async fn get_group_rules_by_messenger_id(
         &self,
         messenger_group_id: &MessengerGroupId,
-    ) -> Result<Vec<String>, Err>;
+    ) -> Result<Vec<OwnedModerationRule>, Err>;
+
+    async fn set_group_rules(
+        &self,
+        group_id: &GroupId,
+        rules: &[ModerationRule],
+    ) -> Result<(), Err>;
 
     async fn delete_group_data(&self, messenger_group_id: &MessengerGroupId) -> Result<(), Err>;
 

@@ -68,20 +68,20 @@ pub trait GroupOperations: Send + Sync {
         invitation: &GroupInvitation,
     ) -> Result<Group, JoinError>;
 
-    async fn set_keywords(
+    async fn set_rules_yaml(
         &self,
         user_id: UserId,
         group_id: GroupId,
-        keywords: Vec<String>,
+        yaml: &str,
     ) -> Result<(), Err>;
 
     async fn get_groups(&self, user_id: UserId) -> Result<Vec<Group>, Err>;
 
-    async fn get_keywords(
+    async fn get_rules_yaml(
         &self,
         user_id: UserId,
         group_id: GroupId,
-    ) -> Result<Option<Vec<String>>, Err>;
+    ) -> Result<Option<String>, Err>;
 
     async fn set_notifications(
         &self,

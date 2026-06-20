@@ -19,6 +19,7 @@ regex = "1"
 rusqlite = { version = "0.39", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9.34"
 simploxide-client = { version = "0.8.1", features = ["bon"] }
 tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "signal"] }
 tokio-stream = "0.1.17"

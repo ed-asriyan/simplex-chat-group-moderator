@@ -4,8 +4,13 @@ use std::sync::Arc;
 use super::message_filter::should_moderate;
 use super::ports::{
     Err, Group, GroupId, GroupInvitation, GroupMessage, GroupModerator, MessengerGroupId,
-    ModerationEngine, ModerationNotifier, ModerationRepository, UserId,
+    ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule, ModerationRuleType,
+    OwnedModerationRule, UserId,
 };
+
+/// Stable identifier of the single keyword rule that the keyword-based
+/// repository exposes for a group until per-rule persistence exists.
+const KEYWORDS_RULE_ID: usize = 0;
 
 /// Maximum number of keywords allowed per group.
 const MAX_KEYWORDS_PER_GROUP: usize = 10_000;
@@ -36,12 +41,14 @@ impl ModeratorApplication {
 #[async_trait]
 impl ModerationEngine for ModeratorApplication {
     async fn process_group_message(&self, group_message: GroupMessage) -> Result<(), Err> {
-        let keywords = self
+        let rules = self
             .repository
-            .get_keywords_by_messenger_id(&group_message.group.id)
+            .get_group_rules_by_messenger_id(&group_message.group.id)
             .await?;
 
-        if let Some(phrase) = should_moderate(&group_message.text, &keywords) {
+        let rules_list: Vec<ModerationRule> = rules.into_iter().map(|o| o.rule).collect();
+
+        if let Some(phrase) = should_moderate(&group_message.text, &rules_list) {
             let group = self
                 .repository
                 .get_group_by_messenger_id(&group_message.group.id)
@@ -73,32 +80,11 @@ impl ModerationEngine for ModeratorApplication {
         Ok(())
     }
 
-    async fn set_keywords(
+    async fn get_group_rules(
         &self,
         user_id: UserId,
         group_id: GroupId,
-        keywords: Vec<String>,
-    ) -> Result<(), Err> {
-        if keywords.len() > MAX_KEYWORDS_PER_GROUP {
-            return Err(format!(
-                "Too many keywords: {} provided, maximum is {}",
-                keywords.len(),
-                MAX_KEYWORDS_PER_GROUP
-            )
-            .into());
-        }
-        if let Some(keyword) = keywords
-            .iter()
-            .find(|keyword| keyword.chars().count() > MAX_KEYWORD_LENGTH)
-        {
-            return Err(format!(
-                "Keyword too long: {} characters, maximum is {}",
-                keyword.chars().count(),
-                MAX_KEYWORD_LENGTH
-            )
-            .into());
-        }
-
+    ) -> Result<Vec<OwnedModerationRule>, Err> {
         let owner = self.repository.get_owner_by_id(&group_id).await?;
         match owner {
             None => Err(format!("Group {} is not registered", group_id).into()),
@@ -106,21 +92,58 @@ impl ModerationEngine for ModeratorApplication {
                 Err(format!("User {} is not the owner of group {}", user_id, group_id).into())
             }
             Some(_) => {
-                self.repository.save_keywords(&group_id, keywords).await?;
-                Ok(())
+                let rules = self.repository.get_group_rules(&group_id).await?;
+                Ok(rules)
             }
         }
     }
 
-    async fn get_keywords(&self, user_id: UserId, group_id: GroupId) -> Result<Vec<String>, Err> {
+    async fn set_group_rules(
+        &self,
+        user_id: UserId,
+        group_id: GroupId,
+        rules: Vec<ModerationRule>,
+    ) -> Result<(), Err> {
         let owner = self.repository.get_owner_by_id(&group_id).await?;
         match owner {
-            None => Err(format!("Group {} is not registered", group_id).into()),
+            None => return Err(format!("Group {} is not registered", group_id).into()),
             Some(owner_id) if owner_id != user_id => {
-                Err(format!("User {} is not the owner of group {}", user_id, group_id).into())
+                return Err(
+                    format!("User {} is not the owner of group {}", user_id, group_id).into(),
+                );
             }
-            Some(_) => self.repository.get_keywords(&group_id).await,
+            Some(_) => {}
         }
+
+        for rule in &rules {
+            match &rule.rule_type {
+                ModerationRuleType::Keywords(keywords) => {
+                    if keywords.len() > MAX_KEYWORDS_PER_GROUP {
+                        return Err(format!(
+                            "Too many keywords: {} provided, maximum is {}",
+                            keywords.len(),
+                            MAX_KEYWORDS_PER_GROUP
+                        )
+                        .into());
+                    }
+                    if let Some(keyword) = keywords
+                        .iter()
+                        .find(|keyword| keyword.chars().count() > MAX_KEYWORD_LENGTH)
+                    {
+                        return Err(format!(
+                            "Keyword too long: {} characters, maximum is {}",
+                            keyword.chars().count(),
+                            MAX_KEYWORD_LENGTH
+                        )
+                        .into());
+                    }
+                }
+                ModerationRuleType::Link(_) => {}
+            }
+        }
+        
+        self.repository.set_group_rules(&group_id, &rules).await?;
+        Ok(())
     }
 
     async fn try_join_group(

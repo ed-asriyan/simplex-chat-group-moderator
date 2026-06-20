@@ -3,10 +3,11 @@ use rand::RngExt;
 use rusqlite::{Connection, params};
 use std::sync::{Arc, Mutex};
 
+use crate::domain::moderator::message_filter::ModerationRuleLink;
 use crate::domain::moderator::ports::{
-    Err, Group, GroupId, MessengerGroupId, ModerationRepository, UserId,
+    Err, Group, GroupId, MessengerGroupId, ModerationRepository, ModerationRule,
+    ModerationRuleType, OwnedModerationRule, UserId,
 };
-
 const GROUP_ID_MIN: i64 = 1;
 const GROUP_ID_MAX: i64 = 1_000_000;
 const GROUP_ID_ALLOC_MAX_ATTEMPTS: usize = 32;
@@ -130,31 +131,7 @@ impl ModerationRepository for SqliteModerationRepository {
         .map_err(|e| -> Err { e.to_string().into() })
     }
 
-    async fn save_keywords(&self, group_id: &GroupId, keywords: Vec<String>) -> Result<(), Err> {
-        let conn = self.conn.clone();
-        let gid = *group_id;
-        tokio::task::spawn_blocking(move || -> Result<(), rusqlite::Error> {
-            let mut guard = conn.lock().expect("moderation repo connection poisoned");
-            let tx = guard.transaction()?;
-            tx.execute(
-                "DELETE FROM moderation_group_keywords WHERE group_id = ?1",
-                params![gid],
-            )?;
-            {
-                let mut stmt = tx.prepare(
-                    "INSERT OR IGNORE INTO moderation_group_keywords (group_id, keyword) VALUES (?1, ?2)",
-                )?;
-                for kw in keywords.iter().filter(|k| !k.is_empty()) {
-                    stmt.execute(params![gid, kw])?;
-                }
-            }
-            tx.commit()?;
-            Ok(())
-        })
-        .await
-        .map_err(|e| -> Err { e.to_string().into() })?
-        .map_err(|e| -> Err { e.to_string().into() })
-    }
+
 
     async fn set_group_name(
         &self,
@@ -163,12 +140,12 @@ impl ModerationRepository for SqliteModerationRepository {
     ) -> Result<(), Err> {
         let conn = self.conn.clone();
         let mid = *messenger_group_id;
-        let name = name.to_string();
+        let name_owned = name.to_string();
         tokio::task::spawn_blocking(move || -> Result<(), rusqlite::Error> {
             let guard = conn.lock().expect("moderation repo connection poisoned");
             guard.execute(
                 "UPDATE moderation_groups SET group_name = ?2 WHERE messenger_group_id = ?1",
-                params![mid, name],
+                rusqlite::params![mid, name_owned],
             )?;
             Ok(())
         })
@@ -177,49 +154,108 @@ impl ModerationRepository for SqliteModerationRepository {
         .map_err(|e| -> Err { e.to_string().into() })
     }
 
-    async fn get_keywords(&self, group_id: &GroupId) -> Result<Vec<String>, Err> {
+    async fn get_group_rules(&self, group_id: &GroupId) -> Result<Vec<OwnedModerationRule>, Err> {
         let conn = self.conn.clone();
         let gid = *group_id;
-        tokio::task::spawn_blocking(move || -> Result<Vec<String>, rusqlite::Error> {
-            let guard = conn.lock().expect("moderation repo connection poisoned");
-            let mut stmt = guard
-                .prepare("SELECT keyword FROM moderation_group_keywords WHERE group_id = ?1")?;
-            let rows = stmt.query_map(params![gid], |row| row.get::<_, String>(0))?;
-            let mut out = Vec::new();
-            for row in rows {
-                out.push(row?);
-            }
-            Ok(out)
-        })
-        .await
-        .map_err(|e| -> Err { e.to_string().into() })?
-        .map_err(|e| -> Err { e.to_string().into() })
+        tokio::task::spawn_blocking(move || crate::infrastructure::adapters::moderator_repo_sqlite_rules::load_rules_for_group(&conn, gid))
+            .await
+            .map_err(|e| -> Err { e.to_string().into() })?
     }
 
-    async fn get_keywords_by_messenger_id(
+    async fn get_group_rules_by_messenger_id(
         &self,
         messenger_group_id: &MessengerGroupId,
-    ) -> Result<Vec<String>, Err> {
+    ) -> Result<Vec<OwnedModerationRule>, Err> {
         let conn = self.conn.clone();
         let mid = *messenger_group_id;
-        tokio::task::spawn_blocking(move || -> Result<Vec<String>, rusqlite::Error> {
-            let guard = conn.lock().expect("moderation repo connection poisoned");
-            let mut stmt = guard.prepare(
-                "SELECT k.keyword
-                 FROM moderation_group_keywords k
-                 JOIN moderation_groups g ON g.group_id = k.group_id
-                 WHERE g.messenger_group_id = ?1",
-            )?;
-            let rows = stmt.query_map(params![mid], |row| row.get::<_, String>(0))?;
-            let mut out = Vec::new();
-            for row in rows {
-                out.push(row?);
+        tokio::task::spawn_blocking(move || {
+            let gid = {
+                let guard = conn.lock().unwrap();
+                let mut stmt = guard.prepare("SELECT group_id FROM moderation_groups WHERE messenger_group_id = ?1")?;
+                stmt.query_row(params![mid], |row| row.get::<_, i64>(0))
+            };
+            match gid {
+                Ok(gid) => crate::infrastructure::adapters::moderator_repo_sqlite_rules::load_rules_for_group(&conn, gid),
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(Vec::new()),
+                Err(e) => Err(e.into()),
             }
-            Ok(out)
         })
         .await
         .map_err(|e| -> Err { e.to_string().into() })?
-        .map_err(|e| -> Err { e.to_string().into() })
+    }
+
+    async fn set_group_rules(
+        &self,
+        group_id: &GroupId,
+        rules: &[ModerationRule],
+    ) -> Result<(), Err> {
+        let conn = self.conn.clone();
+        let gid = *group_id;
+        
+        let rules = rules.to_vec();
+
+        tokio::task::spawn_blocking(move || -> Result<(), Err> {
+             let mut guard = conn.lock().unwrap();
+             let tx = guard.transaction().map_err(|e| -> Err { e.to_string().into() })?;
+
+             // Delete all previous rules
+             tx.execute("DELETE FROM moderation_rules WHERE group_id = ?1", rusqlite::params![gid]).map_err(|e| -> Err { e.to_string().into() })?;
+             
+             let mut rng = rand::rng();
+             for rule in rules {
+                 let rule_type_str = match rule.rule_type {
+                     ModerationRuleType::Keywords(_) => "keywords",
+                     ModerationRuleType::Link(_) => "link",
+                 };
+
+                 let mut rule_id: i64 = 0;
+                 for _ in 0..GROUP_ID_ALLOC_MAX_ATTEMPTS {
+                     let id_candidate: i64 = rng.random_range(GROUP_ID_MIN..GROUP_ID_MAX);
+                     let res = tx.execute(
+                         "INSERT INTO moderation_rules (id, group_id, rule_type, enabled) VALUES (?1, ?2, ?3, ?4)",
+                         rusqlite::params![id_candidate, gid, rule_type_str, rule.enabled]
+                     );
+                     match res {
+                         Ok(_) => {
+                             rule_id = id_candidate;
+                             break;
+                         }
+                         Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation => {
+                             continue;
+                         }
+                         Err(e) => return Err(e.to_string().into()),
+                     }
+                 }
+
+                 if rule_id == 0 {
+                     return Err("failed to allocate a unique rule_id".into());
+                 }
+
+                 match rule.rule_type {
+                     ModerationRuleType::Keywords(k) => {
+                          let mut stmt = tx.prepare("INSERT INTO moderation_rule_keywords (rule_id, keyword) VALUES (?1, ?2)").map_err(|e| -> Err { e.to_string().into() })?;
+                          for kw in k.iter().filter(|k| !k.is_empty()) {
+                              stmt.execute(rusqlite::params![rule_id, kw]).map_err(|e| -> Err { e.to_string().into() })?;
+                          }
+                     },
+                     ModerationRuleType::Link(link) => {
+                         tx.execute("INSERT INTO moderation_rule_links (rule_id, inclusive, allow_top100) VALUES (?1, ?2, ?3)", rusqlite::params![rule_id, link.inclusive, link.allow_top100]).map_err(|e| -> Err { e.to_string().into() })?;
+                         let mut stmt = tx.prepare("INSERT INTO moderation_rule_link_domains (rule_id, domain, is_allowed) VALUES (?1, ?2, ?3)").map_err(|e| -> Err { e.to_string().into() })?;
+                         for domain in link.allowed {
+                             stmt.execute(rusqlite::params![rule_id, domain, true]).map_err(|e| -> Err { e.to_string().into() })?;
+                         }
+                         for domain in link.blocked {
+                             stmt.execute(rusqlite::params![rule_id, domain, false]).map_err(|e| -> Err { e.to_string().into() })?;
+                         }
+                     }
+                 }
+             }
+
+             tx.commit().map_err(|e| -> Err { e.to_string().into() })?;
+             Ok(())
+        })
+        .await
+        .map_err(|e| -> Err { e.to_string().into() })?
     }
 
     async fn delete_group_data(&self, messenger_group_id: &MessengerGroupId) -> Result<(), Err> {
@@ -227,8 +263,7 @@ impl ModerationRepository for SqliteModerationRepository {
         let mid = *messenger_group_id;
         tokio::task::spawn_blocking(move || -> Result<(), rusqlite::Error> {
             let guard = conn.lock().expect("moderation repo connection poisoned");
-            // Keywords are removed automatically via the ON DELETE CASCADE
-            // foreign key on moderation_group_keywords.group_id.
+            // ON DELETE CASCADE takes care of everything.
             guard.execute(
                 "DELETE FROM moderation_groups WHERE messenger_group_id = ?1",
                 params![mid],

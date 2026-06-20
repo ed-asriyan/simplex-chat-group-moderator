@@ -77,32 +77,14 @@ impl BotDmApplication {
 enum ParsedDm {
     Start,
     Help,
-    SetBlockKeywords {
-        group_id: GroupId,
-        keywords: Vec<String>,
-    },
-    GetBlockKeywords {
-        group_id: GroupId,
-    },
+    SetRules { group_id: GroupId, yaml: String },
+    GetRules { group_id: GroupId },
     GetGroups,
-    SetNotifications {
-        group_id: GroupId,
-        enabled: bool,
-    },
-    SetDryMode {
-        group_id: GroupId,
-        enabled: bool,
-    },
+    SetNotifications { group_id: GroupId, enabled: bool },
+    SetDryMode { group_id: GroupId, enabled: bool },
     WordLists,
     Source,
     Unknown,
-}
-
-fn parse_keywords(text: &str) -> Vec<String> {
-    text.split('\n')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
 }
 
 fn parse(message: &Message) -> ParsedDm {
@@ -111,9 +93,9 @@ fn parse(message: &Message) -> ParsedDm {
         .as_ref()
         .and_then(|reply| find_group_by_anchor(reply))
     {
-        ParsedDm::SetBlockKeywords {
+        ParsedDm::SetRules {
             group_id,
-            keywords: parse_keywords(&message.text),
+            yaml: message.text.clone(),
         }
     } else {
         let trimmed = message.text.trim();
@@ -126,9 +108,9 @@ fn parse(message: &Message) -> ParsedDm {
                 "/source" => ParsedDm::Source,
                 "/wordlists" => ParsedDm::WordLists,
                 "/groups" => ParsedDm::GetGroups,
-                _ if let Some(id_str) = trimmed.strip_prefix("/keywords_") => {
+                _ if let Some(id_str) = trimmed.strip_prefix("/rules_") => {
                     match id_str.trim().parse() {
-                        Ok(group_id) => ParsedDm::GetBlockKeywords { group_id },
+                        Ok(group_id) => ParsedDm::GetRules { group_id },
                         Err(_) => ParsedDm::Unknown,
                     }
                 } // handled below
@@ -186,9 +168,9 @@ fn render_group(group: &Group) -> String {
         format!("Enable dry mode: /dry_on_{}", group.id)
     };
     format!(
-        "*{}* {}\n\
-        Blocked words: /keywords_{}\n\
-        {}\n\
+        "*{}* {}
+        View & Edit Rules: /rules_{}
+        {}
         {}\
         ",
         group.name,
@@ -209,36 +191,50 @@ impl BotDmReceiver for BotDmApplication {
             ParsedDm::Help => {
                 self.messenger.send_dm(&user_id, HELP).await?;
             }
-            ParsedDm::SetBlockKeywords { group_id, keywords } => {
+            ParsedDm::SetRules { group_id, yaml } => {
                 match self
                     .group_operator
-                    .set_keywords(user_id, group_id, keywords)
+                    .set_rules_yaml(user_id, group_id, &yaml)
                     .await
                 {
                     Ok(()) => {
                         self.messenger
-                            .send_dm(&user_id, "Keywords updated successfully.")
+                            .send_dm(&user_id, "Rules updated successfully.")
                             .await?;
                     }
-                    Err(_) => {
+                    Err(e) => {
                         self.messenger
-                            .send_dm(&user_id, "Group not found or not managed by you.")
+                            .send_dm(&user_id, &format!("Failed to update rules: {}", e))
                             .await?;
                     }
                 }
             }
-            ParsedDm::GetBlockKeywords { group_id } => {
-                let keywords = self.group_operator.get_keywords(user_id, group_id).await?;
-                match keywords {
-                    Some(keywords) if keywords.is_empty() => {
-                        self.messenger
-                            .send_dm(&user_id, "No blocked keywords set for this group.")
-                            .await?;
-                    }
-                    Some(keywords) => {
-                        self.messenger
-                            .send_dm(&user_id, &keywords.join("\n"))
-                            .await?;
+            ParsedDm::GetRules { group_id } => {
+                let yaml_opt = self
+                    .group_operator
+                    .get_rules_yaml(user_id, group_id)
+                    .await?;
+                match yaml_opt {
+                    Some(yaml) => {
+                        self.messenger.send_dm(&user_id, &yaml).await?;
+
+                        let text = format!(
+                            "Group Rules {}
+
+To change the rules:
+1. Copy the YAML text from the message above.
+2. Edit it.
+3. Reply back to *this message* with your new YAML text to apply the changes.
+
+Docs: https://github.com/simplex-chat/group-moderator/blob/master/docs/RULES.md",
+                            group_anchor(&Group {
+                                id: group_id,
+                                name: String::new(),
+                                notifications_enabled: false,
+                                dry_mode_enabled: false
+                            }),
+                        );
+                        self.messenger.send_dm(&user_id, &text).await?;
                     }
                     None => {
                         self.messenger
