@@ -62,6 +62,14 @@ Deletes messages that contain certain forbidden words. Matches are case-insensit
 **Fields:**
 - `keywords` (List of Strings): The list of words or phrases to block. Max 100 characters per word. Max 10,000 words per group.
 
+**Resources with bad words:**
+- **🔞 List of Dirty, Naughty, Obscene, and Otherwise Bad Words** — multilanguage, ~400 EN / ~1700 total  
+  https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words
+- **☕ Google Profanity Words** — multilanguage, ~1k EN / ~1600 total  
+  https://github.com/coffee-and-fun/google-profanity-words/tree/main/data
+- **💬 Comment Blocklist for WordPress** — multilanguage, ~64k total  
+  https://github.com/splorp/wordpress-comment-blocklist
+
 ---
 
 ### 2. LinksBlacklist
@@ -123,3 +131,7 @@ No configuration is needed — the list is maintained inside the bot.
 > **Note:** `LinksWhitelistTop100` and `LinksBlacklist` contradict each other for the same reason as `LinksWhitelist` — using both is not recommended.
 
 > **Tip:** If the built-in list doesn't suit your group, use `LinksWhitelist` instead and specify your own domains.
+
+---
+
+

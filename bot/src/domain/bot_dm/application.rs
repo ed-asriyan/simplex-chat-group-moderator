@@ -11,18 +11,16 @@ const HELP: &str = "\
 How to use this bot:
 
 1. Invite me to your group and make me a moderator so I have permission to delete messages.
-2. Send me a list of words or phrases you want to block in that group.
-   (Don't know what to block? Use /wordlists to get ready-made templates).
-3. I will automatically monitor the chat and delete any message that triggers your list. I check not only direct matches, but also messages that try to obfuscate the blocked words (e.g. `s.p.a.m` or `spaaam` will match `spam`).
+2. Use /groups to list your groups. For each group, tap the rules link to view and edit its moderation rules.
+3. I will automatically monitor the chat and delete any message that violates the rules.
 
 If you want me to stop moderating a group, just kick me from it.
 
 Commands:
-  /start     - Show this guide.
-  /help      - Show this guide.
-  /wordlists - Get links to ready-to-use lists of bad words.
-  /source    - Link to my source code.
-  /groups    - List and manage groups I moderate for you.
+  /start  - Show this guide.
+  /help   - Show this guide.
+  /groups - List and manage groups I moderate for you.
+  /source - Link to my source code.
 
 For each group you can also turn moderation notifications on or off (use /groups to get the links). When enabled, I'll DM you whenever I delete a message.
 
@@ -31,25 +29,11 @@ You can also enable dry mode for a group. In dry mode I run all checks and notif
 
 const START: &str = formatcp!(
     "Hi! Invite me to your group and grant me moderator permissions. \
-    Then, you can send me a list of words or phrases to block (or use /wordlists for ready-made templates), \
-    and I will automatically delete any messages containing them. \
+    Then use /groups to configure moderation rules for it \
+    — I support keyword blocking, link blacklists, link whitelists, and more. \
     You can manage multiple groups with me.\n\n{}",
     HELP,
 );
-
-const WORD_LISTS: &str = "\
-Here are some ready-to-use lists of words to block.
-Open a link, copy the words you need, and reply to the group management message for your group. Each message you send will replace the whole list, so if you want to combine multiple lists, copy all the words into the single message.
-
-*🔞 List of Dirty, Naughty, Obscene, and Otherwise Bad Words (multilanguage, ~400 en, ~1700 total)*
-https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words
-
-*☕ Google Profanity Words (multilanguage, ~1k en, ~1600 total)*
-https://github.com/coffee-and-fun/google-profanity-words/tree/main/data
-
-*💬 Comment Blocklist for WordPress (multilanguage, ~64k total)*
-https://github.com/splorp/wordpress-comment-blocklist
-";
 
 fn group_anchor(group: &Group) -> String {
     format!("#{}", group.id)
@@ -82,7 +66,6 @@ enum ParsedDm {
     GetGroups,
     SetNotifications { group_id: GroupId, enabled: bool },
     SetDryMode { group_id: GroupId, enabled: bool },
-    WordLists,
     Source,
     Unknown,
 }
@@ -106,7 +89,6 @@ fn parse(message: &Message) -> ParsedDm {
                 "/start" => ParsedDm::Start,
                 "/help" => ParsedDm::Help,
                 "/source" => ParsedDm::Source,
-                "/wordlists" => ParsedDm::WordLists,
                 "/groups" => ParsedDm::GetGroups,
                 _ if let Some(id_str) = trimmed.strip_prefix("/rules_") => {
                     match id_str.trim().parse() {
@@ -297,9 +279,6 @@ Docs: https://github.com/ed-asriyan/simplex-chat-group-moderator/blob/master/doc
                             .await?;
                     }
                 }
-            }
-            ParsedDm::WordLists => {
-                self.messenger.send_dm(&user_id, WORD_LISTS).await?;
             }
             ParsedDm::Source => {
                 self.messenger
