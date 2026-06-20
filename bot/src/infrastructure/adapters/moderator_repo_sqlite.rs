@@ -11,6 +11,12 @@ const GROUP_ID_MIN: i64 = 1;
 const GROUP_ID_MAX: i64 = 1_000_000;
 const GROUP_ID_ALLOC_MAX_ATTEMPTS: usize = 32;
 
+/// Maximum number of keywords allowed per group.
+const MAX_KEYWORDS_PER_GROUP: usize = 10_000;
+
+/// Maximum length (in characters) allowed for a single keyword.
+const MAX_KEYWORD_LENGTH: usize = 100;
+
 #[derive(Clone)]
 pub struct SqliteModerationRepository {
     conn: Arc<Mutex<Connection>>,
@@ -194,9 +200,69 @@ impl ModerationRepository for SqliteModerationRepository {
         let mut rules = rules.to_vec();
         for rule in &mut rules {
             match rule {
-                ModerationRule::WordsBlacklist { keywords } => { keywords.sort(); keywords.dedup(); }
-                ModerationRule::LinksBlacklist { blocked } => { blocked.sort(); blocked.dedup(); }
-                ModerationRule::LinksWhitelist { allowed } => { allowed.sort(); allowed.dedup(); }
+                ModerationRule::WordsBlacklist { keywords } => {
+                    keywords.sort();
+                    keywords.dedup();
+                    if keywords.len() > MAX_KEYWORDS_PER_GROUP {
+                        return Err(format!(
+                            "Too many keywords: {} provided, maximum is {}",
+                            keywords.len(),
+                            MAX_KEYWORDS_PER_GROUP
+                        )
+                        .into());
+                    }
+                    if let Some(keyword) = keywords
+                        .iter()
+                        .find(|k| k.chars().count() > MAX_KEYWORD_LENGTH)
+                    {
+                        return Err(format!(
+                            "Keyword too long: {} characters, maximum is {}",
+                            keyword.chars().count(),
+                            MAX_KEYWORD_LENGTH
+                        )
+                        .into());
+                    }
+                }
+                ModerationRule::LinksBlacklist { blocked } => {
+                    blocked.sort();
+                    blocked.dedup();
+                    if blocked.len() > MAX_KEYWORDS_PER_GROUP {
+                        return Err(format!(
+                            "Too many domains: {} provided, maximum is {}",
+                            blocked.len(),
+                            MAX_KEYWORDS_PER_GROUP
+                        )
+                        .into());
+                    }
+                    if let Some(domain) = blocked.iter().find(|d| d.chars().count() > MAX_KEYWORD_LENGTH) {
+                        return Err(format!(
+                            "Domain too long: {} characters, maximum is {}",
+                            domain.chars().count(),
+                            MAX_KEYWORD_LENGTH
+                        )
+                        .into());
+                    }
+                }
+                ModerationRule::LinksWhitelist { allowed } => {
+                    allowed.sort();
+                    allowed.dedup();
+                    if allowed.len() > MAX_KEYWORDS_PER_GROUP {
+                        return Err(format!(
+                            "Too many domains: {} provided, maximum is {}",
+                            allowed.len(),
+                            MAX_KEYWORDS_PER_GROUP
+                        )
+                        .into());
+                    }
+                    if let Some(domain) = allowed.iter().find(|d| d.chars().count() > MAX_KEYWORD_LENGTH) {
+                        return Err(format!(
+                            "Domain too long: {} characters, maximum is {}",
+                            domain.chars().count(),
+                            MAX_KEYWORD_LENGTH
+                        )
+                        .into());
+                    }
+                }
                 ModerationRule::LinksWhitelistTop100 {} => {}
             }
         }

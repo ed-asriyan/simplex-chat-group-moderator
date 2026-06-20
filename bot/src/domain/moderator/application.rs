@@ -8,12 +8,6 @@ use super::ports::{
     OwnedModerationRule, UserId,
 };
 
-/// Maximum number of keywords allowed per group.
-const MAX_KEYWORDS_PER_GROUP: usize = 10_000;
-
-/// Maximum length (in characters) allowed for a single keyword.
-const MAX_KEYWORD_LENGTH: usize = 100;
-
 pub struct ModeratorApplication {
     repository: Arc<dyn ModerationRepository>,
     group_moderator: Arc<dyn GroupModerator>,
@@ -109,35 +103,6 @@ impl ModerationEngine for ModeratorApplication {
                 );
             }
             Some(_) => {}
-        }
-
-        for rule in &rules {
-            match rule {
-                ModerationRule::WordsBlacklist { keywords, .. } => {
-                    if keywords.len() > MAX_KEYWORDS_PER_GROUP {
-                        return Err(format!(
-                            "Too many keywords: {} provided, maximum is {}",
-                            keywords.len(),
-                            MAX_KEYWORDS_PER_GROUP
-                        )
-                        .into());
-                    }
-                    if let Some(keyword) = keywords
-                        .iter()
-                        .find(|keyword| keyword.chars().count() > MAX_KEYWORD_LENGTH)
-                    {
-                        return Err(format!(
-                            "Keyword too long: {} characters, maximum is {}",
-                            keyword.chars().count(),
-                            MAX_KEYWORD_LENGTH
-                        )
-                        .into());
-                    }
-                }
-                ModerationRule::LinksBlacklist { .. } => {}
-                ModerationRule::LinksWhitelist { .. } => {}
-                ModerationRule::LinksWhitelistTop100 {} => {}
-            }
         }
 
         self.repository.set_group_rules(&group_id, &rules).await?;
