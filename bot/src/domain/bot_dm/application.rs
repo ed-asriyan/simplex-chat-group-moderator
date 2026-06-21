@@ -68,7 +68,6 @@ enum ParsedDm {
     Start,
     Help,
     SetRules { group_id: GroupId, yaml: String },
-    GetRules { group_id: GroupId },
     GetGroups,
     SetNotifications { group_id: GroupId, enabled: bool },
     SetDryMode { group_id: GroupId, enabled: bool },
@@ -76,68 +75,66 @@ enum ParsedDm {
     Unknown,
 }
 
-fn parse(message: &Message) -> ParsedDm {
-    let trimmed = message.text.trim();
+fn parse(message: &Message, base_url: &str) -> ParsedDm {
+    let text = message.text.trim();
+    let base = base_url.trim_end_matches('/');
 
-    // Detect a webeditor URL: extract bot_id and rules from the hash fragment
-    if (trimmed.starts_with("http://") || trimmed.starts_with("https://"))
-        && let Some(fragment) = trimmed.split_once('#').map(|(_, f)| f)
-    {
-        let mut bot_id: Option<GroupId> = None;
-        let mut rules_hash: Option<String> = None;
-        for param in fragment.split('&') {
-            if let Some(v) = param.strip_prefix("bot_id=") {
-                bot_id = v.parse().ok();
-            } else if let Some(v) = param.strip_prefix("rules=") {
-                rules_hash = Some(v.to_string());
+    // Find the editor URL anywhere in the message (bare URL or inside a markdown link)
+    if let Some(pos) = text.find(base) {
+        let rest = &text[pos..];
+        let end = rest
+            .find(|c: char| c.is_whitespace() || c == ')')
+            .unwrap_or(rest.len());
+        let url = &rest[..end];
+        if let Some(fragment) = url.split_once('#').map(|(_, f)| f) {
+            let mut bot_id: Option<GroupId> = None;
+            let mut rules_hash: Option<String> = None;
+            for param in fragment.split('&') {
+                if let Some(v) = param.strip_prefix("bot_id=") {
+                    bot_id = v.parse().ok();
+                } else if let Some(v) = param.strip_prefix("rules=") {
+                    rules_hash = Some(v.to_string());
+                }
+            }
+            if let (Some(group_id), Some(hash)) = (bot_id, rules_hash) {
+                return ParsedDm::SetRules {
+                    group_id,
+                    yaml: hash,
+                };
             }
         }
-        if let (Some(group_id), Some(hash)) = (bot_id, rules_hash) {
-            return ParsedDm::SetRules {
-                group_id,
-                yaml: hash,
-            };
-        }
     }
 
-    if trimmed.is_empty() {
+    if text.is_empty() {
         return ParsedDm::Unknown;
     }
-    match trimmed {
+    match text {
         "/start" => ParsedDm::Start,
         "/help" => ParsedDm::Help,
         "/source" => ParsedDm::Source,
         "/groups" => ParsedDm::GetGroups,
-        _ if let Some(id_str) = trimmed.strip_prefix("/rules_") => match id_str.trim().parse() {
-            Ok(group_id) => ParsedDm::GetRules { group_id },
+        _ if let Some(id_str) = text.strip_prefix("/notify_on_") => match id_str.trim().parse() {
+            Ok(group_id) => ParsedDm::SetNotifications {
+                group_id,
+                enabled: true,
+            },
             Err(_) => ParsedDm::Unknown,
-        }, // handled below
-        _ if let Some(id_str) = trimmed.strip_prefix("/notify_on_") => {
-            match id_str.trim().parse() {
-                Ok(group_id) => ParsedDm::SetNotifications {
-                    group_id,
-                    enabled: true,
-                },
-                Err(_) => ParsedDm::Unknown,
-            }
-        }
-        _ if let Some(id_str) = trimmed.strip_prefix("/notify_off_") => {
-            match id_str.trim().parse() {
-                Ok(group_id) => ParsedDm::SetNotifications {
-                    group_id,
-                    enabled: false,
-                },
-                Err(_) => ParsedDm::Unknown,
-            }
-        }
-        _ if let Some(id_str) = trimmed.strip_prefix("/dry_on_") => match id_str.trim().parse() {
+        },
+        _ if let Some(id_str) = text.strip_prefix("/notify_off_") => match id_str.trim().parse() {
+            Ok(group_id) => ParsedDm::SetNotifications {
+                group_id,
+                enabled: false,
+            },
+            Err(_) => ParsedDm::Unknown,
+        },
+        _ if let Some(id_str) = text.strip_prefix("/dry_on_") => match id_str.trim().parse() {
             Ok(group_id) => ParsedDm::SetDryMode {
                 group_id,
                 enabled: true,
             },
             Err(_) => ParsedDm::Unknown,
         },
-        _ if let Some(id_str) = trimmed.strip_prefix("/dry_off_") => match id_str.trim().parse() {
+        _ if let Some(id_str) = text.strip_prefix("/dry_off_") => match id_str.trim().parse() {
             Ok(group_id) => ParsedDm::SetDryMode {
                 group_id,
                 enabled: false,
@@ -148,7 +145,7 @@ fn parse(message: &Message) -> ParsedDm {
     }
 }
 
-fn render_group(group: &Group) -> String {
+fn render_group(group: &Group, rules_url: &str) -> String {
     let notifications_command = if group.notifications_enabled {
         format!("Stop notifying me on delete: /notify_off_{}", group.id)
     } else {
@@ -161,18 +158,18 @@ fn render_group(group: &Group) -> String {
     };
     format!(
         "*{}*
-View & Edit Rules: /rules_{}
+[View and Edit Rules]({})
 {}
 {}\
 ",
-        group.name, group.id, notifications_command, dry_mode_command,
+        group.name, rules_url, notifications_command, dry_mode_command,
     )
 }
 
 #[async_trait]
 impl BotDmReceiver for BotDmApplication {
     async fn handle_dm(&self, user_id: UserId, message: &Message) -> Result<(), Err> {
-        match parse(message) {
+        match parse(message, &self.webeditor_base_url) {
             ParsedDm::Start => {
                 self.messenger.send_dm(&user_id, START).await?;
             }
@@ -207,32 +204,7 @@ impl BotDmReceiver for BotDmApplication {
                     }
                 }
             }
-            ParsedDm::GetRules { group_id } => {
-                match self
-                    .group_operator
-                    .get_rules_json(user_id, group_id)
-                    .await?
-                {
-                    Some(json) => {
-                        let hash = lz_compress(&json);
-                        let editor_url = format!(
-                            "{}#bot_id={}&rules={}",
-                            self.webeditor_base_url.trim_end_matches('/'),
-                            group_id,
-                            hash
-                        );
-                        let text = format!(
-                            "Open the link to edit rules in the visual editor and follow instructions: {editor_url}",
-                        );
-                        self.messenger.send_dm(&user_id, &text).await?;
-                    }
-                    None => {
-                        self.messenger
-                            .send_dm(&user_id, "Group not found or not managed by you.")
-                            .await?;
-                    }
-                }
-            }
+
             ParsedDm::GetGroups => {
                 let groups = self.group_operator.get_groups(user_id).await?;
                 if groups.is_empty() {
@@ -240,8 +212,24 @@ impl BotDmReceiver for BotDmApplication {
                         .await?;
                 } else {
                     for group in &groups {
+                        let rules_url = match self
+                            .group_operator
+                            .get_rules_json(user_id, group.id)
+                            .await?
+                        {
+                            Some(json) => {
+                                let hash = lz_compress(&json);
+                                format!(
+                                    "{}#bot_id={}&rules={}",
+                                    self.webeditor_base_url.trim_end_matches('/'),
+                                    group.id,
+                                    hash
+                                )
+                            }
+                            None => String::new(),
+                        };
                         self.messenger
-                            .send_dm(&user_id, &render_group(group))
+                            .send_dm(&user_id, &render_group(group, &rules_url))
                             .await?;
                     }
                 }
@@ -323,8 +311,24 @@ impl BotDmReceiver for BotDmApplication {
                     self.messenger
                         .send_dm(&user_id, "Joined the group successfully!")
                         .await?;
+                    let rules_url = match self
+                        .group_operator
+                        .get_rules_json(user_id, group.id)
+                        .await?
+                    {
+                        Some(json) => {
+                            let hash = lz_compress(&json);
+                            format!(
+                                "{}#bot_id={}&rules={}",
+                                self.webeditor_base_url.trim_end_matches('/'),
+                                group.id,
+                                hash
+                            )
+                        }
+                        None => String::new(),
+                    };
                     self.messenger
-                        .send_dm(&user_id, &render_group(&group))
+                        .send_dm(&user_id, &render_group(&group, &rules_url))
                         .await?;
                 }
                 Err(_) => {

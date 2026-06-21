@@ -64,9 +64,10 @@
                     <button class="btn btn-danger btn-sm" id="apply-btn">Apply Changes</button>
                 `;
                 document.getElementById('apply-btn').addEventListener('click', () => {
-                    navigator.clipboard.writeText(window.location.href)
+                    const link = `[Rules for group ${bot_id}](${window.location.href})`;
+                    navigator.clipboard.writeText(link)
                         .then(() => alert('The link is copied to clipboard. Send it to the bot to apply the changes.'))
-                        .catch(() => alert('Could not copy automatically. Please copy the URL from the address bar and send it to the bot.'));
+                        .catch(() => alert('Please copy the URL from the address bar and send it to the bot.'));
                 });
             } else {
                 el.innerHTML = `<p class="text-danger mb-0">No bot ID found in URL. Did you open this link manually?</p>`;
