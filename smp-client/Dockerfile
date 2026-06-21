@@ -7,4 +7,4 @@ ADD --chmod=700 https://github.com/simplex-chat/simplex-chat/releases/download/v
 ENV PORT=5225
 ENV DB=/opt/simplex-chat/db
 
-CMD simplex-chat --create-bot-display-name bot -p $PORT -d $DB
+CMD simplex-chat --yes-migrate --create-bot-display-name bot -p $PORT -d $DB
