@@ -74,6 +74,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .required(true)
                 .num_args(1),
         )
+        .arg(
+            Arg::new("webeditor-base-url")
+                .long("webeditor-base-url")
+                .required(true)
+                .num_args(1),
+        )
         .get_matches();
 
     let simplex_uri = args
@@ -91,6 +97,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let db_path = args
         .get_one::<String>("db-path")
         .ok_or("missing --db-path")?;
+    let webeditor_base_url = args
+        .get_one::<String>("webeditor-base-url")
+        .ok_or("missing --webeditor-base-url")?
+        .clone();
 
     // ---- drivers ----
     let conn = Arc::new(Mutex::new(Connection::open(db_path)?));
@@ -135,7 +145,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Arc::new(CrossDomainRouter::new(moderator_engine.clone()));
 
     // ---- bot_dm bounded context ----
-    let bot_dm_app = Arc::new(BotDmApplication::new(bot_messenger, group_operations));
+    let bot_dm_app = Arc::new(BotDmApplication::new(
+        bot_messenger,
+        group_operations,
+        webeditor_base_url,
+    ));
     let bot_dm_app: Arc<dyn BotDmReceiver> = {
         let notification_receiver: Arc<dyn ModerationNotificationReceiver> = bot_dm_app.clone();
         notification_router.set_receiver(notification_receiver);

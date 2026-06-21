@@ -21,10 +21,12 @@ ENV BOT_DISPLAY_NAME=test
 ENV BOT_FULL_NAME=test
 ENV BOT_SHORT_DESCRIPTION=test
 ENV DB_PATH=/bot.db
+ENV WEBEDITOR_BASE_URL=https://example.com/webeditor
 
 CMD /bot \
     --display-name "$BOT_DISPLAY_NAME" \
     --full-name "$BOT_FULL_NAME" \
     --short-description "$BOT_SHORT_DESCRIPTION" \
     --simplex-uri "$SIMPLEX_WS_URI" \
-    --db-path "$DB_PATH"
+    --db-path "$DB_PATH" \
+    --webeditor-base-url "$WEBEDITOR_BASE_URL"

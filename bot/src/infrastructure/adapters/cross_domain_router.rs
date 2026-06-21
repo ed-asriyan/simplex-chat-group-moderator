@@ -48,19 +48,6 @@ impl GroupOperations for CrossDomainRouter {
         })
     }
 
-    async fn set_rules_yaml(
-        &self,
-        user_id: BotDmUserId,
-        group_id: BotDmGroupId,
-        yaml: &str,
-    ) -> Result<(), BotDmErr> {
-        let rules: Vec<ModerationRule> = serde_yaml::from_str(yaml).map_err(|e| -> BotDmErr { e.to_string().into() })?;
-        self.moderator
-            .set_group_rules(user_id, group_id, rules)
-            .await
-            .map_err(|e| -> BotDmErr { e.to_string().into() })
-    }
-
     async fn get_groups(&self, user_id: BotDmUserId) -> Result<Vec<Group>, BotDmErr> {
         self.moderator
             .get_groups_by_owner_id(&user_id)
@@ -79,7 +66,21 @@ impl GroupOperations for CrossDomainRouter {
             })
     }
 
-    async fn get_rules_yaml(
+    async fn set_rules_json(
+        &self,
+        user_id: BotDmUserId,
+        group_id: BotDmGroupId,
+        json: &str,
+    ) -> Result<(), BotDmErr> {
+        let rules: Vec<ModerationRule> =
+            serde_json::from_str(json).map_err(|e| -> BotDmErr { e.to_string().into() })?;
+        self.moderator
+            .set_group_rules(user_id, group_id, rules)
+            .await
+            .map_err(|e| -> BotDmErr { e.to_string().into() })
+    }
+
+    async fn get_rules_json(
         &self,
         user_id: BotDmUserId,
         group_id: BotDmGroupId,
@@ -89,10 +90,11 @@ impl GroupOperations for CrossDomainRouter {
             .get_group_rules(user_id, group_id)
             .await
             .map_err(|e| -> BotDmErr { e.to_string().into() })?;
-        
+
         let rules_list: Vec<ModerationRule> = rules.into_iter().map(|o| o.rule).collect();
-        let yaml = serde_yaml::to_string(&rules_list).map_err(|e| -> BotDmErr { e.to_string().into() })?;
-        Ok(Some(yaml))
+        let json =
+            serde_json::to_string(&rules_list).map_err(|e| -> BotDmErr { e.to_string().into() })?;
+        Ok(Some(json))
     }
 
     async fn set_notifications(

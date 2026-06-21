@@ -68,16 +68,16 @@ pub trait GroupOperations: Send + Sync {
         invitation: &GroupInvitation,
     ) -> Result<Group, JoinError>;
 
-    async fn set_rules_yaml(
+    async fn get_groups(&self, user_id: UserId) -> Result<Vec<Group>, Err>;
+
+    async fn set_rules_json(
         &self,
         user_id: UserId,
         group_id: GroupId,
-        yaml: &str,
+        json: &str,
     ) -> Result<(), Err>;
 
-    async fn get_groups(&self, user_id: UserId) -> Result<Vec<Group>, Err>;
-
-    async fn get_rules_yaml(
+    async fn get_rules_json(
         &self,
         user_id: UserId,
         group_id: GroupId,

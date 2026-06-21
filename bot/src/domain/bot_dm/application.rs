@@ -7,6 +7,15 @@ use async_trait::async_trait;
 use const_format::formatcp;
 use std::sync::Arc;
 
+fn lz_compress(s: &str) -> String {
+    let data: Vec<u16> = s.encode_utf16().collect();
+    lz_str::compress_to_encoded_uri_component(&data)
+}
+fn lz_decompress(s: &str) -> Option<String> {
+    let data = lz_str::decompress_from_encoded_uri_component(s)?;
+    String::from_utf16(&data).ok()
+}
+
 const HELP: &str = "\
 How to use this bot:
 
@@ -35,25 +44,22 @@ const START: &str = formatcp!(
     HELP,
 );
 
-fn group_anchor(group: &Group) -> String {
-    format!("#{}", group.id)
-}
-
-fn find_group_by_anchor<'a>(text: &str) -> Option<GroupId> {
-    text.split_whitespace()
-        .find_map(|word| word.strip_prefix('#')?.parse().ok())
-}
-
 pub struct BotDmApplication {
     messenger: Arc<dyn BotMessenger>,
     group_operator: Arc<dyn GroupOperations>,
+    webeditor_base_url: String,
 }
 
 impl BotDmApplication {
-    pub fn new(messenger: Arc<dyn BotMessenger>, group_operator: Arc<dyn GroupOperations>) -> Self {
+    pub fn new(
+        messenger: Arc<dyn BotMessenger>,
+        group_operator: Arc<dyn GroupOperations>,
+        webeditor_base_url: String,
+    ) -> Self {
         Self {
             messenger,
             group_operator,
+            webeditor_base_url,
         }
     }
 }
@@ -71,70 +77,74 @@ enum ParsedDm {
 }
 
 fn parse(message: &Message) -> ParsedDm {
-    if let Some(group_id) = message
-        .reply_to_message
-        .as_ref()
-        .and_then(|reply| find_group_by_anchor(reply))
+    let trimmed = message.text.trim();
+
+    // Detect a webeditor URL: extract bot_id and rules from the hash fragment
+    if (trimmed.starts_with("http://") || trimmed.starts_with("https://"))
+        && let Some(fragment) = trimmed.split_once('#').map(|(_, f)| f)
     {
-        ParsedDm::SetRules {
-            group_id,
-            yaml: message.text.clone(),
-        }
-    } else {
-        let trimmed = message.text.trim();
-        if trimmed.is_empty() {
-            ParsedDm::Unknown
-        } else {
-            match trimmed {
-                "/start" => ParsedDm::Start,
-                "/help" => ParsedDm::Help,
-                "/source" => ParsedDm::Source,
-                "/groups" => ParsedDm::GetGroups,
-                _ if let Some(id_str) = trimmed.strip_prefix("/rules_") => {
-                    match id_str.trim().parse() {
-                        Ok(group_id) => ParsedDm::GetRules { group_id },
-                        Err(_) => ParsedDm::Unknown,
-                    }
-                } // handled below
-                _ if let Some(id_str) = trimmed.strip_prefix("/notify_on_") => {
-                    match id_str.trim().parse() {
-                        Ok(group_id) => ParsedDm::SetNotifications {
-                            group_id,
-                            enabled: true,
-                        },
-                        Err(_) => ParsedDm::Unknown,
-                    }
-                }
-                _ if let Some(id_str) = trimmed.strip_prefix("/notify_off_") => {
-                    match id_str.trim().parse() {
-                        Ok(group_id) => ParsedDm::SetNotifications {
-                            group_id,
-                            enabled: false,
-                        },
-                        Err(_) => ParsedDm::Unknown,
-                    }
-                }
-                _ if let Some(id_str) = trimmed.strip_prefix("/dry_on_") => {
-                    match id_str.trim().parse() {
-                        Ok(group_id) => ParsedDm::SetDryMode {
-                            group_id,
-                            enabled: true,
-                        },
-                        Err(_) => ParsedDm::Unknown,
-                    }
-                }
-                _ if let Some(id_str) = trimmed.strip_prefix("/dry_off_") => {
-                    match id_str.trim().parse() {
-                        Ok(group_id) => ParsedDm::SetDryMode {
-                            group_id,
-                            enabled: false,
-                        },
-                        Err(_) => ParsedDm::Unknown,
-                    }
-                }
-                _ => ParsedDm::Unknown,
+        let mut bot_id: Option<GroupId> = None;
+        let mut rules_hash: Option<String> = None;
+        for param in fragment.split('&') {
+            if let Some(v) = param.strip_prefix("bot_id=") {
+                bot_id = v.parse().ok();
+            } else if let Some(v) = param.strip_prefix("rules=") {
+                rules_hash = Some(v.to_string());
             }
         }
+        if let (Some(group_id), Some(hash)) = (bot_id, rules_hash) {
+            return ParsedDm::SetRules {
+                group_id,
+                yaml: hash,
+            };
+        }
+    }
+
+    if trimmed.is_empty() {
+        return ParsedDm::Unknown;
+    }
+    match trimmed {
+        "/start" => ParsedDm::Start,
+        "/help" => ParsedDm::Help,
+        "/source" => ParsedDm::Source,
+        "/groups" => ParsedDm::GetGroups,
+        _ if let Some(id_str) = trimmed.strip_prefix("/rules_") => match id_str.trim().parse() {
+            Ok(group_id) => ParsedDm::GetRules { group_id },
+            Err(_) => ParsedDm::Unknown,
+        }, // handled below
+        _ if let Some(id_str) = trimmed.strip_prefix("/notify_on_") => {
+            match id_str.trim().parse() {
+                Ok(group_id) => ParsedDm::SetNotifications {
+                    group_id,
+                    enabled: true,
+                },
+                Err(_) => ParsedDm::Unknown,
+            }
+        }
+        _ if let Some(id_str) = trimmed.strip_prefix("/notify_off_") => {
+            match id_str.trim().parse() {
+                Ok(group_id) => ParsedDm::SetNotifications {
+                    group_id,
+                    enabled: false,
+                },
+                Err(_) => ParsedDm::Unknown,
+            }
+        }
+        _ if let Some(id_str) = trimmed.strip_prefix("/dry_on_") => match id_str.trim().parse() {
+            Ok(group_id) => ParsedDm::SetDryMode {
+                group_id,
+                enabled: true,
+            },
+            Err(_) => ParsedDm::Unknown,
+        },
+        _ if let Some(id_str) = trimmed.strip_prefix("/dry_off_") => match id_str.trim().parse() {
+            Ok(group_id) => ParsedDm::SetDryMode {
+                group_id,
+                enabled: false,
+            },
+            Err(_) => ParsedDm::Unknown,
+        },
+        _ => ParsedDm::Unknown,
     }
 }
 
@@ -150,16 +160,12 @@ fn render_group(group: &Group) -> String {
         format!("Enable dry mode: /dry_on_{}", group.id)
     };
     format!(
-        "*{}* {}
+        "*{}*
 View & Edit Rules: /rules_{}
 {}
 {}\
 ",
-        group.name,
-        group_anchor(group),
-        group.id,
-        notifications_command,
-        dry_mode_command,
+        group.name, group.id, notifications_command, dry_mode_command,
     )
 }
 
@@ -173,12 +179,22 @@ impl BotDmReceiver for BotDmApplication {
             ParsedDm::Help => {
                 self.messenger.send_dm(&user_id, HELP).await?;
             }
-            ParsedDm::SetRules { group_id, yaml } => {
-                match self
-                    .group_operator
-                    .set_rules_yaml(user_id, group_id, &yaml)
-                    .await
-                {
+            ParsedDm::SetRules {
+                group_id,
+                yaml: rules_hash,
+            } => {
+                let result = match lz_decompress(&rules_hash) {
+                    Some(json) => {
+                        self.group_operator
+                            .set_rules_json(user_id, group_id, &json)
+                            .await
+                    }
+                    None => Err("Could not decompress rules from the URL. \
+                        Open the editor link again, make your changes, \
+                        and send back the updated URL."
+                        .into()),
+                };
+                match result {
                     Ok(()) => {
                         self.messenger
                             .send_dm(&user_id, "Rules updated successfully.")
@@ -192,29 +208,21 @@ impl BotDmReceiver for BotDmApplication {
                 }
             }
             ParsedDm::GetRules { group_id } => {
-                let yaml_opt = self
+                match self
                     .group_operator
-                    .get_rules_yaml(user_id, group_id)
-                    .await?;
-                match yaml_opt {
-                    Some(yaml) => {
-                        self.messenger.send_dm(&user_id, &yaml).await?;
-
+                    .get_rules_json(user_id, group_id)
+                    .await?
+                {
+                    Some(json) => {
+                        let hash = lz_compress(&json);
+                        let editor_url = format!(
+                            "{}#bot_id={}&rules={}",
+                            self.webeditor_base_url.trim_end_matches('/'),
+                            group_id,
+                            hash
+                        );
                         let text = format!(
-                            "Group Rules {}
-
-To change the rules:
-1. Copy the YAML text from the message above.
-2. Edit it.
-3. Reply back to *this message* with your new YAML text to apply the changes.
-
-Docs: https://github.com/ed-asriyan/simplex-chat-group-moderator/blob/master/docs/RULES.md",
-                            group_anchor(&Group {
-                                id: group_id,
-                                name: String::new(),
-                                notifications_enabled: false,
-                                dry_mode_enabled: false
-                            }),
+                            "Open the link to edit rules in the visual editor and follow instructions: {editor_url}",
                         );
                         self.messenger.send_dm(&user_id, &text).await?;
                     }

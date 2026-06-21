@@ -1,0 +1,121 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Moderation Rules",
+    "description": "Use the button above to add new rules. Each rule can be of a different type - select the type from the dropdown below.",
+    "type": "array",
+    "format": "tabs",
+    "items": {
+        "title": "Rule",
+        "oneOf": [
+            {
+                "type": "object",
+                "title": "WordsBlacklist",
+                "description": "Deletes messages that contain certain forbidden words. Matches are case-insensitive and attempt to bypass common obfuscation (like `b@dw0rd` instead of `badword`). _Resources with bad words: [🔞 List of Dirty, Naughty, Obscene Words](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words), [☕ Google Profanity Words](https://github.com/coffee-and-fun/google-profanity-words/tree/main/data), [💬 Comment Blocklist](https://github.com/splorp/wordpress-comment-blocklist)_",
+                "required": [
+                    "type",
+                    "keywords"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "const": "WordsBlacklist",
+                        "default": "WordsBlacklist",
+                        "options": {
+                            "hidden": true
+                        }
+                    },
+                    "keywords": {
+                        "type": "array",
+                        "title": "Words/Phrases to Block",
+                        "items": {
+                            "type": "string",
+                            "title": "Word/Phrase",
+                            "maxLength": 100
+                        },
+                        "maxItems": 10000
+                    }
+                }
+            },
+            {
+                "type": "object",
+                "title": "LinksBlacklist",
+                "description": "Deletes messages that contain URLs with domains on the blocked list.",
+                "required": [
+                    "type",
+                    "blocked"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "const": "LinksBlacklist",
+                        "default": "LinksBlacklist",
+                        "options": {
+                            "hidden": true
+                        }
+                    },
+                    "blocked": {
+                        "type": "array",
+                        "title": "Blocked Domains",
+                        "description": "Domains to block. Any message containing a link to these domains will be deleted.",
+                        "items": {
+                            "type": "string",
+                            "title": "Domain",
+                            "maxLength": 100
+                        },
+                        "maxItems": 10000
+                    }
+                }
+            },
+            {
+                "type": "object",
+                "title": "LinksWhitelist",
+                "description": "Deletes messages containing URLs unless every link points to an allowed domain. Use an empty list to block all links.",
+                "required": [
+                    "type",
+                    "allowed"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "const": "LinksWhitelist",
+                        "default": "LinksWhitelist",
+                        "options": {
+                            "hidden": true
+                        }
+                    },
+                    "allowed": {
+                        "type": "array",
+                        "title": "Allowed Domains",
+                        "description": "Domains that are permitted. Any link to a domain NOT on this list causes the message to be deleted.",
+                        "items": {
+                            "type": "string",
+                            "title": "Domain"
+                        }
+                    }
+                }
+            },
+            {
+                "type": "object",
+                "title": "LinksWhitelistTop100",
+                "description": "Deletes messages containing URLs unless every link points to one of ~100 built-in trusted domains (**Google**, **GitHub**, **Wikipedia**, **YouTube**, **Reddit**, etc.).\n\nNo configuration needed.",
+                "required": [
+                    "type"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "const": "LinksWhitelistTop100",
+                        "default": "LinksWhitelistTop100",
+                        "options": {
+                            "hidden": true
+                        }
+                    }
+                }
+            }
+        ]
+    }
+}

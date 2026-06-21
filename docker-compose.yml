@@ -28,6 +28,7 @@ services:
       - /opt/simplex-chat-moderator-bot:/opt/simplex-chat-moderator-bot
     environment:
       - SIMPLEX_WS_URI=ws://localhost:5225
+      - WEBEDITOR_BASE_URL=https://ed-asriyan.github.io/simplex-chat-group-moderator
       - BOT_DISPLAY_NAME=Moderator Bot
       - BOT_FULL_NAME=
       - "BOT_SHORT_DESCRIPTION=I help keep your groups clean by automatically removing unwanted messages
