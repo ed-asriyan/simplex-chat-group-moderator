@@ -11,8 +11,9 @@ use simploxide_client::types::{
     FeatureAllowed, GroupMemberRole, MsgContent, SimplePreference,
 };
 use simploxide_client::{
-    Client, ClientApi, EventStream,
+    ClientApi,
     types::{Preferences, Profile},
+    ws::{Client, EventStream},
 };
 use std::error::Error;
 use std::vec;
@@ -66,7 +67,7 @@ pub struct SimplexDriver {
 impl SimplexDriver {
     pub async fn get_bot_address(&self) -> Result<String, Box<dyn Error>> {
         let user = self.client.show_active_user().await?;
-        let address = self.client.api_show_my_address(user.user_id).await?;
+        let address = self.client.api_show_my_address(user.user.user_id).await?;
         let address = address
             .contact_link
             .conn_link_contact
@@ -85,7 +86,7 @@ impl SimplexDriver {
     pub async fn get_or_create_bot_address(&self) -> Result<String, Box<dyn Error>> {
         let address = self.get_bot_address().await;
         if let Err(_) = address {
-            let user = self.client.show_active_user().await?;
+            let user = self.client.show_active_user().await?.user.clone();
             self.client.api_create_my_address(user.user_id).await?;
             self.get_bot_address().await
         } else {
@@ -178,8 +179,8 @@ impl SimplexDriver {
     pub async fn new(
         config: SimpleXConfig,
     ) -> Result<(Self, impl Stream<Item = SimplexEvent>), Box<dyn Error>> {
-        let (client, event_stream) = simploxide_client::connect(&config.simplex_uri).await?;
-        let user = client.show_active_user().await?;
+        let (client, event_stream) = simploxide_client::ws::connect(&config.simplex_uri).await?;
+        let user = client.show_active_user().await?.user.clone();
         client
             .api_update_profile(
                 user.user_id,
