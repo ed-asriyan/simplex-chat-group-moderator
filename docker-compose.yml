@@ -1,4 +1,4 @@
-name: simplex-chat-moderator-bot-dev
+name: simplex-chat-moderator-bot-production
 
 services:
   smp-client:
