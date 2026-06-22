@@ -33,9 +33,19 @@ fn find_domains_table() {
         ("go to www.evil.com/page", &["evil.com"]),
         ("visit evil.com today", &["evil.com"]),
         ("see sub.evil.com for more", &["sub.evil.com"]),
+        ("join evil . com to see more", &["evil.com"]),
+        ("join sub.evil . com to see more", &["sub.evil.com"]),
+        ("join sub .evil . com to see more", &["sub.evil.com"]),
         ("https://evil.com/a/b?x=1&y=2#anchor", &["evil.com"]),
         ("http://evil.com:8080/path", &["evil.com"]),
         ("hello world no links here", &[]),
+        ("I bought a product.It was great.", &[]),
+        ("The store closed.He went home.", &[]),
+        ("The movie was great. Watch it again.", &[]),
+        ("He arrived. Nobody noticed.", &[]),
+        ("hello. AI is too dangerous", &[]),
+        ("It was late. Today I rested.", &[]),
+        ("Visit us. Online orders welcome.", &[]),
         (
             "http://alpha.com and https://beta.org",
             &["alpha.com", "beta.org"],
@@ -63,13 +73,23 @@ fn find_domains_table() {
         ("evil  .  com", &["evil.com"]),      // multiple spaces on both sides
         ("https://evil. com", &["evil.com"]), // scheme + space after dot
         ("evil[.] com", &["evil.com"]),       // bracket-dot + trailing space
-        ("evil[.]  com", &["evil.com"]),      // bracket-dot + multiple trailing spaces
-        ("evil [.] com", &["evil.com"]),     // bracket-dot + space before and after
-        ("evil (.) com", &["evil.com"]),       // paren-dot + trailing space
-        ("evil {.} com", &["evil.com"]),       // brace-dot + trailing space
-        ("evil [.]com", &["evil.com"]),     // bracket-dot + space before and after
-        ("evil (.)com", &["evil.com"]),       // paren-dot + trailing space
-        ("evil {.}com", &["evil.com"]),       // brace-dot + trailing space
+        ("evil[.]  com", &["evil.com"]),
+        ("evil [.] com", &["evil.com"]),
+        ("evil (.) com", &["evil.com"]),
+        ("evil {.} com", &["evil.com"]),
+        ("evil [.]com", &["evil.com"]),
+        ("evil (.)com", &["evil.com"]),
+        ("evil {.}com", &["evil.com"]),
+        // --- additional bracket/delimiter styles for dot-word ---
+        ("evil{dot}com", &["evil.com"]),
+        ("evil{ dot }com", &["evil.com"]),
+        ("evil<dot>com", &["evil.com"]),
+        ("evil< dot >com", &["evil.com"]),
+        ("evil<.>com", &["evil.com"]),
+        // --- language / leet-speak variants ---
+        ("evil точка com", &["evil.com"]),
+        ("evil[точка]com", &["evil.com"]),
+        ("evil d0t com", &["evil.com"]),
         // --- single-character-run (spaced-out) obfuscation ---
         ("H t t p:// a s r i y a n . m e", &["asriyan.me"]),
     ];

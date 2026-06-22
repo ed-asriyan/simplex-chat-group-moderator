@@ -74,24 +74,65 @@ static DOT_SPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
         .expect("valid DOT_SPACE_RE")
 });
 
+/// Sentence-boundary guard applied **before** lowercasing: a dot followed by
+/// whitespace and then an uppercase letter is almost certainly a sentence end,
+/// not an obfuscated domain dot.  We insert U+FFFE (a Unicode non-character
+/// that never appears in legitimate text) as a sentinel between the whitespace
+/// and the uppercase letter so that `DOT_SPACE_RE` cannot bridge the gap.
+/// The sentinel is stripped at the end of `normalize_obfuscation`.
+static SENTENCE_BOUNDARY_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(\.[\t ]+)([A-Z])").expect("valid SENTENCE_BOUNDARY_RE"));
+
 // ---------------------------------------------------------------------------
 // Normalisation
 // ---------------------------------------------------------------------------
 
 fn normalize_obfuscation(text: &str) -> String {
-    let mut s = text.to_lowercase();
+    // Protect sentence boundaries before lowercasing.  ". Next" (dot + spaces +
+    // uppercase) is a sentence end; insert U+FFFE so DOT_SPACE_RE cannot collapse
+    // the gap.  The sentinel is removed at the end of this function.
+    let guarded = SENTENCE_BOUNDARY_RE.replace_all(text, "$1\u{FFFE}$2");
+    let mut s = guarded.to_lowercase();
 
-    // Dot substitutions — longer patterns first to avoid partial matches
+    // Dot substitutions — longer patterns first to avoid partial matches.
+    // Covers all bracket styles, bare words (English + Russian), leet-speak,
+    // space-dot-space, and Unicode dot lookalikes.
     for pat in &[
-        "[dot]", "(dot)", " dot ", "[ dot ]", "( dot )", "[.]", "(.)", "{.}",
-        " . ", // space-dot-space
+        // spaced word inside brackets
+        "[ dot ]",
+        "( dot )",
+        "{ dot }",
+        "< dot >",
+        "[ точка ]",
+        "( точка )",
+        "{ точка }",
+        // word inside brackets (all common bracket styles)
+        "[dot]",
+        "(dot)",
+        "{dot}",
+        "<dot>",
+        "[точка]",
+        "(точка)",
+        "{точка}",
+        // bare word surrounded by spaces (including leet-speak)
+        " dot ",
+        " точка ",
+        " d0t ",
+        // literal dot inside brackets
+        "[.]",
+        "(.)",
+        "{.}",
+        "<.>",
+        // space-dot-space
+        " . ",
+        // Unicode dot lookalikes
+        "\u{00B7}", // MIDDLE DOT    ·
+        "\u{2022}", // BULLET        •
+        "\u{FF0E}", // FULLWIDTH .   ．
+        "\u{30FB}", // KATAKANA ·    ・
     ] {
         s = s.replace(pat, ".");
     }
-    s = s.replace('\u{00B7}', "."); // MIDDLE DOT  ·
-    s = s.replace('\u{2022}', "."); // BULLET       •
-    s = s.replace('\u{FF0E}', "."); // FULLWIDTH .  ．
-    s = s.replace('\u{30FB}', "."); // KATAKANA ·   ・
 
     // Collapse spaces that sit immediately next to a dot between alphanumeric
     // characters.  "google. com", "google .com", "google  .  com" → "google.com".
@@ -99,11 +140,10 @@ fn normalize_obfuscation(text: &str) -> String {
     // like "evil[.] com" are first reduced to "evil. com" before this step.
     s = DOT_SPACE_RE.replace_all(&s, "$1.$2").into_owned();
 
-    // Strip zero-width chars (invisible separators)
-    s = s.replace('\u{200B}', "");
-    s = s.replace('\u{200C}', "");
-    s = s.replace('\u{200D}', "");
-    s = s.replace('\u{FEFF}', "");
+    // Strip zero-width chars and the sentence-boundary sentinel (U+FFFE).
+    for zw in &["\u{200B}", "\u{200C}", "\u{200D}", "\u{FEFF}", "\u{FFFE}"] {
+        s = s.replace(zw, "");
+    }
 
     // Slash substitution
     s = s.replace("[/]", "/");
