@@ -170,6 +170,34 @@ fn obfusc_combined_dot_and_scheme() {
 }
 
 #[test]
+fn obfusc_space_after_dot() {
+    // "google. com" — space inserted between the dot and the TLD
+    let domains = find_domains("google. com");
+    assert!(domains.contains(&"google.com".to_string()), "got: {domains:?}");
+}
+
+#[test]
+fn obfusc_space_before_dot() {
+    // "google .com" — space inserted before the dot
+    let domains = find_domains("google .com");
+    assert!(domains.contains(&"google.com".to_string()), "got: {domains:?}");
+}
+
+#[test]
+fn obfusc_multiple_spaces_around_dot() {
+    // "evil  .  com" — multiple spaces on both sides of the dot
+    let domains = find_domains("evil  .  com");
+    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
+}
+
+#[test]
+fn obfusc_space_after_dot_with_scheme() {
+    // "https://evil. com" — space after dot in a schemed URL
+    let domains = find_domains("https://evil. com");
+    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
+}
+
+#[test]
 fn obfusc_spaced_chars_scheme_and_host() {
     // "H t t p:// a s r tiyan . ru" — characters of the scheme and parts of
     // the host are space-separated, and the dot is surrounded by spaces.
@@ -296,6 +324,41 @@ fn blacklist_obfusc_bracket_dot() {
 fn blacklist_obfusc_dot_word() {
     assert!(
         should_moderate_blacklist("evil dot com", &blocked(&["evil.com"])).is_some()
+    );
+}
+
+#[test]
+fn blacklist_obfusc_space_after_dot() {
+    // "google. com" — a space is inserted after the dot to break URL detection
+    assert!(
+        should_moderate_blacklist("google. com", &blocked(&["google.com"])).is_some()
+    );
+    assert!(
+        should_moderate_blacklist("evil[.] com", &blocked(&["evil.com"])).is_some()
+    );
+}
+
+#[test]
+fn blacklist_obfusc_space_before_dot() {
+    // "google .com" — space before the dot
+    assert!(
+        should_moderate_blacklist("google .com", &blocked(&["google.com"])).is_some()
+    );
+}
+
+#[test]
+fn blacklist_obfusc_multiple_spaces_around_dot() {
+    // "google  .  com" — multiple spaces on both sides of the dot
+    assert!(
+        should_moderate_blacklist("google  .  com", &blocked(&["google.com"])).is_some()
+    );
+}
+
+#[test]
+fn blacklist_obfusc_scheme_spaced_dot() {
+    // "https://evil. com" — space after dot in a schemed URL
+    assert!(
+        should_moderate_blacklist("https://evil. com", &blocked(&["evil.com"])).is_some()
     );
 }
 

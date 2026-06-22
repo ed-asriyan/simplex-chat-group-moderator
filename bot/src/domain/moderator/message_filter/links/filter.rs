@@ -64,6 +64,16 @@ static SINGLE_CHAR_RUN_RE: LazyLock<Regex> = LazyLock::new(|| {
 static URL_SCHEME_SPACE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"://\s+").expect("valid URL_SCHEME_SPACE_RE"));
 
+/// Collapse whitespace placed immediately around a dot when both flanking
+/// characters are alphanumeric.  At least one space (or tab) must be present
+/// on **either or both** sides of the dot; plain `word.word` tokens are
+/// unaffected.  This handles obfuscation like `google. com`, `google .com`,
+/// and `google  .  com`.
+static DOT_SPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"([a-z0-9])(?:[ \t]+\.[ \t]*|[ \t]*\.[ \t]+)([a-z0-9])")
+        .expect("valid DOT_SPACE_RE")
+});
+
 // ---------------------------------------------------------------------------
 // Normalisation
 // ---------------------------------------------------------------------------
@@ -82,6 +92,12 @@ fn normalize_obfuscation(text: &str) -> String {
     s = s.replace('\u{2022}', "."); // BULLET       •
     s = s.replace('\u{FF0E}', "."); // FULLWIDTH .  ．
     s = s.replace('\u{30FB}', "."); // KATAKANA ·   ・
+
+    // Collapse spaces that sit immediately next to a dot between alphanumeric
+    // characters.  "google. com", "google .com", "google  .  com" → "google.com".
+    // Applied here, after bracket/unicode-dot substitutions so that patterns
+    // like "evil[.] com" are first reduced to "evil. com" before this step.
+    s = DOT_SPACE_RE.replace_all(&s, "$1.$2").into_owned();
 
     // Strip zero-width chars (invisible separators)
     s = s.replace('\u{200B}', "");
