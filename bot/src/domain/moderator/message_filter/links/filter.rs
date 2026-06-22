@@ -242,28 +242,28 @@ pub fn find_domains(text: &str) -> Vec<String> {
     let mut domains: Vec<String> = Vec::new();
 
     for m in URL_SCHEME_RE.find_iter(&normalized) {
-        if let Some(d) = extract_domain(m.as_str()) {
-            if !domains.contains(&d) {
-                domains.push(d);
-            }
+        if let Some(d) = extract_domain(m.as_str())
+            && !domains.contains(&d)
+        {
+            domains.push(d);
         }
     }
     for m in URL_WWW_RE.find_iter(&normalized) {
         let with_scheme = format!("http://{}", m.as_str());
-        if let Some(d) = extract_domain(&with_scheme) {
-            if !domains.contains(&d) {
-                domains.push(d);
-            }
+        if let Some(d) = extract_domain(&with_scheme)
+            && !domains.contains(&d)
+        {
+            domains.push(d);
         }
     }
     for caps in BARE_DOMAIN_RE.captures_iter(&normalized) {
         if let Some(m) = caps.get(1) {
             // Route through extract_domain so that www. is stripped and
             // we don't end up with both "evil.com" and "www.evil.com".
-            if let Some(d) = extract_domain(m.as_str()) {
-                if !domains.contains(&d) {
-                    domains.push(d);
-                }
+            if let Some(d) = extract_domain(m.as_str())
+                && !domains.contains(&d)
+            {
+                domains.push(d);
             }
         }
     }
@@ -287,11 +287,11 @@ fn domain_matches(domain: &str, pattern: &str) -> bool {
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Returns `Some(domain)` if `text` contains a link whose domain is on the
-/// blacklist, or `None` if all links are allowed (or there are no links).
-pub fn should_moderate_blacklist(text: &str, blocked: &[String]) -> Option<String> {
-    let domains = find_domains(text);
-    for domain in &domains {
+/// Core decision: given pre-extracted `domains`, return the first one that
+/// matches a pattern in `blocked`.  `pub(crate)` so tests can inject a mock
+/// domain list without re-exercising obfuscation normalisation.
+pub(super) fn check_blacklist(domains: &[String], blocked: &[String]) -> Option<String> {
+    for domain in domains {
         for b in blocked {
             if domain_matches(domain, b) {
                 return Some(domain.clone());
@@ -301,18 +301,29 @@ pub fn should_moderate_blacklist(text: &str, blocked: &[String]) -> Option<Strin
     None
 }
 
-/// Returns `Some(domain)` if `text` contains a link whose domain is **not**
-/// covered by the allowlist, or `None` if every link is allowed (or there are
-/// no links at all).
-pub fn should_moderate_whitelist(text: &str, allowed: &[String]) -> Option<String> {
-    let domains = find_domains(text);
-    for domain in &domains {
+/// Core decision: given pre-extracted `domains`, return the first one that is
+/// **not** covered by `allowed`, or `None` if every domain is permitted.
+pub(super) fn check_whitelist(domains: &[String], allowed: &[String]) -> Option<String> {
+    for domain in domains {
         let is_allowed = allowed.iter().any(|a| domain_matches(domain, a));
         if !is_allowed {
             return Some(domain.clone());
         }
     }
     None
+}
+
+/// Returns `Some(domain)` if `text` contains a link whose domain is on the
+/// blacklist, or `None` if all links are allowed (or there are no links).
+pub fn should_moderate_blacklist(text: &str, blocked: &[String]) -> Option<String> {
+    check_blacklist(&find_domains(text), blocked)
+}
+
+/// Returns `Some(domain)` if `text` contains a link whose domain is **not**
+/// covered by the allowlist, or `None` if every link is allowed (or there are
+/// no links at all).
+pub fn should_moderate_whitelist(text: &str, allowed: &[String]) -> Option<String> {
+    check_whitelist(&find_domains(text), allowed)
 }
 
 use super::top100;

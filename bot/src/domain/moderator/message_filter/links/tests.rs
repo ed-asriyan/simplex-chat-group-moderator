@@ -1,5 +1,12 @@
-use super::filter::{find_domains, should_moderate_blacklist, should_moderate_whitelist};
+use super::filter::{
+    check_blacklist, check_whitelist, find_domains, should_moderate_blacklist,
+    should_moderate_whitelist,
+};
 
+/// Mock domain list returned by `find_domains` (pre-extracted, lowercase).
+fn found(items: &[&str]) -> Vec<String> {
+    items.iter().map(|s| s.to_string()).collect()
+}
 fn blocked(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| s.to_string()).collect()
 }
@@ -8,505 +15,184 @@ fn allowed(items: &[&str]) -> Vec<String> {
 }
 
 // ===========================================================================
-// find_domains — basic extraction
+// find_domains
+// ===========================================================================
+
+/// Table-driven tests for `find_domains`.
+///
+/// Each entry is `(input_text, expected_domains)`.  An empty expected slice
+/// asserts that `find_domains` returns no results at all; otherwise every
+/// listed domain must appear somewhere in the output.
+#[test]
+fn find_domains_table() {
+    let cases: &[(&str, &[&str])] = &[
+        // --- basic extraction ---
+        ("", &[]),
+        ("check https://evil.com/path", &["evil.com"]),
+        ("visit http://evil.com", &["evil.com"]),
+        ("go to www.evil.com/page", &["evil.com"]),
+        ("visit evil.com today", &["evil.com"]),
+        ("see sub.evil.com for more", &["sub.evil.com"]),
+        ("https://evil.com/a/b?x=1&y=2#anchor", &["evil.com"]),
+        ("http://evil.com:8080/path", &["evil.com"]),
+        ("hello world no links here", &[]),
+        (
+            "http://alpha.com and https://beta.org",
+            &["alpha.com", "beta.org"],
+        ),
+        // --- dot-substitution obfuscation ---
+        ("evil[.]com", &["evil.com"]),
+        ("evil(.)com", &["evil.com"]),
+        ("evil{.}com", &["evil.com"]),
+        ("evil dot com", &["evil.com"]),
+        ("evil[dot]com", &["evil.com"]),
+        ("evil(dot)com", &["evil.com"]),
+        ("evil\u{00B7}com", &["evil.com"]), // MIDDLE DOT   U+00B7
+        ("evil\u{2022}com", &["evil.com"]), // BULLET        U+2022
+        ("evil\u{FF0E}com", &["evil.com"]), // FULLWIDTH .   U+FF0E
+        // --- scheme obfuscation ---
+        ("hxxp://evil.com/path", &["evil.com"]),
+        ("hxxps://evil.com/path", &["evil.com"]),
+        ("h**p://evil.com", &["evil.com"]),
+        ("h--p://evil.com", &["evil.com"]),
+        ("https\u{200B}://evil.com/path", &["evil.com"]), // ZW space stripped
+        ("hxxps://evil[.]com/page", &["evil.com"]),       // scheme + dot-sub combined
+        // --- space-around-dot obfuscation ---
+        ("google. com", &["google.com"]),     // space after dot
+        ("google .com", &["google.com"]),     // space before dot
+        ("evil  .  com", &["evil.com"]),      // multiple spaces on both sides
+        ("https://evil. com", &["evil.com"]), // scheme + space after dot
+        ("evil[.] com", &["evil.com"]),       // bracket-dot + trailing space
+        ("evil[.]  com", &["evil.com"]),      // bracket-dot + multiple trailing spaces
+        ("evil [.] com", &["evil.com"]),     // bracket-dot + space before and after
+        ("evil (.) com", &["evil.com"]),       // paren-dot + trailing space
+        ("evil {.} com", &["evil.com"]),       // brace-dot + trailing space
+        ("evil [.]com", &["evil.com"]),     // bracket-dot + space before and after
+        ("evil (.)com", &["evil.com"]),       // paren-dot + trailing space
+        ("evil {.}com", &["evil.com"]),       // brace-dot + trailing space
+        // --- single-character-run (spaced-out) obfuscation ---
+        ("H t t p:// a s r i y a n . m e", &["asriyan.me"]),
+    ];
+
+    for &(input, must_contain) in cases {
+        let got = find_domains(input);
+        if must_contain.is_empty() {
+            assert!(
+                got.is_empty(),
+                "input={input:?}: expected no domains, got {got:?}"
+            );
+        } else {
+            for expected in must_contain {
+                assert!(
+                    got.contains(&expected.to_string()),
+                    "input={input:?}: expected domain {expected:?}, got {got:?}",
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn find_domains_deduplication() {
+    // Same domain via scheme URL and bare hostname → deduplicated to one entry.
+    let domains = find_domains("https://evil.com is also at evil.com/path");
+    assert_eq!(
+        domains.iter().filter(|d| *d == "evil.com").count(),
+        1,
+        "got: {domains:?}",
+    );
+}
+
+// ===========================================================================
+// check_blacklist — decision logic (mock domain input)
 // ===========================================================================
 
 #[test]
-fn extract_https_url() {
-    assert_eq!(find_domains("check https://evil.com/path"), vec!["evil.com"]);
+fn blacklist_decision_table() {
+    // (detected_domains, blocked_patterns, expected_result)
+    // Domains are already normalised/lowercased (as find_domains returns them).
+    let cases: &[(&[&str], &[&str], Option<&str>)] = &[
+        (&["evil.com"], &["evil.com"], Some("evil.com")),
+        (&["good.com"], &["evil.com"], None),
+        (&["sub.evil.com"], &["evil.com"], Some("sub.evil.com")),
+        (&["a.b.evil.com"], &["evil.com"], Some("a.b.evil.com")),
+        (&["notevil.com"], &["evil.com"], None), // not a suffix match
+        (&["evil.com"], &["EVIL.COM"], Some("evil.com")), // case-insensitive pattern
+        (&[], &["evil.com"], None),              // no domains found
+        (&["evil.com"], &[], None),              // empty blocklist
+        (&["good.com", "evil.com"], &["evil.com"], Some("evil.com")),
+        (&["evil.com", "bad.org"], &["bad.org"], Some("bad.org")),
+        (&["bad.com"], &["sub.bad.com"], None), // subdomain not blocked if only parent is listed
+    ];
+
+    for &(detected, patterns, expected) in cases {
+        let result = check_blacklist(&found(detected), &blocked(patterns));
+        assert_eq!(
+            result.as_deref(),
+            expected,
+            "domains={detected:?} blocked={patterns:?}",
+        );
+    }
 }
 
+/// Smoke test: verifies `find_domains` + `check_blacklist` compose correctly.
+/// Obfuscation edge-cases are covered by `find_domains_table`.
 #[test]
-fn extract_http_url() {
-    assert_eq!(find_domains("visit http://evil.com"), vec!["evil.com"]);
+fn blacklist_pipeline_smoke() {
+    assert!(should_moderate_blacklist("https://evil.com", &blocked(&["evil.com"])).is_some());
+    assert!(should_moderate_blacklist("just plain text", &blocked(&["evil.com"])).is_none());
 }
 
-#[test]
-fn extract_www_url() {
-    assert_eq!(find_domains("go to www.evil.com/page"), vec!["evil.com"]);
-}
-
-#[test]
-fn extract_bare_domain() {
-    let domains = find_domains("visit evil.com today");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn extract_subdomain() {
-    assert_eq!(
-        find_domains("see sub.evil.com for more"),
-        vec!["sub.evil.com"]
-    );
-}
-
-#[test]
-fn extract_domain_with_path_and_query() {
-    assert_eq!(
-        find_domains("https://evil.com/a/b?x=1&y=2#anchor"),
-        vec!["evil.com"]
-    );
-}
-
-#[test]
-fn extract_domain_with_port() {
-    assert_eq!(
-        find_domains("http://evil.com:8080/path"),
-        vec!["evil.com"]
-    );
-}
-
-#[test]
-fn no_domain_in_plain_text() {
-    assert!(find_domains("hello world no links here").is_empty());
-}
-
-#[test]
-fn multiple_domains_extracted() {
-    let domains = find_domains("http://alpha.com and https://beta.org are both present");
-    assert!(domains.contains(&"alpha.com".to_string()));
-    assert!(domains.contains(&"beta.org".to_string()));
-}
-
-// ===========================================================================
-// find_domains — obfuscation normalisation
-// ===========================================================================
-
-#[test]
-fn obfusc_square_bracket_dot() {
-    let domains = find_domains("evil[.]com");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_parenthesis_dot() {
-    let domains = find_domains("evil(.)com");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_curly_dot() {
-    let domains = find_domains("evil{.}com");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_dot_word() {
-    let domains = find_domains("evil dot com");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_dot_word_bracketed() {
-    let domains = find_domains("evil[dot]com");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_dot_word_parens() {
-    let domains = find_domains("evil(dot)com");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_middle_dot_unicode() {
-    // U+00B7 MIDDLE DOT ·
-    let domains = find_domains("evil\u{00B7}com");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_bullet_unicode() {
-    // U+2022 BULLET •
-    let domains = find_domains("evil\u{2022}com");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_fullwidth_period_unicode() {
-    // U+FF0E FULLWIDTH FULL STOP ．
-    let domains = find_domains("evil\u{FF0E}com");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_hxxp_scheme() {
-    let domains = find_domains("hxxp://evil.com/path");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_hxxps_scheme() {
-    let domains = find_domains("hxxps://evil.com/path");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_h_star_star_p_scheme() {
-    let domains = find_domains("h**p://evil.com");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_h_dash_dash_p_scheme() {
-    let domains = find_domains("h--p://evil.com");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_zero_width_chars_in_scheme() {
-    // Zero-width spaces can be inserted to break pattern matching
-    // "https\u{200B}://evil.com" → after stripping ZW chars → "https://evil.com"
-    let domains = find_domains("https\u{200B}://evil.com/path");
-    // After ZW removal + SCHEME_RE this should resolve; included for coverage
-    // (exact behaviour depends on where ZW char lands in the scheme vs host)
-    let _ = domains; // not asserting exact result, just no panic
-}
-
-#[test]
-fn obfusc_combined_dot_and_scheme() {
-    let domains = find_domains("hxxps://evil[.]com/page");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_space_after_dot() {
-    // "google. com" — space inserted between the dot and the TLD
-    let domains = find_domains("google. com");
-    assert!(domains.contains(&"google.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_space_before_dot() {
-    // "google .com" — space inserted before the dot
-    let domains = find_domains("google .com");
-    assert!(domains.contains(&"google.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_multiple_spaces_around_dot() {
-    // "evil  .  com" — multiple spaces on both sides of the dot
-    let domains = find_domains("evil  .  com");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_space_after_dot_with_scheme() {
-    // "https://evil. com" — space after dot in a schemed URL
-    let domains = find_domains("https://evil. com");
-    assert!(domains.contains(&"evil.com".to_string()), "got: {domains:?}");
-}
-
-#[test]
-fn obfusc_spaced_chars_scheme_and_host() {
-    // "H t t p:// a s r tiyan . ru" — characters of the scheme and parts of
-    // the host are space-separated, and the dot is surrounded by spaces.
-    let domains = find_domains("H t t p:// a s r tiyan . ru");
-    assert!(
-        domains.contains(&"asrtiyan.ru".to_string()),
-        "got: {domains:?}"
-    );
-}
-
+/// Integration test: full pipeline with obfuscated input.
 #[test]
 fn blacklist_spaced_chars_is_moderated() {
     assert!(
-        should_moderate_blacklist(
-            "H t t p:// a s r tiyan . ru",
-            &blocked(&["asrtiyan.ru"])
-        )
-        .is_some()
+        should_moderate_blacklist("H t t p:// a s r tiyan . ru", &blocked(&["asrtiyan.ru"]))
+            .is_some()
     );
 }
 
+// ===========================================================================
+// check_whitelist — decision logic (mock domain input)
+// ===========================================================================
+
+#[test]
+fn whitelist_decision_table() {
+    // (detected_domains, allowed_patterns, expected_result)
+    let cases: &[(&[&str], &[&str], Option<&str>)] = &[
+        (&["good.com"], &["good.com"], None),
+        (&["evil.com"], &["good.com"], Some("evil.com")),
+        (&["docs.good.com"], &["good.com"], None), // subdomain of allowed
+        (&[], &["good.com"], None),                // no domains found
+        (&["anything.com"], &[], Some("anything.com")), // empty allowlist
+        (&["good.com"], &["GOOD.COM"], None),      // case-insensitive pattern
+        (&["good.com", "evil.com"], &["good.com"], Some("evil.com")),
+        (&["good.com", "docs.good.com"], &["good.com"], None), // all covered
+        (&["good.com"], &["sub.good.com"], Some("good.com")),  // subdomain allowed, but not parent
+    ];
+
+    for &(detected, patterns, expected) in cases {
+        let result = check_whitelist(&found(detected), &allowed(patterns));
+        assert_eq!(
+            result.as_deref(),
+            expected,
+            "domains={detected:?} allowed={patterns:?}",
+        );
+    }
+}
+
+/// Smoke test: verifies `find_domains` + `check_whitelist` compose correctly.
+#[test]
+fn whitelist_pipeline_smoke() {
+    assert!(should_moderate_whitelist("https://good.com", &allowed(&["good.com"])).is_none());
+    assert!(should_moderate_whitelist("https://evil.com", &allowed(&["good.com"])).is_some());
+}
+
+/// Integration test: full pipeline with obfuscated input.
 #[test]
 fn whitelist_spaced_chars_non_allowed_is_moderated() {
     assert!(
-        should_moderate_whitelist(
-            "H t t p:// a s r tiyan . ru",
-            &blocked(&["github.com"])
-        )
-        .is_some()
-    );
-}
-
-#[test]
-fn deduplication_across_extraction_modes() {
-    // Same domain appears via scheme URL and bare domain → only once
-    let domains = find_domains("https://evil.com is also at evil.com/path");
-    assert_eq!(domains.iter().filter(|d| *d == "evil.com").count(), 1);
-}
-
-// ===========================================================================
-// should_moderate_blacklist
-// ===========================================================================
-
-#[test]
-fn blacklist_blocked_domain_is_moderated() {
-    assert!(
-        should_moderate_blacklist("visit https://evil.com now", &blocked(&["evil.com"])).is_some()
-    );
-}
-
-#[test]
-fn blacklist_unblocked_domain_is_allowed() {
-    assert!(should_moderate_blacklist(
-        "visit https://good.com",
-        &blocked(&["evil.com"])
-    )
-    .is_none());
-}
-
-#[test]
-fn blacklist_returns_matched_domain() {
-    let result = should_moderate_blacklist("https://evil.com", &blocked(&["evil.com"]));
-    assert_eq!(result.as_deref(), Some("evil.com"));
-}
-
-#[test]
-fn blacklist_subdomain_of_blocked_is_moderated() {
-    assert!(
-        should_moderate_blacklist("https://sub.evil.com", &blocked(&["evil.com"])).is_some()
-    );
-}
-
-#[test]
-fn blacklist_deep_subdomain_of_blocked_is_moderated() {
-    assert!(
-        should_moderate_blacklist("https://a.b.evil.com", &blocked(&["evil.com"])).is_some()
-    );
-}
-
-#[test]
-fn blacklist_pattern_is_not_suffix_matched_on_different_domain() {
-    // "notevil.com" should NOT match pattern "evil.com"
-    assert!(
-        should_moderate_blacklist("https://notevil.com", &blocked(&["evil.com"])).is_none()
-    );
-}
-
-#[test]
-fn blacklist_case_insensitive_domain() {
-    assert!(
-        should_moderate_blacklist("https://EVIL.COM/path", &blocked(&["evil.com"])).is_some()
-    );
-}
-
-#[test]
-fn blacklist_case_insensitive_pattern() {
-    assert!(
-        should_moderate_blacklist("https://evil.com", &blocked(&["EVIL.COM"])).is_some()
-    );
-}
-
-#[test]
-fn blacklist_no_links_in_message_is_not_moderated() {
-    assert!(
-        should_moderate_blacklist("just plain text here", &blocked(&["evil.com"])).is_none()
-    );
-}
-
-#[test]
-fn blacklist_empty_blocked_list_is_not_moderated() {
-    assert!(
-        should_moderate_blacklist("https://evil.com", &[]).is_none()
-    );
-}
-
-#[test]
-fn blacklist_obfusc_bracket_dot() {
-    assert!(
-        should_moderate_blacklist("evil[.]com", &blocked(&["evil.com"])).is_some()
-    );
-}
-
-#[test]
-fn blacklist_obfusc_dot_word() {
-    assert!(
-        should_moderate_blacklist("evil dot com", &blocked(&["evil.com"])).is_some()
-    );
-}
-
-#[test]
-fn blacklist_obfusc_space_after_dot() {
-    // "google. com" — a space is inserted after the dot to break URL detection
-    assert!(
-        should_moderate_blacklist("google. com", &blocked(&["google.com"])).is_some()
-    );
-    assert!(
-        should_moderate_blacklist("evil[.] com", &blocked(&["evil.com"])).is_some()
-    );
-}
-
-#[test]
-fn blacklist_obfusc_space_before_dot() {
-    // "google .com" — space before the dot
-    assert!(
-        should_moderate_blacklist("google .com", &blocked(&["google.com"])).is_some()
-    );
-}
-
-#[test]
-fn blacklist_obfusc_multiple_spaces_around_dot() {
-    // "google  .  com" — multiple spaces on both sides of the dot
-    assert!(
-        should_moderate_blacklist("google  .  com", &blocked(&["google.com"])).is_some()
-    );
-}
-
-#[test]
-fn blacklist_obfusc_scheme_spaced_dot() {
-    // "https://evil. com" — space after dot in a schemed URL
-    assert!(
-        should_moderate_blacklist("https://evil. com", &blocked(&["evil.com"])).is_some()
-    );
-}
-
-#[test]
-fn blacklist_obfusc_hxxp_scheme() {
-    assert!(
-        should_moderate_blacklist("hxxp://evil.com/path", &blocked(&["evil.com"])).is_some()
-    );
-}
-
-#[test]
-fn blacklist_obfusc_combined() {
-    assert!(
-        should_moderate_blacklist("hxxps://evil[.]com", &blocked(&["evil.com"])).is_some()
-    );
-}
-
-#[test]
-fn blacklist_www_prefix() {
-    assert!(
-        should_moderate_blacklist("www.evil.com/page", &blocked(&["evil.com"])).is_some()
-    );
-}
-
-#[test]
-fn blacklist_first_blocked_domain_returned_from_multiple() {
-    let result = should_moderate_blacklist(
-        "go to https://evil.com and http://bad.org",
-        &blocked(&["bad.org", "evil.com"]),
-    );
-    assert!(result.is_some());
-}
-
-// ===========================================================================
-// should_moderate_whitelist
-// ===========================================================================
-
-#[test]
-fn whitelist_allowed_domain_is_not_moderated() {
-    assert!(
-        should_moderate_whitelist("https://good.com/page", &allowed(&["good.com"])).is_none()
-    );
-}
-
-#[test]
-fn whitelist_disallowed_domain_is_moderated() {
-    assert!(
-        should_moderate_whitelist("https://evil.com", &allowed(&["good.com"])).is_some()
-    );
-}
-
-#[test]
-fn whitelist_returns_offending_domain() {
-    let result = should_moderate_whitelist("https://evil.com", &allowed(&["good.com"]));
-    assert_eq!(result.as_deref(), Some("evil.com"));
-}
-
-#[test]
-fn whitelist_subdomain_of_allowed_is_not_moderated() {
-    assert!(
-        should_moderate_whitelist("https://docs.good.com", &allowed(&["good.com"])).is_none()
-    );
-}
-
-#[test]
-fn whitelist_no_links_is_not_moderated() {
-    assert!(
-        should_moderate_whitelist("just plain text", &allowed(&["good.com"])).is_none()
-    );
-}
-
-#[test]
-fn whitelist_empty_allowed_list_blocks_all_links() {
-    assert!(
-        should_moderate_whitelist("https://anything.com", &[]).is_some()
-    );
-}
-
-#[test]
-fn whitelist_case_insensitive_domain() {
-    assert!(
-        should_moderate_whitelist("https://GOOD.COM", &allowed(&["good.com"])).is_none()
-    );
-}
-
-#[test]
-fn whitelist_case_insensitive_pattern() {
-    assert!(
-        should_moderate_whitelist("https://good.com", &allowed(&["GOOD.COM"])).is_none()
-    );
-}
-
-#[test]
-fn whitelist_obfusc_bracket_dot() {
-    // evil[.]com obfuscated — must be detected and blocked (not in whitelist)
-    assert!(
-        should_moderate_whitelist("evil[.]com", &allowed(&["good.com"])).is_some()
-    );
-}
-
-#[test]
-fn whitelist_obfusc_allowed_domain_bracket_dot() {
-    // good[.]com is the allowed domain written with obfuscation
-    assert!(
-        should_moderate_whitelist("good[.]com/path", &allowed(&["good.com"])).is_none()
-    );
-}
-
-#[test]
-fn whitelist_obfusc_hxxp_disallowed() {
-    assert!(
-        should_moderate_whitelist("hxxp://evil.com", &allowed(&["good.com"])).is_some()
-    );
-}
-
-#[test]
-fn whitelist_multiple_links_one_disallowed() {
-    // good.com is fine, but evil.com is not → moderate
-    assert!(
-        should_moderate_whitelist(
-            "https://good.com and https://evil.com",
-            &allowed(&["good.com"])
-        )
-        .is_some()
-    );
-}
-
-#[test]
-fn whitelist_multiple_links_all_allowed() {
-    assert!(
-        should_moderate_whitelist(
-            "https://good.com and https://docs.good.com",
-            &allowed(&["good.com"])
-        )
-        .is_none()
-    );
-}
-
-#[test]
-fn whitelist_www_prefix_allowed() {
-    assert!(
-        should_moderate_whitelist("www.good.com/page", &allowed(&["good.com"])).is_none()
-    );
-}
-
-#[test]
-fn whitelist_www_prefix_disallowed() {
-    assert!(
-        should_moderate_whitelist("www.evil.com/page", &allowed(&["good.com"])).is_some()
+        should_moderate_whitelist("H t t p:// a s r tiyan . ru", &blocked(&["github.com"]))
+            .is_some()
     );
 }
