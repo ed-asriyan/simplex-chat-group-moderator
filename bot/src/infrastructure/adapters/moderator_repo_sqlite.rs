@@ -136,8 +136,6 @@ impl ModerationRepository for SqliteModerationRepository {
         .map_err(|e| -> Err { e.to_string().into() })
     }
 
-
-
     async fn set_group_name(
         &self,
         messenger_group_id: &MessengerGroupId,
@@ -162,9 +160,13 @@ impl ModerationRepository for SqliteModerationRepository {
     async fn get_group_rules(&self, group_id: &GroupId) -> Result<Vec<OwnedModerationRule>, Err> {
         let conn = self.conn.clone();
         let gid = *group_id;
-        tokio::task::spawn_blocking(move || crate::infrastructure::adapters::moderator_repo_sqlite_rules::load_rules_for_group(&conn, gid))
-            .await
-            .map_err(|e| -> Err { e.to_string().into() })?
+        tokio::task::spawn_blocking(move || {
+            crate::infrastructure::adapters::moderator_repo_sqlite_rules::load_rules_for_group(
+                &conn, gid,
+            )
+        })
+        .await
+        .map_err(|e| -> Err { e.to_string().into() })?
     }
 
     async fn get_group_rules_by_messenger_id(
@@ -175,7 +177,7 @@ impl ModerationRepository for SqliteModerationRepository {
         let mid = *messenger_group_id;
         tokio::task::spawn_blocking(move || {
             let gid = {
-                let guard = conn.lock().unwrap();
+                let guard = conn.lock().expect("moderation repo connection poisoned");
                 let mut stmt = guard.prepare("SELECT group_id FROM moderation_groups WHERE messenger_group_id = ?1")?;
                 stmt.query_row(params![mid], |row| row.get::<_, i64>(0))
             };
@@ -196,7 +198,7 @@ impl ModerationRepository for SqliteModerationRepository {
     ) -> Result<(), Err> {
         let conn = self.conn.clone();
         let gid = *group_id;
-        
+
         let mut rules = rules.to_vec();
         for rule in &mut rules {
             match rule {
@@ -234,7 +236,10 @@ impl ModerationRepository for SqliteModerationRepository {
                         )
                         .into());
                     }
-                    if let Some(domain) = blocked.iter().find(|d| d.chars().count() > MAX_KEYWORD_LENGTH) {
+                    if let Some(domain) = blocked
+                        .iter()
+                        .find(|d| d.chars().count() > MAX_KEYWORD_LENGTH)
+                    {
                         return Err(format!(
                             "Domain too long: {} characters, maximum is {}",
                             domain.chars().count(),
@@ -254,7 +259,10 @@ impl ModerationRepository for SqliteModerationRepository {
                         )
                         .into());
                     }
-                    if let Some(domain) = allowed.iter().find(|d| d.chars().count() > MAX_KEYWORD_LENGTH) {
+                    if let Some(domain) = allowed
+                        .iter()
+                        .find(|d| d.chars().count() > MAX_KEYWORD_LENGTH)
+                    {
                         return Err(format!(
                             "Domain too long: {} characters, maximum is {}",
                             domain.chars().count(),
@@ -268,71 +276,85 @@ impl ModerationRepository for SqliteModerationRepository {
         }
 
         tokio::task::spawn_blocking(move || -> Result<(), Err> {
-             let mut guard = conn.lock().unwrap();
-             let tx = guard.transaction().map_err(|e| -> Err { e.to_string().into() })?;
+            let mut guard = conn.lock().expect("moderation repo connection poisoned");
+            let tx = guard.transaction().map_err(|e| -> Err { e.to_string().into() })?;
 
-             // Delete all previous rules
-             tx.execute("DELETE FROM moderation_rules WHERE group_id = ?1", rusqlite::params![gid]).map_err(|e| -> Err { e.to_string().into() })?;
-             
-             let mut rng = rand::rng();
-             for rule in rules {
-                 let rule_type_str = match rule {
-                     ModerationRule::WordsBlacklist { .. } => "words_blacklist",
-                     ModerationRule::LinksBlacklist { .. } => "links_blacklist",
-                     ModerationRule::LinksWhitelist { .. } => "links_whitelist",
-                     ModerationRule::LinksWhitelistTop100 {} => "links_whitelist_top100",
-                 };
+            // Delete all previous rules for this group. Child rows (keywords /
+            // domains) are removed automatically via ON DELETE CASCADE.
+            for table in [
+                "moderation_rule__words_blacklist",
+                "moderation_rule__links_blacklist",
+                "moderation_rule__links_whitelist",
+                "moderation_rule__links_whitelist_top100",
+            ] {
+                tx.execute(
+                    &format!("DELETE FROM {table} WHERE group_id = ?1"),
+                    rusqlite::params![gid],
+                )
+                .map_err(|e| -> Err { e.to_string().into() })?;
+            }
 
-                 let mut rule_id: i64 = 0;
-                 for _ in 0..GROUP_ID_ALLOC_MAX_ATTEMPTS {
-                     let id_candidate: i64 = rng.random_range(GROUP_ID_MIN..GROUP_ID_MAX);
-                     let res = tx.execute(
-                         "INSERT INTO moderation_rules (id, group_id, rule_type) VALUES (?1, ?2, ?3)",
-                         rusqlite::params![id_candidate, gid, rule_type_str]
-                     );
-                     match res {
-                         Ok(_) => {
-                             rule_id = id_candidate;
-                             break;
-                         }
-                         Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation => {
-                             continue;
-                         }
-                         Err(e) => return Err(e.to_string().into()),
-                     }
-                 }
+            for (rank, rule) in rules.into_iter().enumerate() {
+                let rank = rank as i64;
+                match rule {
+                    ModerationRule::WordsBlacklist { keywords } => {
+                        tx.execute(
+                            "INSERT INTO moderation_rule__words_blacklist (group_id, rank) VALUES (?1, ?2)",
+                            rusqlite::params![gid, rank],
+                        )
+                        .map_err(|e| -> Err { e.to_string().into() })?;
+                        let rule_id = tx.last_insert_rowid();
+                        let mut stmt = tx
+                            .prepare("INSERT INTO moderation_rule__words_blacklist__keywords (rule_id, keyword) VALUES (?1, ?2)")
+                            .map_err(|e| -> Err { e.to_string().into() })?;
+                        for kw in keywords.iter().filter(|k| !k.is_empty()) {
+                            stmt.execute(rusqlite::params![rule_id, kw])
+                                .map_err(|e| -> Err { e.to_string().into() })?;
+                        }
+                    }
+                    ModerationRule::LinksBlacklist { blocked } => {
+                        tx.execute(
+                            "INSERT INTO moderation_rule__links_blacklist (group_id, rank) VALUES (?1, ?2)",
+                            rusqlite::params![gid, rank],
+                        )
+                        .map_err(|e| -> Err { e.to_string().into() })?;
+                        let rule_id = tx.last_insert_rowid();
+                        let mut stmt = tx
+                            .prepare("INSERT INTO moderation_rule__links_blacklist__domains (rule_id, domain) VALUES (?1, ?2)")
+                            .map_err(|e| -> Err { e.to_string().into() })?;
+                        for domain in blocked {
+                            stmt.execute(rusqlite::params![rule_id, domain])
+                                .map_err(|e| -> Err { e.to_string().into() })?;
+                        }
+                    }
+                    ModerationRule::LinksWhitelist { allowed } => {
+                        tx.execute(
+                            "INSERT INTO moderation_rule__links_whitelist (group_id, rank) VALUES (?1, ?2)",
+                            rusqlite::params![gid, rank],
+                        )
+                        .map_err(|e| -> Err { e.to_string().into() })?;
+                        let rule_id = tx.last_insert_rowid();
+                        let mut stmt = tx
+                            .prepare("INSERT INTO moderation_rule__links_whitelist__domains (rule_id, domain) VALUES (?1, ?2)")
+                            .map_err(|e| -> Err { e.to_string().into() })?;
+                        for domain in allowed {
+                            stmt.execute(rusqlite::params![rule_id, domain])
+                                .map_err(|e| -> Err { e.to_string().into() })?;
+                        }
+                    }
+                    ModerationRule::LinksWhitelistTop100 {} => {
+                        // No domain data to store — the list is built into the binary.
+                        tx.execute(
+                            "INSERT INTO moderation_rule__links_whitelist_top100 (group_id, rank) VALUES (?1, ?2)",
+                            rusqlite::params![gid, rank],
+                        )
+                        .map_err(|e| -> Err { e.to_string().into() })?;
+                    }
+                }
+            }
 
-                 if rule_id == 0 {
-                     return Err("failed to allocate a unique rule_id".into());
-                 }
-
-                 match rule {
-                     ModerationRule::WordsBlacklist { keywords: k } => {
-                          let mut stmt = tx.prepare("INSERT INTO moderation_rule_keywords (rule_id, keyword) VALUES (?1, ?2)").map_err(|e| -> Err { e.to_string().into() })?;
-                          for kw in k.iter().filter(|k| !k.is_empty()) {
-                              stmt.execute(rusqlite::params![rule_id, kw]).map_err(|e| -> Err { e.to_string().into() })?;
-                          }
-                     },
-                     ModerationRule::LinksBlacklist { blocked } => {
-                     let mut stmt = tx.prepare("INSERT INTO moderation_rule_link_domains (rule_id, domain) VALUES (?1, ?2)").map_err(|e| -> Err { e.to_string().into() })?;
-                     for domain in blocked {
-                         stmt.execute(rusqlite::params![rule_id, domain]).map_err(|e| -> Err { e.to_string().into() })?;
-                     }
-                 },
-                 ModerationRule::LinksWhitelist { allowed } => {
-                     let mut stmt = tx.prepare("INSERT INTO moderation_rule_link_domains (rule_id, domain) VALUES (?1, ?2)").map_err(|e| -> Err { e.to_string().into() })?;
-                     for domain in allowed {
-                         stmt.execute(rusqlite::params![rule_id, domain]).map_err(|e| -> Err { e.to_string().into() })?;
-                     }
-                 }
-                 ModerationRule::LinksWhitelistTop100 {} => {
-                     // No domain data to store — the list is built into the binary.
-                 }
-             }
-             }
-
-             tx.commit().map_err(|e| -> Err { e.to_string().into() })?;
-             Ok(())
+            tx.commit().map_err(|e| -> Err { e.to_string().into() })?;
+            Ok(())
         })
         .await
         .map_err(|e| -> Err { e.to_string().into() })?
