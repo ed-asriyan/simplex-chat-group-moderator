@@ -39,6 +39,8 @@ fn find_domains_table() {
         ("https://evil.com/a/b?x=1&y=2#anchor", &["evil.com"]),
         ("http://evil.com:8080/path", &["evil.com"]),
         ("hello world no links here", &[]),
+        ("how to use dot net?", &[]),
+        ("http ://verybadsite dot net", &["verybadsite.net"]),
         ("I bought a product.It was great.", &[]),
         ("The store closed.He went home.", &[]),
         ("The movie was great. Watch it again.", &[]),

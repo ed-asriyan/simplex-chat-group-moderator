@@ -82,7 +82,18 @@ static DOT_SPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// The sentinel is stripped at the end of `normalize_obfuscation`.
 static SENTENCE_BOUNDARY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(\.[\t ]+)([A-Z])").expect("valid SENTENCE_BOUNDARY_RE"));
-
+/// Well-known product/technology phrases where the word "dot" is part of
+/// the product name and **not** a URL separator.  These are replaced with
+/// U+FFFD (REPLACEMENT CHARACTER) before the dot-word substitution loop so
+/// that ordinary sentences mentioning these technologies do not produce
+/// false-positive domain matches.
+///
+/// Add new entries here whenever a common tech/cultural phrase would otherwise
+/// be misread as an obfuscated domain (e.g. "dot net" → Microsoft .NET).
+/// All entries must be **lowercase** (applied after `to_lowercase`).
+const WELL_KNOWN_DOT_PHRASES: &[&str] = &[
+    "dot net", // Microsoft .NET framework / ASP.NET / .NET Core
+];
 // ---------------------------------------------------------------------------
 // Normalisation
 // ---------------------------------------------------------------------------
@@ -93,6 +104,35 @@ fn normalize_obfuscation(text: &str) -> String {
     // the gap.  The sentinel is removed at the end of this function.
     let guarded = SENTENCE_BOUNDARY_RE.replace_all(text, "$1\u{FFFE}$2");
     let mut s = guarded.to_lowercase();
+
+    // Protect well-known technology/product phrases that use the word "dot"
+    // as part of their name (not as a URL separator), so that the subsequent
+    // dot-word substitutions do not create false-positive domain candidates.
+    // U+FFFD is used as the placeholder and is stripped at the end.
+    //
+    // The protection is skipped for any occurrence that is already preceded by
+    // a URL scheme marker ("://"), which indicates the phrase is part of an
+    // intentionally obfuscated URL rather than a casual tech reference.
+    for phrase in WELL_KNOWN_DOT_PHRASES {
+        let mut out = String::with_capacity(s.len());
+        let mut rest = s.as_str();
+        while let Some(pos) = rest.find(phrase) {
+            let before = &rest[..pos];
+            out.push_str(before);
+            if before.contains("://") {
+                // URL scheme seen before this phrase — keep it so the domain
+                // is still detected by the dot-substitution rules below.
+                out.push_str(phrase);
+            } else {
+                // Plain-text tech reference — replace with placeholder so it
+                // does not produce a false-positive domain.
+                out.push('\u{FFFD}');
+            }
+            rest = &rest[pos + phrase.len()..];
+        }
+        out.push_str(rest);
+        s = out;
+    }
 
     // Dot substitutions — longer patterns first to avoid partial matches.
     // Covers all bracket styles, bare words (English + Russian), leet-speak,
@@ -140,8 +180,11 @@ fn normalize_obfuscation(text: &str) -> String {
     // like "evil[.] com" are first reduced to "evil. com" before this step.
     s = DOT_SPACE_RE.replace_all(&s, "$1.$2").into_owned();
 
-    // Strip zero-width chars and the sentence-boundary sentinel (U+FFFE).
-    for zw in &["\u{200B}", "\u{200C}", "\u{200D}", "\u{FEFF}", "\u{FFFE}"] {
+    // Strip zero-width chars, the sentence-boundary sentinel (U+FFFE), and
+    // the well-known-phrase placeholder (U+FFFD).
+    for zw in &[
+        "\u{200B}", "\u{200C}", "\u{200D}", "\u{FEFF}", "\u{FFFE}", "\u{FFFD}",
+    ] {
         s = s.replace(zw, "");
     }
 
