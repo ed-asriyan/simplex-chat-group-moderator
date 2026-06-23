@@ -237,6 +237,12 @@ impl SimplexDriver {
                                     undocumented: Default::default(),
                                 },
                                 ChatBotCommand::Command {
+                                    keyword: "issue".to_string(),
+                                    label: "Report a bug or unexpected moderation behaviour".to_string(),
+                                    params: None,
+                                    undocumented: Default::default(),
+                                },
+                                ChatBotCommand::Command {
                                     keyword: "source".to_string(),
                                     label: "Show source code".to_string(),
                                     params: None,

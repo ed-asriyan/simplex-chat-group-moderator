@@ -30,11 +30,14 @@ Commands:
   /help   - Show this guide.
   /groups - List and manage groups I moderate for you.
   /source - Link to my source code.
+  /issue  - Report a bug or unexpected moderation behaviour.
 
 For each group you can also turn moderation notifications on or off (use /groups to get the links). When enabled, I'll DM you whenever I delete a message.
 
 You can also enable dry mode for a group. In dry mode I run all checks and notify you about what I would delete, but I don't actually delete anything. Use /groups to get the links.
 ";
+
+const ISSUE_URL: &str = "https://github.com/ed-asriyan/simplex-chat-group-moderator/issues/new?template=moderation-rule-bug.yml";
 
 const START: &str = formatcp!(
     "Hi! Invite me to your group and grant me moderator permissions. \
@@ -72,6 +75,7 @@ enum ParsedDm {
     SetNotifications { group_id: GroupId, enabled: bool },
     SetDryMode { group_id: GroupId, enabled: bool },
     Source,
+    Issue,
     Unknown,
 }
 
@@ -112,6 +116,7 @@ fn parse(message: &Message, base_url: &str) -> ParsedDm {
         "/start" => ParsedDm::Start,
         "/help" => ParsedDm::Help,
         "/source" => ParsedDm::Source,
+        "/issue" => ParsedDm::Issue,
         "/groups" => ParsedDm::GetGroups,
         _ if let Some(id_str) = text.strip_prefix("/notify_on_") => match id_str.trim().parse() {
             Ok(group_id) => ParsedDm::SetNotifications {
@@ -282,6 +287,11 @@ impl BotDmReceiver for BotDmApplication {
                         &user_id,
                         "https://github.com/ed-asriyan/simplex-chat-group-moderator",
                     )
+                    .await?;
+            }
+            ParsedDm::Issue => {
+                self.messenger
+                    .send_dm(&user_id, ISSUE_URL)
                     .await?;
             }
             ParsedDm::Unknown => {

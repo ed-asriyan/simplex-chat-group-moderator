@@ -1,0 +1,101 @@
+name: "🛡️ Moderation rule not working correctly"
+description: A moderation rule deletes messages it shouldn't, or fails to delete messages it should.
+title: "[Rule bug]: "
+labels: ["bug", "moderation rule"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! This template is for when a **moderation rule
+        behaves incorrectly** — e.g. a message was deleted that should have been
+        allowed, or a violating message was *not* deleted.
+
+        ⚠️ **Before posting**, please review what you paste:
+        - Redact any private group content you don't want public.
+        - The rules-editor URL hash contains your **entire ruleset** — that's
+          very helpful for reproduction, but remove anything sensitive first.
+
+  - type: dropdown
+    id: rule-type
+    attributes:
+      label: Which rule type is misbehaving?
+      options:
+        - WordsBlacklist (forbidden words/phrases)
+        - LinksBlacklist (blocked domains)
+        - LinksWhitelist (only allowed domains)
+        - LinksWhitelistTop100 (built-in trusted domains)
+        - Not sure / multiple
+    validations:
+      required: true
+
+  - type: dropdown
+    id: wrong-behavior
+    attributes:
+      label: What went wrong?
+      options:
+        - "False positive: a message was deleted that should have been allowed"
+        - "False negative: a message was NOT deleted that should have been deleted"
+        - "Other (explain below)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: message-text
+    attributes:
+      label: The exact message text
+      description: >
+        Copy the message **verbatim**, including any spacing, punctuation, or
+        odd characters. Obfuscation handling is whitespace/character-sensitive,
+        so even small differences matter. Wrap it in a code block.
+      placeholder: |
+        ```
+        how to use dot net?
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: rule-config
+    attributes:
+      label: The rule configuration
+      description: >
+        Paste the relevant rule(s). Easiest is the **rules-editor URL** the bot
+        sent you (the `rules=...` part), or type rules manually.
+      placeholder: "`rules=NobwRALgngDgpmAXGAMgSwHYGsDOB1ACzQjgBs0cIAVAexgEYAGRsAXwF0g`"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: Expected vs. actual behavior
+      placeholder: |
+        Expected: message kept (no link, "dot net" is the .NET framework)
+        Actual: message deleted as if it linked to "use.net"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: dry-mode
+    attributes:
+      label: Was the group in dry mode?
+      description: In dry mode the bot reports but does not actually delete.
+      options:
+        - "No — messages are actually deleted"
+        - "Yes — dry mode (notify only)"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: input
+    id: language
+    attributes:
+      label: Message language / script
+      description: e.g. English, Russian (Cyrillic), mixed — matters for word and link matching.
+      placeholder: English
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Other example messages that DO behave correctly, screenshots, frequency, etc.

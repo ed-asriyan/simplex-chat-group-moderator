@@ -101,6 +101,7 @@ Rules are owned by groups and stored as one **typed table per rule type** rather
 3. **Repository read:** load the new rule in `infrastructure/adapters/moderator_repo_sqlite_rules.rs` (carry its `rank`).
 4. **Repository write:** insert the new rule (with `rank`) in `set_group_rules` in `infrastructure/adapters/moderator_repo_sqlite.rs`.
 5. **Web editor:** add the rule's shape to `webeditor/rules-schema.json` so owners can configure it, using the variant name as the `type` const so it matches the serde representation.
+6. **Bug template:** Update `moderation-rule-bug.yml` to add the new rule's title (as it appears in `rules-schema.json`) to the `rule-type` dropdown options list so bug reporters can select it.
 
 ## General conventions
 - Async traits use `#[async_trait]`.
