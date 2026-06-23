@@ -12,7 +12,7 @@ CREATE TABLE moderation_rule__words_blacklist (
     group_id INTEGER NOT NULL REFERENCES moderation_groups(group_id) ON DELETE CASCADE,
     rank     INTEGER NOT NULL
 );
-CREATE INDEX idx_moderation_rule_words_blacklist_group_id
+CREATE INDEX idx_moderation_rule__words_blacklist_group_id
     ON moderation_rule__words_blacklist (group_id);
 
 CREATE TABLE moderation_rule__words_blacklist__keywords (
@@ -57,7 +57,7 @@ CREATE TABLE moderation_rule__links_whitelist_top100 (
     group_id INTEGER NOT NULL REFERENCES moderation_groups(group_id) ON DELETE CASCADE,
     rank     INTEGER NOT NULL
 );
-CREATE INDEX idx_moderation_rule_links_whitelist_top100_group_id
+CREATE INDEX idx_moderation_rule__links_whitelist_top100_group_id
     ON moderation_rule__links_whitelist_top100 (group_id);
 
 -- Backfill from the old registry. Preserve ids so the existing
