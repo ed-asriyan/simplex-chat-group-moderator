@@ -52,6 +52,10 @@ pub fn should_moderate(text: &str, blocked_keywords: &[String]) -> Option<String
             return None;
         }
         if needle_present(&tokens, &merged, &needle) || compound_present(&tokens, &needle) {
+            println!(
+                "MATCHED TEXT: {:?} WITH NEEDLE {:?}, merged={:?}, tokens={:?}",
+                text, needle, merged, tokens
+            );
             return Some(kw.clone());
         }
         None
@@ -232,6 +236,14 @@ fn singular_candidates(s: &str) -> Vec<String> {
         return out;
     }
 
+    let collapsed = collapse_floods(s);
+    if collapsed != s {
+        // If the token is flooded, also consider the stems of its collapsed form.
+        // This allows suffix stripping to work on flooded suffixes (e.g. `nessss` -> `ines`).
+        let mut stems_collapsed = singular_candidates(&collapsed);
+        out.append(&mut stems_collapsed);
+    }
+
     // Collect every base form reachable by stripping a single recognised
     // suffix. Each stem also contributes its "un-doubled" variant, undoing the
     // consonant doubling a suffix triggers (`titty`→`titt`→`tit`,
@@ -283,11 +295,15 @@ fn singular_candidates(s: &str) -> Vec<String> {
 
     // Derivational / diminutive / inflectional suffixes that reduce a word to a
     // shorter base form. Listed longest-first so the most specific one wins.
-    for suffix in ["ation", "ing", "ion", "ity", "ly", "ie", "y", "e"] {
-        if let Some(stem) = s.strip_suffix(suffix) {
-            if stem.len() >= 3 {
-                stems.push(stem.to_string());
-            }
+    for suffix in [
+        "ations", "ation", "iests", "iest", "ings", "ing", "ions", "ion", "iness", "ness", "ines",
+        "nes", "ities", "ity", "iers", "ier", "eds", "ed", "ers", "er", "lys", "ly", "ies", "y",
+        "e",
+    ] {
+        if let Some(stem) = s.strip_suffix(suffix)
+            && stem.len() >= 3
+        {
+            stems.push(stem.to_string());
         }
     }
 

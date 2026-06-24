@@ -202,7 +202,12 @@ fn should_moderate_table() {
         (&["that was a blow job"], &["blowjob"], Some("blowjob")),
         (&["blowjob here"], &["blow job"], Some("blow job")),
         (
-            &["stop masturbation talk", "he is masturbating"],
+            &[
+                "stop masturbation talk",
+                "he is masturbating",
+                "masturbated",
+                "masturbates",
+            ],
             &["masturbate"],
             Some("masturbate"),
         ),
@@ -307,6 +312,36 @@ fn should_moderate_table() {
             ],
             &["рак", "спам", "сос"],
             None,
+        ),
+        (&["cumming"], &["cum"], Some("cum")),
+        (
+            &["farting", "farted", "farts", "farter"],
+            &["fart"],
+            Some("fart"),
+        ),
+        (&["driving", "drives"], &["drive"], Some("drive")),
+        (
+            &["shitty", "shittiest", "shittier"],
+            &["shit"],
+            Some("shit"),
+        ),
+        (
+            &["fucking", "fucked", "fuckers", "fuck", "fucks"],
+            &["fuck"],
+            Some("fuck"),
+        ),
+        (
+            &[
+                "horny",
+                "hornyyyy",
+                "hoooorny",
+                "hornier",
+                "horniest",
+                "horninessss",
+                "horninessssss",
+            ],
+            &["horny"],
+            Some("horny"),
         ),
     ]);
 }
