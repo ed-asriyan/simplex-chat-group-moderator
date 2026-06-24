@@ -20,10 +20,10 @@ body:
     attributes:
       label: Which rule type is misbehaving?
       options:
-        - WordsBlacklist (forbidden words/phrases)
-        - LinksBlacklist (blocked domains)
-        - LinksWhitelist (only allowed domains)
-        - LinksWhitelistTop100 (built-in trusted domains)
+        - Block Specific Words
+        - Block Specific Websites
+        - Allow Only Specific Websites
+        - Allow Top100 Websites Only
         - Not sure / multiple
     validations:
       required: true

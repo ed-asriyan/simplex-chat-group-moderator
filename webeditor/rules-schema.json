@@ -1,16 +1,23 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Moderation Rules",
-    "description": "Use the button above to add new rules. Each rule can be of a different type - select the type from the dropdown below.",
+    "description": "**1️⃣ Use the gray button above to add new rules. 2️⃣ Select a rule from the dropdown below. 3️⃣ When you're done, click the red button above.**",
     "type": "array",
     "format": "tabs",
+    "options": {
+        "disable_collapse": true
+    },
     "items": {
         "title": "Rule",
+        "headerTemplate": "{{ i1 }}. {{ self.type }}",
+        "options": {
+            "disable_collapse": true
+        },
         "oneOf": [
             {
                 "type": "object",
-                "title": "WordsBlacklist",
-                "description": "Deletes messages that contain certain forbidden words. Matches are case-insensitive and attempt to bypass common obfuscation (like `b@dw0rd` instead of `badword`). _Resources with bad words: [🔞 List of Dirty, Naughty, Obscene Words](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words), [☕ Google Profanity Words](https://github.com/coffee-and-fun/google-profanity-words/tree/main/data), [💬 Comment Blocklist](https://github.com/splorp/wordpress-comment-blocklist)_",
+                "title": "🚫 Block Specific Words",
+                "description": "Deletes messages containing specific banned words. It automatically catches different capitalizations and common tricks used to obfuscate words (like writing `b@dw0rd` instead of `badword`). _List of ready-to-use bad words: [🔞 List of Dirty, Naughty, Obscene Words](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words), [☕ Google Profanity Words](https://github.com/coffee-and-fun/google-profanity-words/tree/main/data), [💬 Comment Blocklist](https://github.com/splorp/wordpress-comment-blocklist)_",
                 "required": [
                     "type",
                     "keywords"
@@ -28,6 +35,9 @@
                     "keywords": {
                         "type": "array",
                         "title": "Words/Phrases to Block",
+                        "options": {
+                            "disable_collapse": true
+                        },
                         "items": {
                             "type": "string",
                             "title": "Word/Phrase",
@@ -39,8 +49,8 @@
             },
             {
                 "type": "object",
-                "title": "LinksBlacklist",
-                "description": "Deletes messages that contain URLs with domains on the blocked list.",
+                "title": "🚫 Block Specific Websites",
+                "description": "Deletes messages that share links to specific forbidden websites (even obfuscated links like `spam [dot] com` or `hxxp://`).",
                 "required": [
                     "type",
                     "blocked"
@@ -57,8 +67,11 @@
                     },
                     "blocked": {
                         "type": "array",
-                        "title": "Blocked Domains",
-                        "description": "Domains to block. Any message containing a link to these domains will be deleted.",
+                        "title": "Blocked Websites",
+                        "description": "Specific websites to block (e.g., `spam.com`). You can block entire domains (e.g., `example.com` will block `sub.example.com`) or only specific subdomains (e.g., `sub.example.com` will block `sub.example.com` but not `example.com`). Do not include `http://` or `https://`, just type the domain name.",
+                        "options": {
+                            "disable_collapse": true
+                        },
                         "items": {
                             "type": "string",
                             "title": "Domain",
@@ -70,8 +83,8 @@
             },
             {
                 "type": "object",
-                "title": "LinksWhitelist",
-                "description": "Deletes messages containing URLs unless every link points to an allowed domain. Use an empty list to block all links.",
+                "title": "✅ Allow Only Specific Websites",
+                "description": "Only allows messages with links to approved websites. Messages with links to any other website will be deleted (even if users try to obfuscate the links like `spam [dot] com` or `hxxp://`).",
                 "required": [
                     "type",
                     "allowed"
@@ -88,8 +101,11 @@
                     },
                     "allowed": {
                         "type": "array",
-                        "title": "Allowed Domains",
-                        "description": "Domains that are permitted. Any link to a domain NOT on this list causes the message to be deleted.",
+                        "title": "Approved Websites",
+                        "description": "Add permitted domains (e.g., `simplex.chat`). You can allow entire domain (e.g., `example.com` will allow `sub.example.com` and `example.com`) or allow only the specific sub domain (e.g., `sub.example.com` will allow `sub.example.com` but not `example.com`). Do not include `http://` or `https://`, just type the domain name.  Leave the list empty to block ALL links.",
+                        "options": {
+                            "disable_collapse": true
+                        },
                         "items": {
                             "type": "string",
                             "title": "Domain"
@@ -99,8 +115,8 @@
             },
             {
                 "type": "object",
-                "title": "LinksWhitelistTop100",
-                "description": "Deletes messages containing URLs unless every link points to one of ~100 built-in trusted domains (**Google**, **GitHub**, **Wikipedia**, **YouTube**, **Reddit**, etc.).\n\nNo configuration needed.",
+                "title": "✅ Allow Top100 Websites Only",
+                "description": "Only allows links to well-known, safe websites (**Google**, **GitHub**, **Wikipedia**, **YouTube**, **Reddit**, etc.). Messages linking to unknown websites are deleted (even obfuscated links like `spam [dot] com` or `hxxp://`).",
                 "required": [
                     "type"
                 ],
