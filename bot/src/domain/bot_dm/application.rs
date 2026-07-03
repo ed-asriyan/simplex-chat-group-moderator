@@ -31,6 +31,7 @@ Commands:
   /groups - List and manage groups I moderate for you.
   /source - Link to my source code.
   /issue  - Report a bug or unexpected moderation behaviour.
+  /feature - Request a new moderation rule type or feature.
 
 For each group you can also turn moderation notifications on or off (use /groups to get the links). When enabled, I'll DM you whenever I delete a message.
 
@@ -38,6 +39,8 @@ You can also enable dry mode for a group. In dry mode I run all checks and notif
 ";
 
 const ISSUE_URL: &str = "https://github.com/ed-asriyan/simplex-chat-group-moderator/issues/new?template=moderation-rule-bug.yml";
+
+const FEATURE_REQUEST_URL: &str = "https://github.com/ed-asriyan/simplex-chat-group-moderator/issues/new?template=feature-request.yml";
 
 const START: &str = formatcp!(
     "Hi! Invite me to your group and grant me moderator permissions. \
@@ -76,6 +79,7 @@ enum ParsedDm {
     SetDryMode { group_id: GroupId, enabled: bool },
     Source,
     Issue,
+    Feature,
     Unknown,
 }
 
@@ -117,6 +121,7 @@ fn parse(message: &Message, base_url: &str) -> ParsedDm {
         "/help" => ParsedDm::Help,
         "/source" => ParsedDm::Source,
         "/issue" => ParsedDm::Issue,
+        "/feature" => ParsedDm::Feature,
         "/groups" => ParsedDm::GetGroups,
         _ if let Some(id_str) = text.strip_prefix("/notify_on_") => match id_str.trim().parse() {
             Ok(group_id) => ParsedDm::SetNotifications {
@@ -290,9 +295,18 @@ impl BotDmReceiver for BotDmApplication {
                     .await?;
             }
             ParsedDm::Issue => {
-                self.messenger
-                    .send_dm(&user_id, ISSUE_URL)
-                    .await?;
+                let message = format!(
+                    "Please report any bugs or unexpected moderation behaviour [here]({})",
+                    ISSUE_URL
+                );
+                self.messenger.send_dm(&user_id, &message).await?;
+            }
+            ParsedDm::Feature => {
+                let message = format!(
+                    "Please request new moderation rule types or features [here]({})",
+                    FEATURE_REQUEST_URL
+                );
+                self.messenger.send_dm(&user_id, &message).await?;
             }
             ParsedDm::Unknown => {
                 self.messenger

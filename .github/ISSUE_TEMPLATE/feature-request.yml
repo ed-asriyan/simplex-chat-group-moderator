@@ -1,0 +1,36 @@
+name: Feature Request
+description: Propose a new feature, a new moderation rule type, or an enhancement to an existing feature.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to share your idea!
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      options:
+        - label: I have searched for existing feature requests and found no duplicates.
+          required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature Description
+      description: A clear and concise description of the feature and the problem it solves. If you are proposing a new moderation rule type, be specific about what exactly it should match.
+    validations:
+      required: true
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context, mockup, or screenshots about the feature request here.
+    validations:
+      required: false
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I would be willing to submit a Pull Request to implement this feature.

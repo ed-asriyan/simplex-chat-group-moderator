@@ -238,7 +238,15 @@ impl SimplexDriver {
                                 },
                                 ChatBotCommand::Command {
                                     keyword: "issue".to_string(),
-                                    label: "Report a bug or unexpected moderation behaviour".to_string(),
+                                    label: "Report a bug or unexpected moderation behaviour"
+                                        .to_string(),
+                                    params: None,
+                                    undocumented: Default::default(),
+                                },
+                                ChatBotCommand::Command {
+                                    keyword: "feature".to_string(),
+                                    label: "Request a new moderation rule type or feature"
+                                        .to_string(),
                                     params: None,
                                     undocumented: Default::default(),
                                 },
