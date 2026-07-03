@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - master
+    paths:
+      - 'bot/**'
+      - 'smp-client/**'
+      - '.github/workflows/CD.yml'
+      - 'docker-compose.yml'
   workflow_dispatch:
 
 concurrency:
