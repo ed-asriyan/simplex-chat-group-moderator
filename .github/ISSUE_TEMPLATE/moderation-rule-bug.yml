@@ -15,6 +15,14 @@ body:
         - The rules-editor URL hash contains your **entire ruleset** — that's
           very helpful for reproduction, but remove anything sensitive first.
 
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      options:
+        - label: I have searched for existing issues and found no duplicates.
+          required: true
+
   - type: dropdown
     id: rule-type
     attributes:
