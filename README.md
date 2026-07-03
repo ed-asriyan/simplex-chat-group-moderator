@@ -1,4 +1,4 @@
-# SimpleX Chat Group Moderator
+# SimpleX Chat Group Moderator [![CI](https://github.com/ed-asriyan/simplex-chat-group-moderator/actions/workflows/CI.yml/badge.svg)](https://github.com/ed-asriyan/simplex-chat-group-moderator/actions/workflows/CI.yml) [![CD](https://github.com/ed-asriyan/simplex-chat-group-moderator/actions/workflows/CD.yml/badge.svg)](https://github.com/ed-asriyan/simplex-chat-group-moderator/actions/workflows/CD.yml)
 
 Try the bot here:
 
