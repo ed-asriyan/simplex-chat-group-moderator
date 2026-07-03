@@ -271,7 +271,7 @@ impl ModerationRepository for SqliteModerationRepository {
                         .into());
                     }
                 }
-                ModerationRule::LinksWhitelistTop100 {} => {}
+                ModerationRule::LinksWhitelistTop100 { allowed: _ } => {}
             }
         }
 
@@ -342,13 +342,20 @@ impl ModerationRepository for SqliteModerationRepository {
                                 .map_err(|e| -> Err { e.to_string().into() })?;
                         }
                     }
-                    ModerationRule::LinksWhitelistTop100 {} => {
-                        // No domain data to store — the list is built into the binary.
+                    ModerationRule::LinksWhitelistTop100 { allowed } => {
                         tx.execute(
                             "INSERT INTO moderation_rule__links_whitelist_top100 (group_id, rank) VALUES (?1, ?2)",
                             rusqlite::params![gid, rank],
                         )
                         .map_err(|e| -> Err { e.to_string().into() })?;
+                        let rule_id = tx.last_insert_rowid();
+                        let mut stmt = tx
+                            .prepare("INSERT INTO moderation_rule__links_whitelist_top100__allowed (rule_id, domain) VALUES (?1, ?2)")
+                            .map_err(|e| -> Err { e.to_string().into() })?;
+                        for a in allowed.iter().filter(|k| !k.is_empty()) {
+                            stmt.execute(rusqlite::params![rule_id, a])
+                                .map_err(|e| -> Err { e.to_string().into() })?;
+                        }
                     }
                 }
             }

@@ -9,7 +9,7 @@ pub enum ModerationRule {
     WordsBlacklist { keywords: Vec<String> },
     LinksBlacklist { blocked: Vec<String> },
     LinksWhitelist { allowed: Vec<String> },
-    LinksWhitelistTop100 {},
+    LinksWhitelistTop100 { allowed: Vec<String> },
 }
 
 fn should_moderate_by_rule(message: &str, rule: &ModerationRule) -> Option<String> {
@@ -23,7 +23,9 @@ fn should_moderate_by_rule(message: &str, rule: &ModerationRule) -> Option<Strin
         ModerationRule::LinksWhitelist { allowed } => {
             links::should_moderate_whitelist(message, allowed)
         }
-        ModerationRule::LinksWhitelistTop100 {} => links::should_moderate_whitelist_top100(message),
+        ModerationRule::LinksWhitelistTop100 { allowed } => {
+            links::should_moderate_whitelist_top100(message, allowed)
+        }
     }
 }
 

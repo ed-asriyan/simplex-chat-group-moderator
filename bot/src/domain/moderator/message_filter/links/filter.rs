@@ -414,10 +414,11 @@ use super::top100;
 /// Returns `Some(domain)` if `text` contains a link whose domain is **not**
 /// in the built-in top-100 preset allowlist.  Messages with no links are
 /// always allowed.
-pub fn should_moderate_whitelist_top100(text: &str) -> Option<String> {
+pub fn should_moderate_whitelist_top100(text: &str, allowed: &[String]) -> Option<String> {
     let domains = find_domains(text);
     for domain in &domains {
-        let is_allowed = top100::DOMAINS.iter().any(|a| domain_matches(domain, a));
+        let is_allowed = top100::DOMAINS.iter().any(|a| domain_matches(domain, a))
+            || allowed.iter().any(|a| domain_matches(domain, a));
         if !is_allowed {
             return Some(domain.clone());
         }

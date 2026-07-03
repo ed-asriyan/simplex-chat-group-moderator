@@ -118,7 +118,8 @@
                 "title": "✅ Allow Top100 Websites Only",
                 "description": "Only allows links to well-known, safe websites (**Google**, **GitHub**, **Wikipedia**, **YouTube**, **Reddit**, etc.). Messages linking to unknown websites are deleted (even obfuscated links like `spam [dot] com` or `hxxp://`).",
                 "required": [
-                    "type"
+                    "type",
+                    "allowed"
                 ],
                 "additionalProperties": false,
                 "properties": {
@@ -128,6 +129,18 @@
                         "default": "LinksWhitelistTop100",
                         "options": {
                             "hidden": true
+                        }
+                    },
+                    "allowed": {
+                        "type": "array",
+                        "title": "Additional Approved Websites",
+                        "description": "Add any additional permitted domains. Do not include `http://` or `https://`, just type the domain name.",
+                        "options": {
+                            "disable_collapse": true
+                        },
+                        "items": {
+                            "type": "string",
+                            "title": "Domain"
                         }
                     }
                 }

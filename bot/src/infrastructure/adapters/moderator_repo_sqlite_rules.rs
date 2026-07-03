@@ -95,7 +95,7 @@ pub(crate) fn load_rules_for_group(
         ));
     }
 
-    // LinksWhitelistTop100 (no child data)
+    // LinksWhitelistTop100
     let mut stmt = guard.prepare(
         "SELECT id, rank FROM moderation_rule__links_whitelist_top100 WHERE group_id = ?1",
     )?;
@@ -103,11 +103,17 @@ pub(crate) fn load_rules_for_group(
         .query_map(params![gid], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<Result<_, _>>()?;
     for (rule_id, rank) in rows {
+        let allowed = load_rule_values(
+            &guard,
+            "moderation_rule__links_whitelist_top100__allowed",
+            "domain",
+            rule_id,
+        )?;
         ranked.push((
             rank,
             OwnedModerationRule {
                 id: rule_id as usize,
-                rule: ModerationRule::LinksWhitelistTop100 {},
+                rule: ModerationRule::LinksWhitelistTop100 { allowed },
             },
         ));
     }
