@@ -49,6 +49,45 @@
             },
             {
                 "type": "object",
+                "title": "🚫 Block Exact Messages",
+                "description": "Deletes messages if the message text exactly matches one of the specified messages.",
+                "required": [
+                    "type",
+                    "messages",
+                    "case_sensitive"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "const": "MessagesBlacklist",
+                        "default": "MessagesBlacklist",
+                        "options": {
+                            "hidden": true
+                        }
+                    },
+                    "case_sensitive": {
+                        "type": "boolean",
+                        "title": "Case sensitive",
+                        "default": false
+                    },
+                    "messages": {
+                        "type": "array",
+                        "title": "Messages to Block",
+                        "options": {
+                            "disable_collapse": true
+                        },
+                        "items": {
+                            "type": "string",
+                            "title": "Message",
+                            "maxLength": 1000
+                        },
+                        "maxItems": 10000
+                    }
+                }
+            },
+            {
+                "type": "object",
                 "title": "🚫 Block Specific Websites",
                 "description": "Deletes messages that share links to specific forbidden websites (even obfuscated links like `spam [dot] com` or `hxxp://`).",
                 "required": [

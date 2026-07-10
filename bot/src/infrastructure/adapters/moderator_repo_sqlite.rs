@@ -17,6 +17,12 @@ const MAX_KEYWORDS_PER_GROUP: usize = 10_000;
 /// Maximum length (in characters) allowed for a single keyword.
 const MAX_KEYWORD_LENGTH: usize = 100;
 
+/// Maximum number of messages allowed per group.
+const MAX_MESSAGES_PER_GROUP: usize = 10_000;
+
+/// Maximum length (in characters) allowed for a single message in the messages blacklist.
+const MAX_MESSAGE_LENGTH: usize = 1000;
+
 #[derive(Clone)]
 pub struct SqliteModerationRepository {
     conn: Arc<Mutex<Connection>>,
@@ -225,6 +231,32 @@ impl ModerationRepository for SqliteModerationRepository {
                         .into());
                     }
                 }
+                ModerationRule::MessagesBlacklist {
+                    messages,
+                    case_sensitive: _,
+                } => {
+                    messages.sort();
+                    messages.dedup();
+                    if messages.len() > MAX_MESSAGES_PER_GROUP {
+                        return Err(format!(
+                            "Too many messages: {} provided, maximum is {}",
+                            messages.len(),
+                            MAX_MESSAGES_PER_GROUP
+                        )
+                        .into());
+                    }
+                    if let Some(msg) = messages
+                        .iter()
+                        .find(|d| d.chars().count() > MAX_MESSAGE_LENGTH)
+                    {
+                        return Err(format!(
+                            "Message too long: {} characters, maximum is {}",
+                            msg.chars().count(),
+                            MAX_MESSAGE_LENGTH,
+                        )
+                        .into());
+                    }
+                }
                 ModerationRule::LinksBlacklist { blocked } => {
                     blocked.sort();
                     blocked.dedup();
@@ -283,6 +315,7 @@ impl ModerationRepository for SqliteModerationRepository {
             // domains) are removed automatically via ON DELETE CASCADE.
             for table in [
                 "moderation_rule__words_blacklist",
+                "moderation_rule__messages_blacklist",
                 "moderation_rule__links_blacklist",
                 "moderation_rule__links_whitelist",
                 "moderation_rule__links_whitelist_top100",
@@ -309,6 +342,21 @@ impl ModerationRepository for SqliteModerationRepository {
                             .map_err(|e| -> Err { e.to_string().into() })?;
                         for kw in keywords.iter().filter(|k| !k.is_empty()) {
                             stmt.execute(rusqlite::params![rule_id, kw])
+                                .map_err(|e| -> Err { e.to_string().into() })?;
+                        }
+                    }
+                    ModerationRule::MessagesBlacklist { messages, case_sensitive } => {
+                        tx.execute(
+                            "INSERT INTO moderation_rule__messages_blacklist (group_id, rank, case_sensitive) VALUES (?1, ?2, ?3)",
+                            rusqlite::params![gid, rank, case_sensitive],
+                        )
+                        .map_err(|e| -> Err { e.to_string().into() })?;
+                        let rule_id = tx.last_insert_rowid();
+                        let mut stmt = tx
+                            .prepare("INSERT INTO moderation_rule__messages_blacklist__messages (rule_id, message) VALUES (?1, ?2)")
+                            .map_err(|e| -> Err { e.to_string().into() })?;
+                        for msg in messages.iter().filter(|k| !k.is_empty()) {
+                            stmt.execute(rusqlite::params![rule_id, msg])
                                 .map_err(|e| -> Err { e.to_string().into() })?;
                         }
                     }
