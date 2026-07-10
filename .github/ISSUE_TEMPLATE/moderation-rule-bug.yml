@@ -28,6 +28,7 @@ body:
     attributes:
       label: Which rule type is misbehaving?
       options:
+        - Block Exact Messages
         - Block Specific Words
         - Block Specific Websites
         - Allow Only Specific Websites

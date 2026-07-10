@@ -51,6 +51,33 @@ pub(crate) fn load_rules_for_group(
         ));
     }
 
+    // MessagesBlacklist
+    let mut stmt = guard
+        .prepare("SELECT id, rank, case_sensitive FROM moderation_rule__messages_blacklist WHERE group_id = ?1")?;
+    let rows: Vec<(i64, i64, bool)> = stmt
+        .query_map(params![gid], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
+        .collect::<Result<_, _>>()?;
+    for (rule_id, rank, case_sensitive) in rows {
+        let messages = load_rule_values(
+            &guard,
+            "moderation_rule__messages_blacklist__messages",
+            "message",
+            rule_id,
+        )?;
+        ranked.push((
+            rank,
+            OwnedModerationRule {
+                id: rule_id as usize,
+                rule: ModerationRule::MessagesBlacklist {
+                    messages,
+                    case_sensitive,
+                },
+            },
+        ));
+    }
+
     // LinksBlacklist
     let mut stmt = guard
         .prepare("SELECT id, rank FROM moderation_rule__links_blacklist WHERE group_id = ?1")?;
