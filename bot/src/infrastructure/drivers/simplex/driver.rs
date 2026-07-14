@@ -276,6 +276,14 @@ impl SimplexDriver {
     }
 }
 
+fn extract_message_text(chat_content: &MsgContent) -> Option<String> {
+    match chat_content {
+        MsgContent::Text { text, .. } => Some(text.clone()),
+        MsgContent::Link { preview, .. } => Some(format!("[{}]({})", preview.title, preview.uri)),
+        _ => None,
+    }
+}
+
 async fn handle_event(
     client: &Client,
     event: &Event,
@@ -311,18 +319,17 @@ async fn handle_event(
                 ChatInfo::Direct { contact, .. } => {
                     if let CIContent::RcvMsgContent { msg_content, .. } =
                         &chat_item.chat_item.content
-                        && let MsgContent::Text { text, .. } = &msg_content
                     {
-                        Some(SimplexEvent::Message {
+                        extract_message_text(msg_content).map(|text| SimplexEvent::Message {
                             user_id: contact.contact_id,
                             message_id: chat_item.chat_item.meta.item_id,
-                            text: text.clone(),
-                            reply_message_text: chat_item.chat_item.quoted_item.and_then(|item| {
-                                match item.content {
+                            text,
+                            reply_message_text: chat_item.chat_item.quoted_item.clone().and_then(
+                                |item| match item.content {
                                     MsgContent::Text { text, .. } => Some(text),
                                     _ => None,
-                                }
-                            }),
+                                },
+                            ),
                         })
                     } else if let CIContent::RcvGroupInvitation {
                         group_invitation,
@@ -343,14 +350,13 @@ async fn handle_event(
                 ChatInfo::Group { group_info, .. } => {
                     if let CIContent::RcvMsgContent { msg_content, .. } =
                         &chat_item.chat_item.content
-                        && let MsgContent::Text { text, .. } = &msg_content
                     {
-                        Some(SimplexEvent::GroupMessage {
+                        extract_message_text(msg_content).map(|text| SimplexEvent::GroupMessage {
                             group_id: group_info.group_id,
                             author_id: group_info.group_id,
                             group_name: group_info.group_profile.display_name.clone(),
                             message_id: chat_item.chat_item.meta.item_id,
-                            text: text.clone(),
+                            text,
                         })
                     } else {
                         None
@@ -362,16 +368,17 @@ async fn handle_event(
         Event::ChatItemUpdated(chat_item) => {
             if let CIContent::RcvMsgContent { msg_content, .. } =
                 &chat_item.chat_item.chat_item.content
-                && let MsgContent::Text { text, .. } = &msg_content
                 && let ChatInfo::Group { group_info, .. } = &chat_item.chat_item.chat_info
             {
-                Ok(vec![SimplexEvent::GroupMessage {
-                    group_id: group_info.group_id,
-                    author_id: group_info.group_id,
-                    group_name: group_info.group_profile.display_name.clone(),
-                    message_id: chat_item.chat_item.chat_item.meta.item_id,
-                    text: text.clone(),
-                }])
+                Ok(extract_message_text(msg_content).map_or(vec![], |text| {
+                    vec![SimplexEvent::GroupMessage {
+                        group_id: group_info.group_id,
+                        author_id: group_info.group_id,
+                        group_name: group_info.group_profile.display_name.clone(),
+                        message_id: chat_item.chat_item.chat_item.meta.item_id,
+                        text,
+                    }]
+                }))
             } else {
                 Ok(vec![])
             }
