@@ -52,8 +52,8 @@ impl ModerationRepository for SqliteModerationRepository {
             for _ in 0..GROUP_ID_ALLOC_MAX_ATTEMPTS {
                 let gid: i64 = rng.random_range(GROUP_ID_MIN..GROUP_ID_MAX);
                 let res = guard.execute(
-                    "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name)
-                     VALUES (?1, ?2, ?3, ?4)",
+                    "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name, notifications_enabled)
+                     VALUES (?1, ?2, ?3, ?4, 1)",
                     params![gid, mid, oid, name],
                 );
                 match res {

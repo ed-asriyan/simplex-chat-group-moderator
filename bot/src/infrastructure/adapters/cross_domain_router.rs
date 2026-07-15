@@ -43,7 +43,7 @@ impl GroupOperations for CrossDomainRouter {
         Ok(Group {
             id: group_id,
             name: invitation.group.name.clone(),
-            notifications_enabled: false,
+            notifications_enabled: true,
             dry_mode_enabled: false,
         })
     }
