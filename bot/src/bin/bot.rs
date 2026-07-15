@@ -221,7 +221,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         group: bot::domain::bot_dm::ports::Group {
                             id: group_id,
                             name: group_name,
-                            notifications_enabled: false,
+                            notifications_enabled: true,
                             dry_mode_enabled: false,
                         },
                         is_moderator,
