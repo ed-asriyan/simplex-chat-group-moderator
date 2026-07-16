@@ -47,6 +47,7 @@ fn should_moderate_by_rule(message: &str, rule: &ModerationRule) -> Option<Strin
 }
 
 pub fn should_moderate(message: &str, rules: &[ModerationRule]) -> Option<String> {
+    let message = message.trim();
     for rule in rules {
         if let Some(reason) = should_moderate_by_rule(message, rule) {
             return Some(reason);
