@@ -1216,9 +1216,9 @@ dependencies = [
 
 [[package]]
 name = "simploxide-client"
-version = "0.13.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "afe32913e2613e7f159987c1337f295cf565e079b685eb6e0b4fbc028dc17baa"
+checksum = "b3238a812b0190e11f2034963c959fb2043954ab0dc3ddc38551a501cfbb36a4"
 dependencies = [
  "base64",
  "futures",
@@ -1234,18 +1234,18 @@ dependencies = [
 
 [[package]]
 name = "simploxide-core"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc3b581b33caa2b3c29a12d4d435e6788b85f62f5fa986d1ba2a0b5bccf5f371"
+checksum = "c23bfb64a5fe66a08c47d77319043af8f2eaf8332daf0aa4efa1a8dd389df614"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "simploxide-ws-core"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36afa113117c4befd28d523ec04ff9609f12a9764de95dca72acb4bb149b4d12"
+checksum = "21d595b5b46449147a225aaa9ceaee4a05468b6b5d0ee7260f3de7c24d53fe5f"
 dependencies = [
  "futures",
  "log",
