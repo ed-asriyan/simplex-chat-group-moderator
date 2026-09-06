@@ -32,6 +32,7 @@ fn find_domains_table() {
         ("visit http://evil.com", &["evil.com"]),
         ("go to www.evil.com/page", &["evil.com"]),
         ("visit evil.com today", &["evil.com"]),
+        ("join ttps://sub.example.im", &["sub.example.im"]),
         ("see sub.evil.com for more", &["sub.evil.com"]),
         ("join evil . com to see more", &["evil.com"]),
         ("join sub.evil . com to see more", &["sub.evil.com"]),
