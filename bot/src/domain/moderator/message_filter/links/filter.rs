@@ -39,7 +39,7 @@ static URL_WWW_RE: LazyLock<Regex> = LazyLock::new(|| {
 static BARE_DOMAIN_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(concat!(
         r"(?i)\b((?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+",
-        r"(?:com|org|net|io|ru|ua|de|fr|uk|info|biz|co|app|dev|xyz|me|tv|",
+        r"(?:com|org|net|io|im|ru|ua|de|fr|uk|info|biz|co|app|dev|xyz|me|tv|",
         r"cc|to|sh|ly|gl|link|click|tech|store|shop|news|blog|live|media|",
         r"network|agency|pro|plus|group|team|gov|edu|mil|int|mobi|name|",
         r"coop|aero|tel|cloud|digital|online|site|web|space|world|today|",
