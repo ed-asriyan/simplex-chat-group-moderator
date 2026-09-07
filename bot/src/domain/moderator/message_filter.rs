@@ -9,6 +9,26 @@ fn default_true() -> bool {
     true
 }
 
+fn default_chars_per_line() -> u32 {
+    40
+}
+
+fn deserialize_u32_default_zero<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt = Option::<u32>::deserialize(deserializer)?;
+    Ok(opt.unwrap_or(0))
+}
+
+fn deserialize_chars_per_line<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt = Option::<u32>::deserialize(deserializer)?;
+    Ok(opt.unwrap_or(40))
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ModerationRule {
@@ -29,18 +49,21 @@ pub enum ModerationRule {
         allowed: Vec<String>,
     },
     ScreenFlooding {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        max_characters: Option<u32>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        max_words: Option<u32>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        max_lines: Option<u32>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        chars_per_line: Option<u32>,
-        #[serde(default)]
-        disallow_invisible_chars: bool,
+        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
+        max_characters: u32,
+        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
+        max_words: u32,
+        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
+        max_lines: u32,
+        #[serde(
+            default = "default_chars_per_line",
+            deserialize_with = "deserialize_chars_per_line"
+        )]
+        chars_per_line: u32,
         #[serde(default = "default_true")]
         disallow_empty_messages: bool,
+        #[serde(default)]
+        disallow_invisible_chars: bool,
     },
 }
 

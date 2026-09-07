@@ -187,10 +187,10 @@ pub(crate) fn load_rules_for_group(
             OwnedModerationRule {
                 id: rule_id as usize,
                 rule: ModerationRule::ScreenFlooding {
-                    max_characters: max_characters.map(|v| v as u32),
-                    max_words: max_words.map(|v| v as u32),
-                    max_lines: max_lines.map(|v| v as u32),
-                    chars_per_line: chars_per_line.map(|v| v as u32),
+                    max_characters: max_characters.unwrap_or(0) as u32,
+                    max_words: max_words.unwrap_or(0) as u32,
+                    max_lines: max_lines.unwrap_or(0) as u32,
+                    chars_per_line: chars_per_line.unwrap_or(40) as u32,
                     disallow_invisible_chars,
                     disallow_empty_messages,
                 },

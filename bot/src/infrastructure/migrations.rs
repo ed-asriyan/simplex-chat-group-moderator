@@ -60,3 +60,20 @@ fn apply(conn: &mut Connection) -> Result<(), Err> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_migrations_apply_successfully() {
+        let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+        run(conn.clone()).await.unwrap();
+
+        let guard = conn.lock().unwrap();
+        let version: i64 = guard
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 15);
+    }
+}

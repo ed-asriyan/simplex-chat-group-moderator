@@ -35,9 +35,13 @@ fn is_blank(c: char) -> bool {
     c.is_whitespace() || is_invisible(c)
 }
 
-fn count_effective_lines(message: &str, chars_per_line: Option<u32>) -> usize {
+fn count_effective_lines(message: &str, chars_per_line: u32) -> usize {
     let lines = message.split('\n');
-    let wrap_width = chars_per_line.filter(|&w| w > 0).map(|w| w as usize);
+    let wrap_width = if chars_per_line > 0 {
+        Some(chars_per_line as usize)
+    } else {
+        None
+    };
 
     let mut total_lines = 0;
     for line in lines {
@@ -63,10 +67,10 @@ fn count_effective_lines(message: &str, chars_per_line: Option<u32>) -> usize {
 
 pub fn should_moderate(
     message: &str,
-    max_characters: Option<u32>,
-    max_words: Option<u32>,
-    max_lines: Option<u32>,
-    chars_per_line: Option<u32>,
+    max_characters: u32,
+    max_words: u32,
+    max_lines: u32,
+    chars_per_line: u32,
     disallow_invisible_chars: bool,
     disallow_empty_messages: bool,
 ) -> Option<String> {
@@ -80,32 +84,19 @@ pub fn should_moderate(
         return Some(String::new());
     }
 
-    // 3. Max characters limit
-    if let Some(limit) = max_characters
-        && limit > 0
-    {
-        if message.chars().count() > limit as usize {
-            return Some(String::new());
-        }
+    // 3. Max characters limit (0 to disable)
+    if max_characters > 0 && message.chars().count() > max_characters as usize {
+        return Some(String::new());
     }
 
-    // 4. Max words limit
-    if let Some(limit) = max_words
-        && limit > 0
-    {
-        let word_count = message.split_whitespace().count();
-        if word_count > limit as usize {
-            return Some(String::new());
-        }
+    // 4. Max words limit (0 to disable)
+    if max_words > 0 && message.split_whitespace().count() > max_words as usize {
+        return Some(String::new());
     }
 
-    // 5. Max lines limit (taking into account wrapped lines if chars_per_line is set)
-    if let Some(limit) = max_lines
-        && limit > 0
-    {
-        if count_effective_lines(message, chars_per_line) > limit as usize {
-            return Some(String::new());
-        }
+    // 5. Max lines limit (0 to disable, soft wrap controlled by chars_per_line)
+    if max_lines > 0 && count_effective_lines(message, chars_per_line) > max_lines as usize {
+        return Some(String::new());
     }
 
     None

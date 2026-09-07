@@ -68,6 +68,7 @@
                     },
                     "case_sensitive": {
                         "type": "boolean",
+                        "format": "checkbox",
                         "title": "Case sensitive",
                         "default": false
                     },
@@ -189,7 +190,13 @@
                 "title": "🚫 Block Screen Flooding",
                 "description": "Deletes messages that are blank, excessively long, or flood the chat with too many lines or words. By default, it blocks all empty/invisible messages. You can optionally limit the maximum characters, words, or lines (with custom characters-per-line soft wrapping), or strictly forbid any hidden/invisible characters.",
                 "required": [
-                    "type"
+                    "type",
+                    "max_characters",
+                    "max_words",
+                    "max_lines",
+                    "chars_per_line",
+                    "disallow_empty_messages",
+                    "disallow_invisible_chars"
                 ],
                 "additionalProperties": false,
                 "properties": {
@@ -231,12 +238,14 @@
                     },
                     "disallow_empty_messages": {
                         "type": "boolean",
+                        "format": "checkbox",
                         "title": "Delete Empty Messages",
                         "description": "If enabled, deletes messages that consist only of whitespace, line breaks, or invisible/special characters.",
                         "default": true
                     },
                     "disallow_invisible_chars": {
                         "type": "boolean",
+                        "format": "checkbox",
                         "title": "Strictly Disallow Invisible Characters",
                         "description": "If enabled, deletes any message that contains even a single invisible or formatting character (e.g. zero-width spaces, Braille blank pattern, bidi overrides, variation selectors), even if the message also has regular text.",
                         "default": false
