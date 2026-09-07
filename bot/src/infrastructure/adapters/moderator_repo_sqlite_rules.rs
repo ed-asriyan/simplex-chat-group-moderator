@@ -145,6 +145,22 @@ pub(crate) fn load_rules_for_group(
         ));
     }
 
+    // EmptyMessage
+    let mut stmt = guard
+        .prepare("SELECT id, rank FROM moderation_rule__empty_message WHERE group_id = ?1")?;
+    let rows: Vec<(i64, i64)> = stmt
+        .query_map(params![gid], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    for (rule_id, rank) in rows {
+        ranked.push((
+            rank,
+            OwnedModerationRule {
+                id: rule_id as usize,
+                rule: ModerationRule::EmptyMessage,
+            },
+        ));
+    }
+
     // Restore the original (editor) order. Ties (same rank) fall back to id for
     // a deterministic result.
     ranked.sort_by_key(|(rank, owned)| (*rank, owned.id));

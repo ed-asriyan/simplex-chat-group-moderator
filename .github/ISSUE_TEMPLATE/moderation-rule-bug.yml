@@ -33,6 +33,7 @@ body:
         - Block Specific Websites
         - Allow Only Specific Websites
         - Allow Top100 Websites Only
+        - Delete Empty Messages
         - Not sure / multiple
     validations:
       required: true

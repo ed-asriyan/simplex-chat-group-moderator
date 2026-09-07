@@ -1,3 +1,4 @@
+mod empty_message;
 mod keywords;
 mod links;
 mod messages_blacklist;
@@ -23,6 +24,7 @@ pub enum ModerationRule {
     LinksWhitelistTop100 {
         allowed: Vec<String>,
     },
+    EmptyMessage,
 }
 
 fn should_moderate_by_rule(message: &str, rule: &ModerationRule) -> Option<String> {
@@ -43,6 +45,7 @@ fn should_moderate_by_rule(message: &str, rule: &ModerationRule) -> Option<Strin
         ModerationRule::LinksWhitelistTop100 { allowed } => {
             links::should_moderate_whitelist_top100(message, allowed)
         }
+        ModerationRule::EmptyMessage => empty_message::should_moderate(message),
     }
 }
 

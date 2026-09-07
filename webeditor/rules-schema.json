@@ -183,6 +183,25 @@
                         }
                     }
                 }
+            },
+            {
+                "type": "object",
+                "title": "🚫 Delete Empty Messages",
+                "description": "Deletes messages that are empty after trimming whitespace and invisible/zero-width characters (e.g. zero-width spaces, byte-order marks). Catches messages made only of hidden characters or lots of line breaks that clutter the chat without showing any real text.",
+                "required": [
+                    "type"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "const": "EmptyMessage",
+                        "default": "EmptyMessage",
+                        "options": {
+                            "hidden": true
+                        }
+                    }
+                }
             }
         ]
     }
