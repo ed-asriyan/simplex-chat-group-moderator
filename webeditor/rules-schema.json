@@ -186,8 +186,8 @@
             },
             {
                 "type": "object",
-                "title": "🚫 Delete Empty Messages",
-                "description": "Deletes messages that are empty after trimming whitespace and invisible/zero-width characters (e.g. zero-width spaces, byte-order marks). Catches messages made only of hidden characters or lots of line breaks that clutter the chat without showing any real text.",
+                "title": "🚫 Block Screen Flooding",
+                "description": "Deletes messages that are blank, excessively long, or flood the chat with too many lines or words. By default, it blocks all empty/invisible messages. You can optionally limit the maximum characters, words, or lines (with custom characters-per-line soft wrapping), or strictly forbid any hidden/invisible characters.",
                 "required": [
                     "type"
                 ],
@@ -195,11 +195,51 @@
                 "properties": {
                     "type": {
                         "type": "string",
-                        "const": "EmptyMessage",
-                        "default": "EmptyMessage",
+                        "const": "ScreenFlooding",
+                        "default": "ScreenFlooding",
                         "options": {
                             "hidden": true
                         }
+                    },
+                    "max_characters": {
+                        "type": "integer",
+                        "title": "Max Characters",
+                        "description": "Maximum number of characters allowed in a message (0 to disable).",
+                        "minimum": 0,
+                        "default": 0
+                    },
+                    "max_words": {
+                        "type": "integer",
+                        "title": "Max Words",
+                        "description": "Maximum number of words allowed in a message (0 to disable).",
+                        "minimum": 0,
+                        "default": 0
+                    },
+                    "max_lines": {
+                        "type": "integer",
+                        "title": "Max Lines",
+                        "description": "Maximum number of lines allowed in a message (0 to disable). Line wrapping is calculated using 'Characters per Line' below.",
+                        "minimum": 0,
+                        "default": 0
+                    },
+                    "chars_per_line": {
+                        "type": "integer",
+                        "title": "Characters per Line (Screen Wrap)",
+                        "description": "Number of characters that fit into one line on mobile screens (default: 40, 0 to disable wrapping). A long line of text without newlines will be counted as multiple lines according to this width.",
+                        "minimum": 0,
+                        "default": 40
+                    },
+                    "disallow_empty_messages": {
+                        "type": "boolean",
+                        "title": "Delete Empty Messages",
+                        "description": "If enabled, deletes messages that consist only of whitespace, line breaks, or invisible/special characters.",
+                        "default": true
+                    },
+                    "disallow_invisible_chars": {
+                        "type": "boolean",
+                        "title": "Strictly Disallow Invisible Characters",
+                        "description": "If enabled, deletes any message that contains even a single invisible or formatting character (e.g. zero-width spaces, Braille blank pattern, bidi overrides, variation selectors), even if the message also has regular text.",
+                        "default": false
                     }
                 }
             }

@@ -145,18 +145,55 @@ pub(crate) fn load_rules_for_group(
         ));
     }
 
-    // EmptyMessage
+    // ScreenFlooding
     let mut stmt = guard
-        .prepare("SELECT id, rank FROM moderation_rule__empty_message WHERE group_id = ?1")?;
-    let rows: Vec<(i64, i64)> = stmt
-        .query_map(params![gid], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .prepare("SELECT id, rank, max_characters, max_words, max_lines, chars_per_line, disallow_invisible_chars, disallow_empty_messages FROM moderation_rule__screen_flooding WHERE group_id = ?1")?;
+    let rows: Vec<(
+        i64,
+        i64,
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        bool,
+        bool,
+    )> = stmt
+        .query_map(params![gid], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+                row.get(7)?,
+            ))
+        })?
         .collect::<Result<_, _>>()?;
-    for (rule_id, rank) in rows {
+    for (
+        rule_id,
+        rank,
+        max_characters,
+        max_words,
+        max_lines,
+        chars_per_line,
+        disallow_invisible_chars,
+        disallow_empty_messages,
+    ) in rows
+    {
         ranked.push((
             rank,
             OwnedModerationRule {
                 id: rule_id as usize,
-                rule: ModerationRule::EmptyMessage,
+                rule: ModerationRule::ScreenFlooding {
+                    max_characters: max_characters.map(|v| v as u32),
+                    max_words: max_words.map(|v| v as u32),
+                    max_lines: max_lines.map(|v| v as u32),
+                    chars_per_line: chars_per_line.map(|v| v as u32),
+                    disallow_invisible_chars,
+                    disallow_empty_messages,
+                },
             },
         ));
     }

@@ -304,7 +304,14 @@ impl ModerationRepository for SqliteModerationRepository {
                     }
                 }
                 ModerationRule::LinksWhitelistTop100 { allowed: _ } => {}
-                ModerationRule::EmptyMessage => {}
+                ModerationRule::ScreenFlooding {
+                    max_characters: _,
+                    max_words: _,
+                    max_lines: _,
+                    chars_per_line: _,
+                    disallow_invisible_chars: _,
+                    disallow_empty_messages: _,
+                } => {}
             }
         }
 
@@ -320,7 +327,7 @@ impl ModerationRepository for SqliteModerationRepository {
                 "moderation_rule__links_blacklist",
                 "moderation_rule__links_whitelist",
                 "moderation_rule__links_whitelist_top100",
-                "moderation_rule__empty_message",
+                "moderation_rule__screen_flooding",
             ] {
                 tx.execute(
                     &format!("DELETE FROM {table} WHERE group_id = ?1"),
@@ -407,10 +414,17 @@ impl ModerationRepository for SqliteModerationRepository {
                                 .map_err(|e| -> Err { e.to_string().into() })?;
                         }
                     }
-                    ModerationRule::EmptyMessage => {
+                    ModerationRule::ScreenFlooding {
+                        max_characters,
+                        max_words,
+                        max_lines,
+                        chars_per_line,
+                        disallow_invisible_chars,
+                        disallow_empty_messages,
+                    } => {
                         tx.execute(
-                            "INSERT INTO moderation_rule__empty_message (group_id, rank) VALUES (?1, ?2)",
-                            rusqlite::params![gid, rank],
+                            "INSERT INTO moderation_rule__screen_flooding (group_id, rank, max_characters, max_words, max_lines, chars_per_line, disallow_invisible_chars, disallow_empty_messages) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                            rusqlite::params![gid, rank, max_characters, max_words, max_lines, chars_per_line, disallow_invisible_chars, disallow_empty_messages],
                         )
                         .map_err(|e| -> Err { e.to_string().into() })?;
                     }
