@@ -6,6 +6,7 @@ use futures::TryStreamExt as _;
 use futures::stream::Stream;
 use simploxide_client::events::Event;
 use simploxide_client::prelude::ApiSendMessages;
+use simploxide_client::types::GroupChatScopeInfo::{self, MemberSupport};
 use simploxide_client::types::{
     CIContent, ChatBotCommand, ChatInfo, ChatPeerType, ChatRef, ChatType, ComposedMessage,
     FeatureAllowed, GroupMemberRole, MsgContent, SimplePreference,
@@ -347,17 +348,30 @@ async fn handle_event(
                         None
                     }
                 }
-                ChatInfo::Group { group_info, .. } => {
+                ChatInfo::Group {
+                    group_info,
+                    group_chat_scope,
+                    ..
+                } => {
                     if let CIContent::RcvMsgContent { msg_content, .. } =
                         &chat_item.chat_item.content
+                        && let None = group_chat_scope
                     {
-                        extract_message_text(msg_content).map(|text| SimplexEvent::GroupMessage {
-                            group_id: group_info.group_id,
-                            author_id: group_info.group_id,
-                            group_name: group_info.group_profile.display_name.clone(),
-                            message_id: chat_item.chat_item.meta.item_id,
-                            text,
-                        })
+                        match group_chat_scope {
+                            None | Some(GroupChatScopeInfo::Undocumented(_)) => {
+                                extract_message_text(msg_content).map(|text| {
+                                    SimplexEvent::GroupMessage {
+                                        group_id: group_info.group_id,
+                                        author_id: group_info.group_id,
+                                        group_name: group_info.group_profile.display_name.clone(),
+                                        message_id: chat_item.chat_item.meta.item_id,
+                                        text,
+                                    }
+                                })
+                            }
+                            Some(MemberSupport { .. }) => None,
+                            Some(_) => None,
+                        }
                     } else {
                         None
                     }
