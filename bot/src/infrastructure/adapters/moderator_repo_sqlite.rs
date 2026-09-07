@@ -304,6 +304,7 @@ impl ModerationRepository for SqliteModerationRepository {
                     }
                 }
                 ModerationRule::LinksWhitelistTop100 { allowed: _ } => {}
+                ModerationRule::EmptyMessage => {}
             }
         }
 
@@ -319,6 +320,7 @@ impl ModerationRepository for SqliteModerationRepository {
                 "moderation_rule__links_blacklist",
                 "moderation_rule__links_whitelist",
                 "moderation_rule__links_whitelist_top100",
+                "moderation_rule__empty_message",
             ] {
                 tx.execute(
                     &format!("DELETE FROM {table} WHERE group_id = ?1"),
@@ -404,6 +406,13 @@ impl ModerationRepository for SqliteModerationRepository {
                             stmt.execute(rusqlite::params![rule_id, a])
                                 .map_err(|e| -> Err { e.to_string().into() })?;
                         }
+                    }
+                    ModerationRule::EmptyMessage => {
+                        tx.execute(
+                            "INSERT INTO moderation_rule__empty_message (group_id, rank) VALUES (?1, ?2)",
+                            rusqlite::params![gid, rank],
+                        )
+                        .map_err(|e| -> Err { e.to_string().into() })?;
                     }
                 }
             }
