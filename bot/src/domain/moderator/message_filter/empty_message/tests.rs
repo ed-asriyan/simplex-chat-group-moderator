@@ -12,6 +12,12 @@ fn test_whitespace_only() {
 }
 
 #[test]
+fn test_many_newlines_only() {
+    let message = "\n".repeat(10_000);
+    assert_eq!(should_moderate(&message), Some(String::new()));
+}
+
+#[test]
 fn test_invisible_characters_only() {
     // Zero-width spaces / joiners / BOM interspersed with regular whitespace.
     assert_eq!(
