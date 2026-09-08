@@ -35,8 +35,40 @@ fn is_blank(c: char) -> bool {
     c.is_whitespace() || is_invisible(c)
 }
 
+// Split text by any standard Unicode newline sequence (LF, CRLF, CR, VT, FF, NEL, LS, PS).
+fn split_lines(message: &str) -> Vec<&str> {
+    let mut lines = Vec::new();
+    let mut start = 0;
+    let mut chars = message.char_indices().peekable();
+
+    while let Some((idx, c)) = chars.next() {
+        match c {
+            '\r' => {
+                lines.push(&message[start..idx]);
+                if let Some(&(_, '\n')) = chars.peek() {
+                    chars.next();
+                }
+                start = chars
+                    .peek()
+                    .map(|&(next_idx, _)| next_idx)
+                    .unwrap_or(message.len());
+            }
+            '\n' | '\x0B' | '\x0C' | '\u{0085}' | '\u{2028}' | '\u{2029}' => {
+                lines.push(&message[start..idx]);
+                start = chars
+                    .peek()
+                    .map(|&(next_idx, _)| next_idx)
+                    .unwrap_or(message.len());
+            }
+            _ => {}
+        }
+    }
+    lines.push(&message[start..]);
+    lines
+}
+
 fn count_effective_lines(message: &str, chars_per_line: u32) -> usize {
-    let lines = message.split('\n');
+    let lines = split_lines(message);
     let wrap_width = if chars_per_line > 0 {
         Some(chars_per_line as usize)
     } else {
@@ -45,7 +77,6 @@ fn count_effective_lines(message: &str, chars_per_line: u32) -> usize {
 
     let mut total_lines = 0;
     for line in lines {
-        let line = line.strip_suffix('\r').unwrap_or(line);
         let char_count = line.chars().count();
         match wrap_width {
             Some(w) => {

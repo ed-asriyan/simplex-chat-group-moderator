@@ -242,6 +242,21 @@ fn test_max_lines_without_chars_per_line() {
         should_moderate("\n\na\nb", 0, 0, 3, 0, false, true), // 4 lines
         Some(String::new())
     );
+
+    // Alternative Unicode line breaks (bare CR, VT, FF, NEL, LS, PS)
+    assert!(should_moderate("a\rb\rc", 0, 0, 3, 0, false, true).is_none());
+    assert_eq!(
+        should_moderate("a\rb\rc\rd", 0, 0, 3, 0, false, true),
+        Some(String::new())
+    );
+    assert_eq!(
+        should_moderate("a\x0Bb\x0Cc\u{0085}d", 0, 0, 3, 0, false, true),
+        Some(String::new())
+    );
+    assert_eq!(
+        should_moderate("a\u{2028}b\u{2029}c\u{2028}d", 0, 0, 3, 0, false, true),
+        Some(String::new())
+    );
 }
 
 #[test]
