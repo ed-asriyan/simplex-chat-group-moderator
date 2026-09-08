@@ -5,7 +5,7 @@ fn test_empty_string() {
     // With disallow_empty_messages = true (default)
     assert_eq!(
         should_moderate("", 0, 0, 0, 0, false, true),
-        Some(String::new())
+        Some("empty message".to_string())
     );
     // With disallow_empty_messages = false
     assert!(should_moderate("", 0, 0, 0, 0, false, false).is_none());
@@ -15,11 +15,11 @@ fn test_empty_string() {
 fn test_whitespace_only() {
     assert_eq!(
         should_moderate("   ", 0, 0, 0, 0, false, true),
-        Some(String::new())
+        Some("empty message".to_string())
     );
     assert_eq!(
         should_moderate("\n\n\t \r\n", 0, 0, 0, 0, false, true),
-        Some(String::new())
+        Some("empty message".to_string())
     );
 
     // If disallow_empty_messages = false, whitespace-only messages are allowed unless another rule catches them
@@ -32,12 +32,12 @@ fn test_many_newlines_only() {
     let message = "\n".repeat(10_000);
     assert_eq!(
         should_moderate(&message, 0, 0, 0, 0, false, true),
-        Some(String::new())
+        Some("empty message".to_string())
     );
     // Even if disallow_empty_messages = false, max_lines will still catch it
     assert_eq!(
         should_moderate(&message, 0, 0, 5, 0, false, false),
-        Some(String::new())
+        Some("10001 lines".to_string())
     );
     // If both disallow_empty_messages = false and no other limits, it is allowed
     assert!(should_moderate(&message, 0, 0, 0, 0, false, false).is_none());
@@ -47,7 +47,7 @@ fn test_many_newlines_only() {
 fn test_invisible_characters_only() {
     assert_eq!(
         should_moderate("\u{200B}\u{200B}\u{200B}", 0, 0, 0, 0, false, true),
-        Some(String::new())
+        Some("empty message".to_string())
     );
     assert_eq!(
         should_moderate(
@@ -59,13 +59,13 @@ fn test_invisible_characters_only() {
             false,
             true,
         ),
-        Some(String::new())
+        Some("empty message".to_string())
     );
 
     // If disallow_empty_messages = false, but disallow_invisible_chars = true, still caught!
     assert_eq!(
         should_moderate("\u{200B}\u{200B}\u{200B}", 0, 0, 0, 0, true, false),
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
 }
 
@@ -73,11 +73,11 @@ fn test_invisible_characters_only() {
 fn test_braille_blank_pattern() {
     assert_eq!(
         should_moderate("⠀", 0, 0, 0, 0, false, true),
-        Some(String::new())
+        Some("empty message".to_string())
     );
     assert_eq!(
         should_moderate("⠀\n⠀\n\n⠀", 0, 0, 0, 0, false, true),
-        Some(String::new())
+        Some("empty message".to_string())
     );
 
     // If disallow_empty_messages = false and disallow_invisible_chars = false
@@ -96,11 +96,11 @@ fn test_bidi_and_variation_selectors_only() {
             false,
             true,
         ),
-        Some(String::new())
+        Some("empty message".to_string())
     );
     assert_eq!(
         should_moderate("\u{FE00}\u{FE0F}\u{E0100}", 0, 0, 0, 0, false, true),
-        Some(String::new())
+        Some("empty message".to_string())
     );
 }
 
@@ -116,7 +116,7 @@ fn test_control_characters_only() {
             false,
             true,
         ),
-        Some(String::new())
+        Some("empty message".to_string())
     );
 }
 
@@ -135,28 +135,28 @@ fn test_max_characters() {
     assert!(should_moderate("0123456789", 10, 0, 0, 0, false, true).is_none());
     assert_eq!(
         should_moderate("0123456789a", 10, 0, 0, 0, false, true),
-        Some(String::new())
+        Some("11 characters".to_string())
     );
 
     // Multibyte Unicode characters (e.g. Cyrillic: 6 characters = 12 UTF-8 bytes)
     assert!(should_moderate("Привет", 6, 0, 0, 0, false, true).is_none());
     assert_eq!(
         should_moderate("Привет", 5, 0, 0, 0, false, true),
-        Some(String::new())
+        Some("6 characters".to_string())
     );
 
     // Emoji scalar value (1 char, 4 bytes)
     assert!(should_moderate("🦀", 1, 0, 0, 0, false, true).is_none());
     assert_eq!(
         should_moderate("🦀🦀", 1, 0, 0, 0, false, true),
-        Some(String::new())
+        Some("2 characters".to_string())
     );
 
     // Whitespace and newlines count toward max_characters
     assert!(should_moderate("a\n b", 4, 0, 0, 0, false, true).is_none());
     assert_eq!(
         should_moderate("a\n b", 3, 0, 0, 0, false, true),
-        Some(String::new())
+        Some("4 characters".to_string())
     );
 }
 
@@ -167,7 +167,7 @@ fn test_max_words() {
     assert!(should_moderate("one two three", 0, 3, 0, 0, false, true).is_none());
     assert_eq!(
         should_moderate("one two three four", 0, 3, 0, 0, false, true),
-        Some(String::new())
+        Some("4 words".to_string())
     );
 
     // Multiple irregular whitespace characters (spaces, tabs, newlines)
@@ -182,14 +182,14 @@ fn test_max_words() {
             false,
             true
         ),
-        Some(String::new())
+        Some("4 words".to_string())
     );
 
     // Words with punctuation
     assert!(should_moderate("Hello, world! How are you?", 0, 5, 0, 0, false, true).is_none());
     assert_eq!(
         should_moderate("Hello, world! How are you?", 0, 4, 0, 0, false, true),
-        Some(String::new())
+        Some("5 words".to_string())
     );
 
     // Single very long word counts as 1 word
@@ -204,7 +204,7 @@ fn test_max_lines_without_chars_per_line() {
     assert!(should_moderate("line 1\nline 2\nline 3", 0, 0, 3, 0, false, true).is_none());
     assert_eq!(
         should_moderate("line 1\nline 2\nline 3\nline 4", 0, 0, 3, 0, false, true),
-        Some(String::new())
+        Some("4 lines".to_string())
     );
 
     // CRLF (\r\n) linebreaks
@@ -219,43 +219,43 @@ fn test_max_lines_without_chars_per_line() {
             false,
             true
         ),
-        Some(String::new())
+        Some("4 lines".to_string())
     );
 
     // Consecutive empty lines count as lines
     assert!(should_moderate("a\n\nb", 0, 0, 3, 0, false, true).is_none()); // 3 lines
     assert_eq!(
         should_moderate("a\n\n\nb", 0, 0, 3, 0, false, true), // 4 lines
-        Some(String::new())
+        Some("4 lines".to_string())
     );
 
     // Trailing newline adds a line
     assert!(should_moderate("a\nb\n", 0, 0, 3, 0, false, true).is_none()); // 3 lines
     assert_eq!(
         should_moderate("a\nb\nc\n", 0, 0, 3, 0, false, true), // 4 lines
-        Some(String::new())
+        Some("4 lines".to_string())
     );
 
     // Leading newline adds a line
     assert!(should_moderate("\na\nb", 0, 0, 3, 0, false, true).is_none()); // 3 lines
     assert_eq!(
         should_moderate("\n\na\nb", 0, 0, 3, 0, false, true), // 4 lines
-        Some(String::new())
+        Some("4 lines".to_string())
     );
 
     // Alternative Unicode line breaks (bare CR, VT, FF, NEL, LS, PS)
     assert!(should_moderate("a\rb\rc", 0, 0, 3, 0, false, true).is_none());
     assert_eq!(
         should_moderate("a\rb\rc\rd", 0, 0, 3, 0, false, true),
-        Some(String::new())
+        Some("4 lines".to_string())
     );
     assert_eq!(
         should_moderate("a\x0Bb\x0Cc\u{0085}d", 0, 0, 3, 0, false, true),
-        Some(String::new())
+        Some("4 lines".to_string())
     );
     assert_eq!(
         should_moderate("a\u{2028}b\u{2029}c\u{2028}d", 0, 0, 3, 0, false, true),
-        Some(String::new())
+        Some("4 lines".to_string())
     );
 }
 
@@ -269,7 +269,7 @@ fn test_max_lines_with_chars_per_line() {
     assert!(should_moderate(&"a".repeat(11), 0, 0, 2, 10, false, true).is_none());
     assert_eq!(
         should_moderate(&"a".repeat(11), 0, 0, 1, 10, false, true),
-        Some(String::new())
+        Some("2 lines".to_string())
     );
 
     // 20 chars -> ceil(20/10) = 2 lines
@@ -278,7 +278,7 @@ fn test_max_lines_with_chars_per_line() {
     assert!(should_moderate(&"a".repeat(21), 0, 0, 3, 10, false, true).is_none());
     assert_eq!(
         should_moderate(&"a".repeat(21), 0, 0, 2, 10, false, true),
-        Some(String::new())
+        Some("3 lines".to_string())
     );
 
     // 30 chars in 1 line -> ceil(30 / 10) = 3 lines <= 3 -> allowed
@@ -289,7 +289,7 @@ fn test_max_lines_with_chars_per_line() {
     let text_31 = "a".repeat(31);
     assert_eq!(
         should_moderate(&text_31, 0, 0, 3, 10, false, true),
-        Some(String::new())
+        Some("4 lines".to_string())
     );
 
     // Multibyte Unicode wrap: 10 Cyrillic characters count as 10 characters, not 20 bytes
@@ -298,7 +298,7 @@ fn test_max_lines_with_chars_per_line() {
     let cyrillic_11 = "абвгдеёжзий";
     assert_eq!(
         should_moderate(cyrillic_11, 0, 0, 1, 10, false, true),
-        Some(String::new())
+        Some("2 lines".to_string())
     );
 
     // Empty line with soft wrap counts as 1 line
@@ -306,7 +306,7 @@ fn test_max_lines_with_chars_per_line() {
     assert!(should_moderate(&with_empty_line, 0, 0, 3, 10, false, true).is_none());
     assert_eq!(
         should_moderate(&with_empty_line, 0, 0, 2, 10, false, true),
-        Some(String::new())
+        Some("3 lines".to_string())
     );
 
     // Multi-line wrap calculation:
@@ -316,14 +316,14 @@ fn test_max_lines_with_chars_per_line() {
     let multi = format!("{}\n{}", "a".repeat(15), "b".repeat(12));
     assert_eq!(
         should_moderate(&multi, 0, 0, 3, 10, false, true),
-        Some(String::new())
+        Some("4 lines".to_string())
     );
 
     // chars_per_line = 1 (every character wraps)
     assert!(should_moderate("abc", 0, 0, 3, 1, false, true).is_none());
     assert_eq!(
         should_moderate("abcd", 0, 0, 3, 1, false, true),
-        Some(String::new())
+        Some("4 lines".to_string())
     );
 }
 
@@ -335,77 +335,77 @@ fn test_disallow_invisible_chars() {
     // Even a single zero-width space anywhere in otherwise normal text is banned
     assert_eq!(
         should_moderate("\u{200B}hello world", 0, 0, 0, 0, true, true),
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
     assert_eq!(
         should_moderate("hello\u{200B}world", 0, 0, 0, 0, true, true),
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
     assert_eq!(
         should_moderate("hello world\u{200B}", 0, 0, 0, 0, true, true),
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
 
     // Other specific invisible characters
     assert_eq!(
         should_moderate("hello⠀world", 0, 0, 0, 0, true, true), // Braille blank U+2800
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
     assert_eq!(
         should_moderate("hello\u{00AD}world", 0, 0, 0, 0, true, true), // soft hyphen
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
     assert_eq!(
         should_moderate("hello\u{180E}world", 0, 0, 0, 0, true, true), // Mongolian vowel separator
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
     assert_eq!(
         should_moderate("hello\u{200C}world", 0, 0, 0, 0, true, true), // zero width non-joiner
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
     assert_eq!(
         should_moderate("hello\u{200D}world", 0, 0, 0, 0, true, true), // zero width joiner
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
     assert_eq!(
         should_moderate("hello\u{202E}world", 0, 0, 0, 0, true, true), // Bidi override
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
     assert_eq!(
         should_moderate("hello\u{2060}world", 0, 0, 0, 0, true, true), // word joiner
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
     assert_eq!(
         should_moderate("hello\u{2066}world", 0, 0, 0, 0, true, true), // Bidi isolate
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
     assert_eq!(
         should_moderate("hello\u{FE00}world", 0, 0, 0, 0, true, true), // Variation Selector
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
     assert_eq!(
         should_moderate("hello\u{E0100}world", 0, 0, 0, 0, true, true), // Variation Selector supplement
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
     assert_eq!(
         should_moderate("hello\u{E0020}world", 0, 0, 0, 0, true, true), // Unicode Tag char
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
     assert_eq!(
         should_moderate("hello\u{FFF9}world", 0, 0, 0, 0, true, true), // interlinear annotation
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
     assert_eq!(
         should_moderate("hello\u{0000}world", 0, 0, 0, 0, true, true), // NUL control char
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
     assert_eq!(
         should_moderate("hello\u{0007}world", 0, 0, 0, 0, true, true), // BEL control char
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
     assert_eq!(
         should_moderate("hello\u{001B}world", 0, 0, 0, 0, true, true), // ESC control char
-        Some(String::new())
+        Some("invisible characters".to_string())
     );
 
     // When disallow_invisible_chars = false, normal text with invisible characters is allowed
@@ -419,35 +419,35 @@ fn test_leading_and_trailing_flood_edge_cases() {
     let flood_both = format!(".{}.", "\n".repeat(500));
     assert_eq!(
         should_moderate(&flood_both, 0, 0, 5, 0, false, true),
-        Some(String::new())
+        Some("501 lines".to_string())
     );
 
     // Dot at start, 500 newlines, NO dot at end (trailing flood)
     let flood_trailing = format!(".{}", "\n".repeat(500));
     assert_eq!(
         should_moderate(&flood_trailing, 0, 0, 5, 0, false, true),
-        Some(String::new())
+        Some("501 lines".to_string())
     );
 
     // 500 newlines, dot at end (leading flood)
     let flood_leading = format!("{}.", "\n".repeat(500));
     assert_eq!(
         should_moderate(&flood_leading, 0, 0, 5, 0, false, true),
-        Some(String::new())
+        Some("501 lines".to_string())
     );
 
     // Dot at start, 500 spaces, NO dot at end
     let spaces_trailing = format!(".{}", " ".repeat(500));
     assert_eq!(
         should_moderate(&spaces_trailing, 100, 0, 0, 0, false, true),
-        Some(String::new())
+        Some("501 characters".to_string())
     );
 
     // 500 spaces, dot at end
     let spaces_leading = format!("{}.", " ".repeat(500));
     assert_eq!(
         should_moderate(&spaces_leading, 100, 0, 0, 0, false, true),
-        Some(String::new())
+        Some("501 characters".to_string())
     );
 }
 
@@ -522,7 +522,7 @@ fn test_zero_limits_treated_as_unlimited() {
     // 5. Completely empty/invisible message is still moderated when disallow_empty_messages = true even if limits are 0:
     assert_eq!(
         should_moderate("   ", 0, 0, 0, 0, false, true),
-        Some(String::new())
+        Some("empty message".to_string())
     );
 
     // 6. When disallow_empty_messages = false, empty message is NOT moderated:

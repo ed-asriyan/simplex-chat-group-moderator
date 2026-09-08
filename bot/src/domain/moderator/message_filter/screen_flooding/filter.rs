@@ -107,27 +107,36 @@ pub fn should_moderate(
 ) -> Option<String> {
     // 1. Fully empty / whitespace / invisible message check
     if disallow_empty_messages && message.chars().all(is_blank) {
-        return Some(String::new());
+        return Some("empty message".to_string());
     }
 
     // 2. Disallow any invisible / zero-width characters in the message
     if disallow_invisible_chars && message.chars().any(is_invisible) {
-        return Some(String::new());
+        return Some("invisible characters".to_string());
     }
 
     // 3. Max characters limit (0 to disable)
-    if max_characters > 0 && message.chars().count() > max_characters as usize {
-        return Some(String::new());
+    if max_characters > 0 {
+        let count = message.chars().count();
+        if count > max_characters as usize {
+            return Some(format!("{count} characters"));
+        }
     }
 
     // 4. Max words limit (0 to disable)
-    if max_words > 0 && message.split_whitespace().count() > max_words as usize {
-        return Some(String::new());
+    if max_words > 0 {
+        let count = message.split_whitespace().count();
+        if count > max_words as usize {
+            return Some(format!("{count} words"));
+        }
     }
 
     // 5. Max lines limit (0 to disable, soft wrap controlled by chars_per_line)
-    if max_lines > 0 && count_effective_lines(message, chars_per_line) > max_lines as usize {
-        return Some(String::new());
+    if max_lines > 0 {
+        let count = count_effective_lines(message, chars_per_line);
+        if count > max_lines as usize {
+            return Some(format!("{count} lines"));
+        }
     }
 
     None

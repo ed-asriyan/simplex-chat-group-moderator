@@ -383,10 +383,10 @@ impl ModerationNotificationReceiver for BotDmApplication {
         user_id: UserId,
         group: &Group,
         message: &str,
-        phrase: &str,
+        reason: &str,
     ) -> Result<(), Err> {
         let text = format!(
-            "{} a message in *{}*!\n\n*The message:*\n{}\n\n*Phrase found:*\n{}",
+            "{} a message in *{}*!\n\n*The message:*\n{}\n\n*Reason:*\n{}",
             if group.dry_mode_enabled {
                 "🛡 I would moderate"
             } else {
@@ -394,7 +394,7 @@ impl ModerationNotificationReceiver for BotDmApplication {
             },
             group.name,
             message,
-            phrase,
+            reason,
         );
         self.messenger.send_dm(&user_id, &text).await
     }

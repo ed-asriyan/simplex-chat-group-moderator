@@ -54,7 +54,7 @@ pub trait ModerationNotificationReceiver: Send + Sync {
         user_id: UserId,
         group: &Group,
         message: &str,
-        phrase: &str,
+        reason: &str,
     ) -> Result<(), Err>;
 }
 

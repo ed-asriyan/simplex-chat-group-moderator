@@ -38,7 +38,7 @@ impl ModerationEngine for ModeratorApplication {
 
         let rules_list: Vec<ModerationRule> = rules.into_iter().map(|o| o.rule).collect();
 
-        if let Some(phrase) = should_moderate(&group_message.text, &rules_list) {
+        if let Some(reason) = should_moderate(&group_message.text, &rules_list) {
             let group = self
                 .repository
                 .get_group_by_messenger_id(&group_message.group.id)
@@ -58,7 +58,7 @@ impl ModerationEngine for ModeratorApplication {
                 // Best-effort: a failed notification must not undo moderation.
                 let _ = self
                     .notifier
-                    .notify_moderated_message(group.owner_id, &group, &group_message.text, &phrase)
+                    .notify_moderated_message(group.owner_id, &group, &group_message.text, &reason)
                     .await;
             }
         }

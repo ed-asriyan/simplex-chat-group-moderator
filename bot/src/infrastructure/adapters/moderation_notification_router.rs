@@ -37,7 +37,7 @@ impl ModerationNotifier for ModerationNotificationRouter {
         user_id: ModUserId,
         group: &ModGroup,
         message: &str,
-        phrase: &str,
+        reason: &str,
     ) -> Result<(), ModErr> {
         let receiver = self
             .receiver
@@ -50,7 +50,7 @@ impl ModerationNotifier for ModerationNotificationRouter {
             dry_mode_enabled: group.dry_mode_enabled,
         };
         receiver
-            .send_moderation_notification(user_id, &bot_dm_group, message, phrase)
+            .send_moderation_notification(user_id, &bot_dm_group, message, reason)
             .await
             .map_err(|e| -> ModErr { e.to_string().into() })
     }
