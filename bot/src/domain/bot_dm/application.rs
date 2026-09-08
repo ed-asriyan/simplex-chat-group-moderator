@@ -16,6 +16,8 @@ fn lz_decompress(s: &str) -> Option<String> {
     String::from_utf16(&data).ok()
 }
 
+const MAX_MESSAGE_LENGTH: usize = 300;
+
 const HELP: &str = "\
 How to use this bot:
 
@@ -385,6 +387,14 @@ impl ModerationNotificationReceiver for BotDmApplication {
         message: &str,
         reason: &str,
     ) -> Result<(), Err> {
+        let message = if message.chars().count() > MAX_MESSAGE_LENGTH {
+            format!(
+                "{}...",
+                message.chars().take(MAX_MESSAGE_LENGTH).collect::<String>()
+            )
+        } else {
+            message.to_owned()
+        };
         let text = format!(
             "{} a message in *{}*!\n\n*The message:*\n{}\n\n*Reason:*\n{}",
             if group.dry_mode_enabled {
