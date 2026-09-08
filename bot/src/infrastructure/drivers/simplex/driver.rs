@@ -129,6 +129,7 @@ impl SimplexDriver {
                             .build(),
                     )
                     .live_message(false)
+                    .sign_messages(false)
                     .composed_messages(vec![composed_messages])
                     .build(),
             )
