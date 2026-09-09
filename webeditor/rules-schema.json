@@ -358,6 +358,42 @@
                             "default": false
                         }
                     }
+                },
+                {
+                    "type": "object",
+                    "title": "🚫 User Exceeds Messages Rate Limit",
+                    "description": "Matches when a user sends a specified number of messages within a given time window (in minutes).",
+                    "required": [
+                        "type",
+                        "message_count",
+                        "time_window_minutes"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "UserExceedsMessagesRateLimit",
+                            "default": "UserExceedsMessagesRateLimit",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "message_count": {
+                            "type": "integer",
+                            "title": "Number of Messages",
+                            "description": "Matches when the user reaches or exceeds this number of messages in the time window.",
+                            "minimum": 1,
+                            "default": 5
+                        },
+                        "time_window_minutes": {
+                            "type": "integer",
+                            "title": "Time Window (Minutes)",
+                            "description": "The time window in minutes over which the messages accumulate (maximum 60 minutes).",
+                            "minimum": 1,
+                            "maximum": 60,
+                            "default": 1
+                        }
+                    }
                 }
             ]
         }

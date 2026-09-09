@@ -1,11 +1,13 @@
 use async_trait::async_trait;
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::message_filter::should_moderate;
 use super::ports::{
     DeleteAuthorMessages, DeleteObserverMessages, Err, Group, GroupId, GroupInvitation,
     GroupMessage, GroupModerator, MessengerGroupId, ModerationAction, ModerationEngine,
-    ModerationNotifier, ModerationRepository, ModerationRule, OwnedModerationRule, UserId,
+    ModerationNotifier, ModerationRepository, ModerationRule, OwnedModerationRule, RuleCondition,
+    UserActivityRepository, UserId,
 };
 
 #[cfg(test)]
@@ -15,6 +17,7 @@ pub struct ModeratorApplication {
     repository: Arc<dyn ModerationRepository>,
     group_moderator: Arc<dyn GroupModerator>,
     notifier: Arc<dyn ModerationNotifier>,
+    activity_repository: Arc<dyn UserActivityRepository>,
 }
 
 impl ModeratorApplication {
@@ -22,12 +25,45 @@ impl ModeratorApplication {
         repository: Arc<dyn ModerationRepository>,
         group_moderator: Arc<dyn GroupModerator>,
         notifier: Arc<dyn ModerationNotifier>,
+        activity_repository: Arc<dyn UserActivityRepository>,
     ) -> Self {
         Self {
             repository,
             group_moderator,
             notifier,
+            activity_repository,
         }
+    }
+
+    async fn track_user_message_if_needed(
+        &self,
+        group_message: &GroupMessage,
+        rules: &[ModerationRule],
+    ) -> Result<(), Err> {
+        let max_rate_limit_window = rules
+            .iter()
+            .filter_map(|r| match &r.condition {
+                RuleCondition::UserExceedsMessagesRateLimit {
+                    time_window_minutes,
+                    ..
+                } if *time_window_minutes > 0 => Some((*time_window_minutes).min(60)),
+                _ => None,
+            })
+            .max();
+
+        if let Some(max_window_minutes) = max_rate_limit_window {
+            let ttl = Duration::from_secs(max_window_minutes as u64 * 60);
+            self.activity_repository
+                .record_user_message(
+                    &group_message.group.id,
+                    &group_message.author_id,
+                    group_message.timestamp,
+                    ttl,
+                )
+                .await?;
+        }
+
+        Ok(())
     }
 }
 
@@ -41,7 +77,16 @@ impl ModerationEngine for ModeratorApplication {
 
         let rules_list: Vec<ModerationRule> = rules.into_iter().map(|o| o.rule).collect();
 
-        if let Some(matched) = should_moderate(&group_message.text, &rules_list) {
+        self.track_user_message_if_needed(&group_message, &rules_list)
+            .await?;
+
+        if let Some(matched) = should_moderate(
+            &group_message,
+            &rules_list,
+            self.activity_repository.as_ref(),
+        )
+        .await?
+        {
             let group = self
                 .repository
                 .get_group_by_messenger_id(&group_message.group.id)
@@ -90,10 +135,7 @@ impl ModerationEngine for ModeratorApplication {
                     },
                     ModerationAction::SetAuthorObserver { delete_message } => {
                         self.group_moderator
-                            .set_member_observer(
-                                &group_message.group.id,
-                                &group_message.author_id,
-                            )
+                            .set_member_observer(&group_message.group.id, &group_message.author_id)
                             .await?;
                         match delete_message {
                             DeleteObserverMessages::None => {}

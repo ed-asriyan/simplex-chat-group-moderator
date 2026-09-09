@@ -5,12 +5,13 @@ use bot::domain::bot_dm::ports::{
 use bot::domain::moderator::ModeratorApplication;
 use bot::domain::moderator::ports::{
     GroupMessage, GroupModerator, MessengerGroup, ModerationEngine, ModerationNotifier,
-    ModerationRepository,
+    ModerationRepository, UserActivityRepository,
 };
 use bot::infrastructure::adapters::cross_domain_router::CrossDomainRouter;
 use bot::infrastructure::adapters::moderation_notification_router::ModerationNotificationRouter;
 use bot::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository;
 use bot::infrastructure::adapters::simplex_adapter::SimplexAdapter;
+use bot::infrastructure::adapters::user_activity_repo_in_memory::InMemoryUserActivityRepository;
 use bot::infrastructure::drivers::simplex::{SimpleXConfig, SimplexDriver, SimplexEvent};
 use bot::infrastructure::migrations;
 use chrono::Local;
@@ -50,6 +51,7 @@ async fn handle_event(
             group_name,
             author_id,
             message_id,
+            timestamp,
             text,
         } => {
             let group_message = GroupMessage {
@@ -60,6 +62,7 @@ async fn handle_event(
                 message_id,
                 author_id,
                 text,
+                timestamp,
             };
             moderator.process_group_message(group_message).await?;
         }
@@ -204,6 +207,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // ---- moderator outbound adapters ----
     let moderation_repo = SqliteModerationRepository::new(conn.clone());
     let moderation_repo: Arc<dyn ModerationRepository> = Arc::new(moderation_repo);
+    let user_activity_repo: Arc<dyn UserActivityRepository> =
+        Arc::new(InMemoryUserActivityRepository::new());
 
     let simplex_adapter = Arc::new(SimplexAdapter::new(simplex_driver.clone()));
     let bot_messenger: Arc<dyn BotMessenger> = simplex_adapter.clone();
@@ -218,6 +223,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         moderation_repo,
         group_moderator,
         moderation_notifier,
+        user_activity_repo,
     ));
     let moderator_engine: Arc<dyn ModerationEngine> = moderator_app.clone();
 

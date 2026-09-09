@@ -2,6 +2,7 @@ use super::consts::MESSAGE_MAX_LENGTH_IN_BYTES;
 use super::consts::{BOT_PHOTO, TTL};
 use super::message_split::split_lines_by_byte_limit;
 use async_stream::stream;
+use chrono::{DateTime, Utc};
 use futures::TryStreamExt as _;
 use futures::stream::Stream;
 use simploxide_client::commands::ApiRemoveMembers;
@@ -36,6 +37,7 @@ pub enum SimplexEvent {
         group_name: String,
         author_id: UserId,
         message_id: MessageId,
+        timestamp: DateTime<Utc>,
         text: String,
     },
     Connected {
@@ -308,6 +310,12 @@ impl SimplexDriver {
     }
 }
 
+fn parse_utc_time(value: &str) -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(value)
+        .map(|dt| dt.with_timezone(&Utc))
+        .unwrap_or_else(|_| Utc::now())
+}
+
 fn extract_message_text(chat_content: &MsgContent) -> Option<String> {
     match chat_content {
         MsgContent::Text { text, .. } => Some(text.clone()),
@@ -404,6 +412,9 @@ async fn handle_event(
                                         group_name: group_info.group_profile.display_name.clone(),
                                         message_id: chat_item.chat_item.meta.item_id,
                                         text,
+                                        timestamp: parse_utc_time(
+                                            &chat_item.chat_item.meta.created_at,
+                                        ),
                                     }
                                 })
                             }
@@ -422,15 +433,16 @@ async fn handle_event(
                 &chat_item.chat_item.chat_item.content
                 && let ChatInfo::Group { group_info, .. } = &chat_item.chat_item.chat_info
             {
-                Ok(extract_message_text(msg_content).map_or(vec![], |text| {
-                    vec![SimplexEvent::GroupMessage {
+                Ok(extract_message_text(msg_content)
+                    .map(|text| SimplexEvent::GroupMessage {
                         group_id: group_info.group_id,
                         author_id: group_info.group_id,
                         group_name: group_info.group_profile.display_name.clone(),
                         message_id: chat_item.chat_item.chat_item.meta.item_id,
                         text,
-                    }]
-                }))
+                        timestamp: parse_utc_time(&chat_item.chat_item.chat_item.meta.created_at),
+                    })
+                    .map_or(vec![], |event| vec![event]))
             } else {
                 Ok(vec![])
             }

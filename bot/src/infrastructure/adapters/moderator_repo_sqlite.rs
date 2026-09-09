@@ -362,6 +362,18 @@ impl ModerationRepository for SqliteModerationRepository {
                     disallow_invisible_chars: _,
                     disallow_empty_messages: _,
                 } => {}
+                RuleCondition::UserExceedsMessagesRateLimit {
+                    message_count: _,
+                    time_window_minutes,
+                } => {
+                    if *time_window_minutes > 60 {
+                        return Err(format!(
+                            "Time window too long: {} minutes, maximum is 60",
+                            time_window_minutes
+                        )
+                        .into());
+                    }
+                }
             }
         }
 
@@ -381,6 +393,7 @@ impl ModerationRepository for SqliteModerationRepository {
                 "moderation_rule__contains_links_outside_allowed_list",
                 "moderation_rule__contains_links_outside_top100",
                 "moderation_rule__floods_chat_or_exceeds_limits",
+                "moderation_rule__user_exceeds_messages_rate_limit",
             ];
             let mut orphan_action_ids: Vec<i64> = Vec::new();
             for table in rule_tables {
@@ -506,6 +519,16 @@ impl ModerationRepository for SqliteModerationRepository {
                         )
                         .map_err(|e| -> Err { e.to_string().into() })?;
                     }
+                    RuleCondition::UserExceedsMessagesRateLimit {
+                        message_count,
+                        time_window_minutes,
+                    } => {
+                        tx.execute(
+                            "INSERT INTO moderation_rule__user_exceeds_messages_rate_limit (group_id, rank, message_count, time_window_minutes, action_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+                            rusqlite::params![gid, rank, message_count, time_window_minutes, action_id],
+                        )
+                        .map_err(|e| -> Err { e.to_string().into() })?;
+                    }
                 }
             }
 
@@ -542,6 +565,7 @@ impl ModerationRepository for SqliteModerationRepository {
                     "moderation_rule__contains_links_outside_allowed_list",
                     "moderation_rule__contains_links_outside_top100",
                     "moderation_rule__floods_chat_or_exceeds_limits",
+                    "moderation_rule__user_exceeds_messages_rate_limit",
                 ] {
                     let mut stmt = tx.prepare(&format!(
                         "SELECT action_id FROM {table} WHERE group_id = ?1 AND action_id IS NOT NULL"

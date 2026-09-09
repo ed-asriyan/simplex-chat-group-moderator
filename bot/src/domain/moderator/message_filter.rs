@@ -1,11 +1,13 @@
 mod keywords;
 mod links;
 mod messages_blacklist;
+mod rate_limit;
 mod screen_flooding;
 
 #[cfg(test)]
 mod tests;
 
+use super::ports::{Err, GroupMessage, UserActivityRepository};
 use serde::{Deserialize, Serialize};
 
 fn default_true() -> bool {
@@ -102,6 +104,13 @@ pub enum RuleCondition {
         #[serde(default)]
         disallow_invisible_chars: bool,
     },
+    #[serde(alias = "RateLimit")]
+    UserExceedsMessagesRateLimit {
+        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
+        message_count: u32,
+        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
+        time_window_minutes: u32,
+    },
 }
 
 /// A moderation rule combining an action and a filtering condition.
@@ -154,17 +163,40 @@ fn should_moderate_by_condition(message: &str, condition: &RuleCondition) -> Opt
             *disallow_invisible_chars,
             *disallow_empty_messages,
         ),
+        RuleCondition::UserExceedsMessagesRateLimit { .. } => None,
     }
 }
 
-pub fn should_moderate(message: &str, rules: &[ModerationRule]) -> Option<ModerationMatch> {
+pub async fn should_moderate(
+    group_message: &GroupMessage,
+    rules: &[ModerationRule],
+    activity_repo: &dyn UserActivityRepository,
+) -> Result<Option<ModerationMatch>, Err> {
     for rule in rules {
-        if let Some(reason) = should_moderate_by_condition(message, &rule.condition) {
-            return Some(ModerationMatch {
+        let reason = match &rule.condition {
+            RuleCondition::UserExceedsMessagesRateLimit {
+                message_count,
+                time_window_minutes,
+            } => {
+                rate_limit::check_rate_limit(
+                    activity_repo,
+                    &group_message.group.id,
+                    &group_message.author_id,
+                    *message_count,
+                    *time_window_minutes,
+                    group_message.timestamp,
+                )
+                .await?
+            }
+            other => should_moderate_by_condition(&group_message.text, other),
+        };
+
+        if let Some(reason) = reason {
+            return Ok(Some(ModerationMatch {
                 action: rule.action,
                 reason,
-            });
+            }));
         }
     }
-    None
+    Ok(None)
 }

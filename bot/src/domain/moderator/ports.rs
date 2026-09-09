@@ -3,7 +3,9 @@ pub use super::message_filter::{
     ModerationRule, RuleCondition,
 };
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use std::error::Error;
+use std::time::Duration;
 
 pub type MessengerGroupId = i64;
 pub type GroupId = i64;
@@ -21,7 +23,7 @@ pub struct Group {
     pub dry_mode_enabled: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct MessengerGroup {
     pub id: MessengerGroupId,
     pub name: String,
@@ -33,12 +35,13 @@ pub struct GroupInvitation {
     pub is_moderator: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct GroupMessage {
     pub group: MessengerGroup,
     pub message_id: MessageId,
     pub author_id: UserId,
     pub text: String,
+    pub timestamp: DateTime<Utc>,
 }
 
 #[derive(Clone, Debug)]
@@ -115,11 +118,7 @@ pub trait GroupModerator: Send + Sync {
         delete_all_messages: bool,
     ) -> Result<(), Err>;
 
-    async fn set_member_observer(
-        &self,
-        group_id: &GroupId,
-        user_id: &UserId,
-    ) -> Result<(), Err>;
+    async fn set_member_observer(&self, group_id: &GroupId, user_id: &UserId) -> Result<(), Err>;
 
     async fn join_group(
         &self,
@@ -177,4 +176,24 @@ pub trait ModerationRepository: Send + Sync {
     -> Result<(), Err>;
 
     async fn set_dry_mode_enabled(&self, group_id: &GroupId, enabled: bool) -> Result<(), Err>;
+}
+
+/// Outbound port: persistence for user activity and rate limit state.
+#[async_trait]
+pub trait UserActivityRepository: Send + Sync {
+    async fn record_user_message(
+        &self,
+        group_id: &MessengerGroupId,
+        user_id: &UserId,
+        timestamp: DateTime<Utc>,
+        ttl: Duration,
+    ) -> Result<(), Err>;
+
+    async fn count_messages_since(
+        &self,
+        group_id: &MessengerGroupId,
+        user_id: &UserId,
+        since: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<u32, Err>;
 }

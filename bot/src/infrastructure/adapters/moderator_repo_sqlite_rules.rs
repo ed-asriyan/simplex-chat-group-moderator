@@ -280,6 +280,31 @@ pub(crate) fn load_rules_for_group(
         ));
     }
 
+    // UserExceedsMessagesRateLimit
+    let mut stmt = guard.prepare(
+        "SELECT id, rank, message_count, time_window_minutes, action_id FROM moderation_rule__user_exceeds_messages_rate_limit WHERE group_id = ?1",
+    )?;
+    let rows: Vec<(i64, i64, i64, i64, Option<i64>)> = stmt
+        .query_map(params![gid], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+        })?
+        .collect::<Result<_, _>>()?;
+    for (rule_id, rank, message_count, time_window_minutes, action_id) in rows {
+        ranked.push((
+            rank,
+            OwnedModerationRule {
+                id: rule_id as usize,
+                rule: ModerationRule {
+                    action: load_action(&guard, action_id)?,
+                    condition: RuleCondition::UserExceedsMessagesRateLimit {
+                        message_count: message_count as u32,
+                        time_window_minutes: time_window_minutes as u32,
+                    },
+                },
+            },
+        ));
+    }
+
     // Restore the original (editor) order. Ties (same rank) fall back to id for
     // a deterministic result.
     ranked.sort_by_key(|(rank, owned)| (*rank, owned.id));

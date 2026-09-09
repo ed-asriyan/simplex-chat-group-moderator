@@ -65,6 +65,15 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
                 disallow_invisible_chars: true,
             },
         },
+        ModerationRule {
+            action: ModerationAction::KickAuthor {
+                delete_messages: DeleteAuthorMessages::AllMessages,
+            },
+            condition: RuleCondition::UserExceedsMessagesRateLimit {
+                message_count: 5,
+                time_window_minutes: 2,
+            },
+        },
     ];
 
     repo.set_group_rules(&group_id, &rules).await.unwrap();
@@ -75,7 +84,7 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
         let action_count: i64 = guard
             .query_row("SELECT COUNT(*) FROM moderation_actions", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(action_count, 6);
+        assert_eq!(action_count, 7);
     }
 
     // Delete group data
@@ -97,6 +106,7 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
             "moderation_rule__contains_links_outside_top100",
             "moderation_rule__contains_links_outside_top100__allowed",
             "moderation_rule__floods_chat_or_exceeds_limits",
+            "moderation_rule__user_exceeds_messages_rate_limit",
             "moderation_actions",
             "moderation_action__moderate_message",
             "moderation_action__kick_author",
@@ -110,3 +120,44 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
         }
     }
 }
+
+#[tokio::test]
+async fn test_save_and_load_rate_limit_rules() {
+    let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+    migrations::run(conn.clone()).await.unwrap();
+
+    let repo = SqliteModerationRepository::new(conn.clone());
+    let messenger_group_id = 1001;
+    let owner_id = 456;
+    let group_id = repo
+        .save_owner(&messenger_group_id, "Rate Limit Test Group", &owner_id)
+        .await
+        .unwrap();
+
+    let rules = vec![
+        ModerationRule {
+            action: ModerationAction::ModerateMessage,
+            condition: RuleCondition::UserExceedsMessagesRateLimit {
+                message_count: 3,
+                time_window_minutes: 1,
+            },
+        },
+        ModerationRule {
+            action: ModerationAction::KickAuthor {
+                delete_messages: DeleteAuthorMessages::TriggeredMessage,
+            },
+            condition: RuleCondition::UserExceedsMessagesRateLimit {
+                message_count: 10,
+                time_window_minutes: 60,
+            },
+        },
+    ];
+
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+
+    let loaded = repo.get_group_rules(&group_id).await.unwrap();
+    assert_eq!(loaded.len(), 2);
+    assert_eq!(loaded[0].rule, rules[0]);
+    assert_eq!(loaded[1].rule, rules[1]);
+}
+
