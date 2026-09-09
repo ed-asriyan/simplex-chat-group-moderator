@@ -4,12 +4,13 @@ use super::message_split::split_lines_by_byte_limit;
 use async_stream::stream;
 use futures::TryStreamExt as _;
 use futures::stream::Stream;
+use simploxide_client::commands::ApiRemoveMembers;
 use simploxide_client::events::Event;
 use simploxide_client::prelude::ApiSendMessages;
 use simploxide_client::types::GroupChatScopeInfo::{self, MemberSupport};
 use simploxide_client::types::{
-    CIContent, ChatBotCommand, ChatInfo, ChatPeerType, ChatRef, ChatType, ComposedMessage,
-    FeatureAllowed, GroupMemberRole, MsgContent, SimplePreference,
+    CIContent, CIDirection, ChatBotCommand, ChatInfo, ChatPeerType, ChatRef, ChatType,
+    ComposedMessage, FeatureAllowed, GroupMemberRole, MsgContent, SimplePreference,
 };
 use simploxide_client::{
     ClientApi,
@@ -174,6 +175,24 @@ impl SimplexDriver {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.client
             .send_raw(format!("/_delete member item #{} {}", group_id, message_id))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn kick_group_member(
+        &self,
+        group_id: GroupId,
+        user_id: UserId,
+        delete_messages: bool,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        self.client
+            .api_remove_members(
+                ApiRemoveMembers::builder()
+                    .group_id(group_id)
+                    .group_member_ids(vec![user_id])
+                    .with_messages(delete_messages)
+                    .build(),
+            )
             .await?;
         Ok(())
     }
@@ -343,7 +362,12 @@ async fn handle_event(
                             user_id: contact.contact_id,
                             group_id: group_invitation.group_id,
                             group_name: group_invitation.group_profile.display_name.clone(),
-                            is_moderator: matches!(member_role, GroupMemberRole::Moderator),
+                            is_moderator: matches!(
+                                member_role,
+                                GroupMemberRole::Moderator
+                                    | GroupMemberRole::Admin
+                                    | GroupMemberRole::Owner
+                            ),
                         })
                     } else {
                         None
@@ -357,13 +381,15 @@ async fn handle_event(
                     if let CIContent::RcvMsgContent { msg_content, .. } =
                         &chat_item.chat_item.content
                         && let None = group_chat_scope
+                        && let CIDirection::GroupRcv { group_member, .. } =
+                            &chat_item.chat_item.chat_dir
                     {
                         match group_chat_scope {
                             None | Some(GroupChatScopeInfo::Undocumented(_)) => {
                                 extract_message_text(msg_content).map(|text| {
                                     SimplexEvent::GroupMessage {
                                         group_id: group_info.group_id,
-                                        author_id: group_info.group_id,
+                                        author_id: group_member.group_member_id,
                                         group_name: group_info.group_profile.display_name.clone(),
                                         message_id: chat_item.chat_item.meta.item_id,
                                         text,

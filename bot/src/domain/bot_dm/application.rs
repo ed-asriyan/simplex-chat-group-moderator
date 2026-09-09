@@ -1,6 +1,6 @@
 use super::ports::{
-    BotDmReceiver, BotMessenger, Err, GroupId, GroupInvitation, GroupOperations,
-    ModerationNotificationReceiver, UserId,
+    BotDmReceiver, BotMessenger, DeleteAuthorMessages, Err, GroupId, GroupInvitation,
+    GroupOperations, ModerationAction, ModerationNotificationReceiver, UserId,
 };
 use crate::domain::bot_dm::ports::{Group, Message};
 use async_trait::async_trait;
@@ -21,7 +21,7 @@ const MAX_MESSAGE_LENGTH: usize = 300;
 const HELP: &str = "\
 How to use this bot:
 
-1. Invite me to your group and make me a moderator so I have permission to delete messages.
+1. Invite me to your group as a moderator if you want me to moderate messages, or as an owner if you also want me to kick users.
 2. Use /groups to list your groups. For each group, tap the rules link to view and edit its moderation rules.
 3. I will automatically monitor the chat and delete any message that violates the rules.
 
@@ -45,7 +45,8 @@ const ISSUE_URL: &str = "https://github.com/ed-asriyan/simplex-chat-group-modera
 const FEATURE_REQUEST_URL: &str = "https://github.com/ed-asriyan/simplex-chat-group-moderator/issues/new?template=feature-request.yml";
 
 const START: &str = formatcp!(
-    "Hi! Invite me to your group and grant me moderator permissions. \
+    "Hi! Invite me to your group as a moderator (to moderate messages) \
+    or as an owner (if you also want me to kick users). \
     Then use /groups to configure moderation rules for it \
     — I support keyword blocking, link blacklists, link whitelists, and more. \
     You can manage multiple groups with me.\n\n{}",
@@ -169,11 +170,7 @@ fn render_group(group: &Group, rules_url: &str) -> String {
         format!("Enable dry mode: /dry_on_{}", group.id)
     };
     format!(
-        "*{}*
-[View and Edit Rules]({})
-{}
-{}\
-",
+        "*{}*\n[View and Edit Rules]({})\n{}\n{}\\\n",
         group.name, rules_url, notifications_command, dry_mode_command,
     )
 }
@@ -361,7 +358,7 @@ impl BotDmReceiver for BotDmApplication {
                     self.messenger
                         .send_dm(
                             &user_id,
-                            "Failed to join the group. Check if the invite link is correct and I have the moderator role.",
+                            "Failed to join the group. Check if the invite link is correct and I have the moderator or owner role.",
                         )
                         .await?;
                 }
@@ -370,7 +367,7 @@ impl BotDmReceiver for BotDmApplication {
             self.messenger
                 .send_dm(
                     &user_id,
-                    "I need to be added as a moderator to join the group. Please update my permissions and send the invite again.",
+                    "I need to be added as a moderator (or owner) to join the group. Please update my permissions and send the invite again.",
                 )
                 .await?;
         }
@@ -384,6 +381,7 @@ impl ModerationNotificationReceiver for BotDmApplication {
         &self,
         user_id: UserId,
         group: &Group,
+        action: &ModerationAction,
         message: &str,
         reason: &str,
     ) -> Result<(), Err> {
@@ -395,16 +393,41 @@ impl ModerationNotificationReceiver for BotDmApplication {
         } else {
             message.to_owned()
         };
+        let action_text = match action {
+            ModerationAction::ModerateMessage => {
+                if group.dry_mode_enabled {
+                    "🛡 I would moderate a message"
+                } else {
+                    "🛡 I moderated a message"
+                }
+            }
+            ModerationAction::KickAuthor { delete_messages } => {
+                if group.dry_mode_enabled {
+                    match delete_messages {
+                        DeleteAuthorMessages::AllMessages => {
+                            "🛡 I would kick the author and delete all their messages"
+                        }
+                        DeleteAuthorMessages::TriggeredMessage => {
+                            "🛡 I would kick the author and moderated their message"
+                        }
+                        DeleteAuthorMessages::None => "🛡 I would kick the author",
+                    }
+                } else {
+                    match delete_messages {
+                        DeleteAuthorMessages::AllMessages => {
+                            "🛡 I kicked the author and deleted all their messages"
+                        }
+                        DeleteAuthorMessages::TriggeredMessage => {
+                            "🛡 I kicked the author and moderated their message"
+                        }
+                        DeleteAuthorMessages::None => "🛡 I kicked the author",
+                    }
+                }
+            }
+        };
         let text = format!(
-            "{} a message in *{}*!\n\n*The message:*\n{}\n\n*Reason:*\n{}",
-            if group.dry_mode_enabled {
-                "🛡 I would moderate"
-            } else {
-                "🛡 I moderated"
-            },
-            group.name,
-            message,
-            reason,
+            "{} in *{}*!\n\n*The message:*\n{}\n\n*Reason:*\n{}",
+            action_text, group.name, message, reason,
         );
         self.messenger.send_dm(&user_id, &text).await
     }

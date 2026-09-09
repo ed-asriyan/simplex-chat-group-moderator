@@ -3,6 +3,9 @@ mod links;
 mod messages_blacklist;
 mod screen_flooding;
 
+#[cfg(test)]
+mod tests;
+
 use serde::{Deserialize, Serialize};
 
 fn default_true() -> bool {
@@ -29,9 +32,34 @@ where
     Ok(opt.unwrap_or(40))
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+/// Action to perform on the author's messages when kicking an author.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DeleteAuthorMessages {
+    #[serde(alias = "none", alias = "DoNotDelete")]
+    None,
+    #[default]
+    #[serde(alias = "triggered_message", alias = "Triggered")]
+    TriggeredMessage,
+    #[serde(alias = "all_messages", alias = "All")]
+    AllMessages,
+}
+
+/// Action to perform when a moderation rule triggers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type")]
-pub enum ModerationRule {
+pub enum ModerationAction {
+    #[default]
+    ModerateMessage,
+    KickAuthor {
+        #[serde(default)]
+        delete_messages: DeleteAuthorMessages,
+    },
+}
+
+/// Condition/filter criteria for moderation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum RuleCondition {
     WordsBlacklist {
         keywords: Vec<String>,
     },
@@ -67,25 +95,41 @@ pub enum ModerationRule {
     },
 }
 
-fn should_moderate_by_rule(message: &str, rule: &ModerationRule) -> Option<String> {
-    match rule {
-        ModerationRule::WordsBlacklist { keywords, .. } => {
+/// A moderation rule combining an action and a filtering condition.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModerationRule {
+    #[serde(default)]
+    pub action: ModerationAction,
+    pub condition: RuleCondition,
+}
+
+/// Result of evaluating message against moderation rules.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModerationMatch {
+    pub action: ModerationAction,
+    pub reason: String,
+}
+
+fn should_moderate_by_condition(message: &str, condition: &RuleCondition) -> Option<String> {
+    match condition {
+        RuleCondition::WordsBlacklist { keywords, .. } => {
             keywords::should_moderate(message.trim(), keywords)
+                .map(|keyword| format!("blacklisted word: '{keyword}'"))
         }
-        ModerationRule::MessagesBlacklist {
+        RuleCondition::MessagesBlacklist {
             messages: blocked,
             case_sensitive,
         } => messages_blacklist::should_moderate(message.trim(), blocked, *case_sensitive),
-        ModerationRule::LinksBlacklist { blocked } => {
+        RuleCondition::LinksBlacklist { blocked } => {
             links::should_moderate_blacklist(message.trim(), blocked)
         }
-        ModerationRule::LinksWhitelist { allowed } => {
+        RuleCondition::LinksWhitelist { allowed } => {
             links::should_moderate_whitelist(message.trim(), allowed)
         }
-        ModerationRule::LinksWhitelistTop100 { allowed } => {
+        RuleCondition::LinksWhitelistTop100 { allowed } => {
             links::should_moderate_whitelist_top100(message.trim(), allowed)
         }
-        ModerationRule::ScreenFlooding {
+        RuleCondition::ScreenFlooding {
             max_characters,
             max_words,
             max_lines,
@@ -104,10 +148,13 @@ fn should_moderate_by_rule(message: &str, rule: &ModerationRule) -> Option<Strin
     }
 }
 
-pub fn should_moderate(message: &str, rules: &[ModerationRule]) -> Option<String> {
+pub fn should_moderate(message: &str, rules: &[ModerationRule]) -> Option<ModerationMatch> {
     for rule in rules {
-        if let Some(reason) = should_moderate_by_rule(message, rule) {
-            return Some(reason);
+        if let Some(reason) = should_moderate_by_condition(message, &rule.condition) {
+            return Some(ModerationMatch {
+                action: rule.action,
+                reason,
+            });
         }
     }
     None

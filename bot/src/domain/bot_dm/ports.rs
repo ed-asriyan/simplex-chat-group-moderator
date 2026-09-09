@@ -9,6 +9,21 @@ pub type Err = Box<dyn Error + Send + Sync>;
 
 pub type JoinError = Box<dyn Error + Send + Sync>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeleteAuthorMessages {
+    None,
+    TriggeredMessage,
+    AllMessages,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModerationAction {
+    ModerateMessage,
+    KickAuthor {
+        delete_messages: DeleteAuthorMessages,
+    },
+}
+
 #[derive(Debug)]
 pub struct Message {
     pub text: String,
@@ -45,14 +60,15 @@ pub trait BotMessenger: Send + Sync {
     async fn send_dm(&self, user_id: &UserId, text: &str) -> Result<(), Err>;
 }
 
-/// Inbound port: deliver a notification to a group owner that the bot moderated
-/// a message in their group.
+/// Inbound port: deliver a notification to a group owner that the bot performed a
+/// moderation action in their group.
 #[async_trait]
 pub trait ModerationNotificationReceiver: Send + Sync {
     async fn send_moderation_notification(
         &self,
         user_id: UserId,
         group: &Group,
+        action: &ModerationAction,
         message: &str,
         reason: &str,
     ) -> Result<(), Err>;

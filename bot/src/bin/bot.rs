@@ -23,6 +23,87 @@ use std::error::Error;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
+async fn handle_event(
+    event: SimplexEvent,
+    dm_receiver: Arc<dyn BotDmReceiver>,
+    moderator: Arc<dyn ModerationEngine>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    match event {
+        SimplexEvent::Message {
+            user_id,
+            text,
+            reply_message_text,
+            ..
+        } => {
+            dm_receiver
+                .handle_dm(
+                    user_id,
+                    &Message {
+                        text,
+                        reply_to_message: reply_message_text,
+                    },
+                )
+                .await?;
+        }
+        SimplexEvent::GroupMessage {
+            group_id,
+            group_name,
+            author_id,
+            message_id,
+            text,
+        } => {
+            let group_message = GroupMessage {
+                group: MessengerGroup {
+                    id: group_id,
+                    name: group_name,
+                },
+                message_id,
+                author_id,
+                text,
+            };
+            moderator.process_group_message(group_message).await?;
+        }
+        SimplexEvent::Connected { user_id } => {
+            dm_receiver
+                .handle_dm(
+                    user_id,
+                    &Message {
+                        text: "/start".to_string(),
+                        reply_to_message: None,
+                    },
+                )
+                .await?;
+        }
+        SimplexEvent::Disconnected { user_id } => {
+            info!("user disconnected: {}", user_id);
+        }
+        SimplexEvent::GroupInvitation {
+            user_id,
+            group_id,
+            group_name,
+            is_moderator,
+        } => {
+            let invitation = bot::domain::bot_dm::ports::GroupInvitation {
+                group: bot::domain::bot_dm::ports::Group {
+                    id: group_id,
+                    name: group_name,
+                    notifications_enabled: true,
+                    dry_mode_enabled: false,
+                },
+                is_moderator,
+            };
+            dm_receiver
+                .handle_group_invitation(user_id, &invitation)
+                .await?;
+        }
+        SimplexEvent::RemovedFromGroup { group_id } => {
+            moderator.remove_group(group_id).await?;
+        }
+    }
+
+    Ok(())
+}
+
 fn init_logger() {
     Builder::new()
         .format(|buf, record| {
@@ -162,77 +243,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let polling_task = tokio::spawn(async move {
         let mut stream = Box::pin(simplex_stream);
         while let Some(event) = stream.next().await {
-            match event {
-                SimplexEvent::Message {
-                    user_id,
-                    text,
-                    reply_message_text,
-                    ..
-                } => {
-                    let _ = dm_receiver
-                        .handle_dm(
-                            user_id,
-                            &Message {
-                                text,
-                                reply_to_message: reply_message_text,
-                            },
-                        )
-                        .await;
-                }
-                SimplexEvent::GroupMessage {
-                    group_id,
-                    group_name,
-                    author_id,
-                    message_id,
-                    text,
-                } => {
-                    let group_message = GroupMessage {
-                        group: MessengerGroup {
-                            id: group_id,
-                            name: group_name,
-                        },
-                        message_id,
-                        author_id,
-                        text,
-                    };
-                    let _ = moderator.process_group_message(group_message).await;
-                }
-                SimplexEvent::Connected { user_id } => {
-                    let _ = dm_receiver
-                        .handle_dm(
-                            user_id,
-                            &Message {
-                                text: "/start".to_string(),
-                                reply_to_message: None,
-                            },
-                        )
-                        .await;
-                }
-                SimplexEvent::Disconnected { user_id } => {
-                    info!("user disconnected: {}", user_id);
-                }
-                SimplexEvent::GroupInvitation {
-                    user_id,
-                    group_id,
-                    group_name,
-                    is_moderator,
-                } => {
-                    let invitation = bot::domain::bot_dm::ports::GroupInvitation {
-                        group: bot::domain::bot_dm::ports::Group {
-                            id: group_id,
-                            name: group_name,
-                            notifications_enabled: true,
-                            dry_mode_enabled: false,
-                        },
-                        is_moderator,
-                    };
-                    let _ = dm_receiver
-                        .handle_group_invitation(user_id, &invitation)
-                        .await;
-                }
-                SimplexEvent::RemovedFromGroup { group_id } => {
-                    let _ = moderator.remove_group(group_id).await;
-                }
+            if let Err(err) = handle_event(event, dm_receiver.clone(), moderator.clone()).await {
+                eprintln!("Error handling event: {:#?}", err);
             }
         }
     });

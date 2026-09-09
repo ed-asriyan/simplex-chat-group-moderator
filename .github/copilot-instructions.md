@@ -93,15 +93,31 @@ Rules are owned by groups and stored as one **typed table per rule type** rather
 - **Ordering:** `rank` stores the order the rules were supplied by the user/editor (the slice index on write). The reader merges all rule tables and sorts by `rank` (then `id` as a tiebreaker) so the original order round-trips.
 - Surrogate `id`s are internal only — they are not exposed to users, so a writer may let SQLite assign them (`last_insert_rowid()`) instead of generating them.
 
-## Adding a new moderation rule type (common task — do all of these)
-`ModerationRule` (in `domain/moderator/message_filter.rs`) is the **single source of truth**: a `#[serde(tag = "type")]` enum whose struct-like variants carry the rule's parameters (e.g. `WordsBlacklist { keywords: Vec<String> }`). Each rule appears under **two naming forms that must stay aligned**: the PascalCase variant name is the serde `type` tag used in the URL hash and `rules-schema.json` (e.g. `WordsBlacklist`), while its snake_case form is the `<name>` used for DB table names (e.g. `moderation_rule__words_blacklist`).
+Moderation **actions** are normalized into their own tables and referenced by every rule (not stored as columns on the rule tables):
 
-1. **Domain:** add a variant to `ModerationRule` and implement its matching in `should_moderate_by_rule` (add a submodule under `message_filter/` if the logic is non-trivial; keep it pure and unit-tested). Evaluation short-circuits on the first rule that matches.
-2. **Migration:** add `infrastructure/migrations/NNNN_*.sql` with the new `moderation_rule__<name>` table (and `__<subtable>` if it has list/detail data), following the schema conventions above.
-3. **Repository read:** load the new rule in `infrastructure/adapters/moderator_repo_sqlite_rules.rs` (carry its `rank`).
-4. **Repository write:** insert the new rule (with `rank`) in `set_group_rules` in `infrastructure/adapters/moderator_repo_sqlite.rs`.
-5. **Web editor:** add the rule's shape to `webeditor/rules-schema.json` so owners can configure it, using the variant name as the `type` const so it matches the serde representation.
+- Registry: `moderation_actions` with `id INTEGER PRIMARY KEY` and a `type TEXT NOT NULL` discriminator (the PascalCase action variant name, e.g. `ModerateMessage`, `KickAuthor`).
+- Per-type settings: `moderation_action__<name>` (e.g. `moderation_action__kick_author`) keyed by `action_id` (FK → `moderation_actions(id) ON DELETE CASCADE`), holding that action's **settings** columns. A zero-setting action (e.g. `moderation_action__moderate_message`) still gets a table so the reference stays uniform.
+- Link: every `moderation_rule__<name>` table has an `action_id` column that is a real FK → `moderation_actions(id)` (enforceable, and portable to a server RDBMS). It is nullable only so it can be `ALTER TABLE ... ADD COLUMN`-ed onto existing rule tables; the writer always sets it, and a `NULL` reads back as the default action.
+- Lifecycle: an action row is owned 1:1 by its rule. Deleting a rule does **not** cascade into `moderation_actions` (the rule is the child), so `set_group_rules` and `delete_group_data` explicitly delete the now-orphaned action rows after removing the rules (which in turn cascades into the `moderation_action__<name>` subtables).
+
+## Adding a new moderation rule (condition) type (common task — do all of these)
+A rule is a `ModerationRule { action: ModerationAction, condition: RuleCondition }` (in `domain/moderator/message_filter.rs`); it serializes to `{ "action": { "type": ... }, "condition": { "type": ... } }` — two sibling `#[serde(tag = "type")]` objects (condition is **not** flattened). `RuleCondition` is the **single source of truth** for detection types: a `#[serde(tag = "type")]` enum whose struct-like variants carry the condition's parameters (e.g. `WordsBlacklist { keywords: Vec<String> }`). Each condition appears under **two naming forms that must stay aligned**: the PascalCase variant name is the serde `type` tag used in the URL hash and `rules-schema.json` (e.g. `WordsBlacklist`), while its snake_case form is the `<name>` used for DB table names (e.g. `moderation_rule__words_blacklist`).
+
+1. **Domain:** add a variant to `RuleCondition` and implement its matching in `should_moderate_by_condition` (add a submodule under `message_filter/` if the logic is non-trivial; keep it pure and unit-tested). `should_moderate` evaluates each rule's condition in order and short-circuits on the first match, returning a `ModerationMatch { action, reason }`.
+2. **Migration:** add `infrastructure/migrations/NNNN_*.sql` with the new `moderation_rule__<name>` table (the standard `id` / `group_id` / `rank` / `action_id` columns plus any settings columns, and a `__<subtable>` if it has list/detail data), following the schema conventions above.
+3. **Repository read:** load the new condition in `infrastructure/adapters/moderator_repo_sqlite_rules.rs`, selecting its `rank` and `action_id` and resolving the action via `load_action`.
+4. **Repository write:** insert the new condition (with `rank`) in `set_group_rules` in `infrastructure/adapters/moderator_repo_sqlite.rs`, storing the `action_id` returned by `insert_action`.
+5. **Web editor:** add the condition's shape to `webeditor/rules-schema.json` as a new `oneOf` entry under `definitions.condition`, using the variant name as the `type` const so it matches the serde representation. The action is a sibling of condition on every rule (`items.properties.action`), so no per-condition action wiring is needed.
 6. **Bug template:** Update `moderation-rule-bug.yml` to add the new rule's title (as it appears in `rules-schema.json`) to the `rule-type` dropdown options list so bug reporters can select it.
+
+## Adding a new moderation action type (do all of these)
+`ModerationAction` (in `domain/moderator/message_filter.rs`) is the **single source of truth** for actions: a `#[serde(tag = "type")]` enum (e.g. `ModerateMessage`, `KickAuthor { moderate_message: bool, delete_all_messages: bool }`). Like conditions, the PascalCase variant name is the serde `type` tag (URL hash, `rules-schema.json`, and the `moderation_actions.type` column), and its snake_case form is the `<name>` used for the `moderation_action__<name>` settings table.
+
+1. **Domain:** add a variant to `ModerationAction` and execute it in `ModeratorApplication::process_group_message` (`domain/moderator/application.rs`) via the `GroupModerator` outbound port. If the action needs a capability the messenger doesn't expose yet, add a method to `GroupModerator` in `domain/moderator/ports.rs` and implement it in `infrastructure/adapters/simplex_adapter.rs` (+ the `drivers/simplex` driver).
+2. **Cross-context (owner notifications):** mirror the variant in `bot_dm::ModerationAction` (`domain/bot_dm/ports.rs`), map it in `infrastructure/adapters/moderation_notification_router.rs`, and render its notification text in `domain/bot_dm/application.rs`.
+3. **Migration:** add `infrastructure/migrations/NNNN_*.sql` creating `moderation_action__<name>` (keyed by `action_id` FK → `moderation_actions(id) ON DELETE CASCADE`) with one column per setting.
+4. **Repository read/write:** resolve the new action in `load_action` and persist it in `insert_action` (both in the `moderator_repo_sqlite*` adapters).
+5. **Web editor:** add the action as a new `oneOf` entry under `definitions.action` in `webeditor/rules-schema.json`, using the variant name as the `type` const and one field per setting.
 
 ## General conventions
 - Async traits use `#[async_trait]`.

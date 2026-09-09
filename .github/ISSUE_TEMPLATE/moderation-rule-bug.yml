@@ -39,6 +39,21 @@ body:
       required: true
 
   - type: dropdown
+    id: rule-action
+    attributes:
+      label: Which rule action was configured?
+      description: What action was set to trigger when a message matches this rule?
+      options:
+        - "Delete the message"
+        - "Kick the author"
+        - "Kick the author — Don't delete any messages"
+        - "Kick the author — Delete the message that triggered the rule"
+        - "Kick the author — Delete ALL messages the author has sent in this group"
+        - "Not sure / multiple"
+    validations:
+      required: true
+
+  - type: dropdown
     id: wrong-behavior
     attributes:
       label: What went wrong?

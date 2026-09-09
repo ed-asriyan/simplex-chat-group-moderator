@@ -1,4 +1,6 @@
-pub use super::message_filter::ModerationRule;
+pub use super::message_filter::{
+    DeleteAuthorMessages, ModerationAction, ModerationMatch, ModerationRule, RuleCondition,
+};
 use async_trait::async_trait;
 use std::error::Error;
 
@@ -9,6 +11,7 @@ pub type UserId = i64;
 
 pub type Err = Box<dyn Error + Send + Sync>;
 
+#[derive(Clone, Debug)]
 pub struct Group {
     pub id: GroupId,
     pub owner_id: UserId,
@@ -17,16 +20,19 @@ pub struct Group {
     pub dry_mode_enabled: bool,
 }
 
+#[derive(Clone, Debug)]
 pub struct MessengerGroup {
     pub id: MessengerGroupId,
     pub name: String,
 }
 
+#[derive(Clone, Debug)]
 pub struct GroupInvitation {
     pub group: MessengerGroup,
     pub is_moderator: bool,
 }
 
+#[derive(Clone, Debug)]
 pub struct GroupMessage {
     pub group: MessengerGroup,
     pub message_id: MessageId,
@@ -34,6 +40,7 @@ pub struct GroupMessage {
     pub text: String,
 }
 
+#[derive(Clone, Debug)]
 pub struct OwnedModerationRule {
     pub id: usize,
     pub rule: ModerationRule,
@@ -82,13 +89,14 @@ pub trait ModerationEngine: Send + Sync {
     ) -> Result<(), Err>;
 }
 
-/// Outbound port: notify a group owner that a message was moderated.
+/// Outbound port: notify a group owner that a moderation action was performed.
 #[async_trait]
 pub trait ModerationNotifier: Send + Sync {
-    async fn notify_moderated_message(
+    async fn notify_moderation_action(
         &self,
         user_id: UserId,
         group: &Group,
+        action: &ModerationAction,
         message: &str,
         reason: &str,
     ) -> Result<(), Err>;
@@ -98,6 +106,13 @@ pub trait ModerationNotifier: Send + Sync {
 #[async_trait]
 pub trait GroupModerator: Send + Sync {
     async fn delete_message(&self, group_id: &GroupId, message_id: &MessageId) -> Result<(), Err>;
+
+    async fn kick_member(
+        &self,
+        group_id: &GroupId,
+        user_id: &UserId,
+        delete_all_messages: bool,
+    ) -> Result<(), Err>;
 
     async fn join_group(
         &self,

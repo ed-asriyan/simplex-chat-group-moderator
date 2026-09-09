@@ -1,9 +1,13 @@
 use async_trait::async_trait;
 use std::sync::{Arc, OnceLock};
 
-use crate::domain::bot_dm::ports::{Group as BotDmGroup, ModerationNotificationReceiver};
+use crate::domain::bot_dm::ports::{
+    DeleteAuthorMessages as BotDmDeleteMessages, Group as BotDmGroup,
+    ModerationAction as BotDmAction, ModerationNotificationReceiver,
+};
 use crate::domain::moderator::ports::{
-    Err as ModErr, Group as ModGroup, ModerationNotifier, UserId as ModUserId,
+    DeleteAuthorMessages as ModDeleteMessages, Err as ModErr, Group as ModGroup,
+    ModerationAction as ModAction, ModerationNotifier, UserId as ModUserId,
 };
 
 /// Bridges the `moderator` bounded context to the `bot_dm` bounded context by
@@ -32,10 +36,11 @@ impl ModerationNotificationRouter {
 
 #[async_trait]
 impl ModerationNotifier for ModerationNotificationRouter {
-    async fn notify_moderated_message(
+    async fn notify_moderation_action(
         &self,
         user_id: ModUserId,
         group: &ModGroup,
+        action: &ModAction,
         message: &str,
         reason: &str,
     ) -> Result<(), ModErr> {
@@ -49,8 +54,18 @@ impl ModerationNotifier for ModerationNotificationRouter {
             notifications_enabled: group.notifications_enabled,
             dry_mode_enabled: group.dry_mode_enabled,
         };
+        let bot_dm_action = match action {
+            ModAction::ModerateMessage => BotDmAction::ModerateMessage,
+            ModAction::KickAuthor { delete_messages } => BotDmAction::KickAuthor {
+                delete_messages: match delete_messages {
+                    ModDeleteMessages::None => BotDmDeleteMessages::None,
+                    ModDeleteMessages::TriggeredMessage => BotDmDeleteMessages::TriggeredMessage,
+                    ModDeleteMessages::AllMessages => BotDmDeleteMessages::AllMessages,
+                },
+            },
+        };
         receiver
-            .send_moderation_notification(user_id, &bot_dm_group, message, reason)
+            .send_moderation_notification(user_id, &bot_dm_group, &bot_dm_action, message, reason)
             .await
             .map_err(|e| -> ModErr { e.to_string().into() })
     }

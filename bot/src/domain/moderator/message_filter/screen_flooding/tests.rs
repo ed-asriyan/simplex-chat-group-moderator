@@ -454,16 +454,19 @@ fn test_leading_and_trailing_flood_edge_cases() {
 #[test]
 fn test_integration_with_message_filter_rules() {
     use crate::domain::moderator::message_filter::{
-        ModerationRule, should_moderate as top_level_moderate,
+        ModerationAction, ModerationRule, RuleCondition, should_moderate as top_level_moderate,
     };
 
-    let rules = vec![ModerationRule::ScreenFlooding {
-        max_characters: 100,
-        max_words: 10,
-        max_lines: 5,
-        chars_per_line: 40,
-        disallow_invisible_chars: false,
-        disallow_empty_messages: true,
+    let rules = vec![ModerationRule {
+        action: ModerationAction::ModerateMessage,
+        condition: RuleCondition::ScreenFlooding {
+            max_characters: 100,
+            max_words: 10,
+            max_lines: 5,
+            chars_per_line: 40,
+            disallow_invisible_chars: false,
+            disallow_empty_messages: true,
+        },
     }];
 
     // Normal message passes
@@ -485,13 +488,16 @@ fn test_integration_with_message_filter_rules() {
     assert!(top_level_moderate("   ", &rules).is_some());
 
     // With disallow_empty_messages = false and no limits exceeded
-    let rules_no_empty_ban = vec![ModerationRule::ScreenFlooding {
-        max_characters: 0,
-        max_words: 0,
-        max_lines: 0,
-        chars_per_line: 0,
-        disallow_invisible_chars: false,
-        disallow_empty_messages: false,
+    let rules_no_empty_ban = vec![ModerationRule {
+        action: ModerationAction::ModerateMessage,
+        condition: RuleCondition::ScreenFlooding {
+            max_characters: 0,
+            max_words: 0,
+            max_lines: 0,
+            chars_per_line: 0,
+            disallow_invisible_chars: false,
+            disallow_empty_messages: false,
+        },
     }];
     assert!(top_level_moderate("   ", &rules_no_empty_ban).is_none());
 }
@@ -531,7 +537,7 @@ fn test_zero_limits_treated_as_unlimited() {
 
 #[test]
 fn test_serde_json_compatibility() {
-    use crate::domain::moderator::message_filter::ModerationRule;
+    use crate::domain::moderator::message_filter::RuleCondition;
 
     // 1. Deserializing full JSON with all integer fields:
     let json_full = r#"{
@@ -543,9 +549,9 @@ fn test_serde_json_compatibility() {
         "disallow_empty_messages": true,
         "disallow_invisible_chars": false
     }"#;
-    let rule: ModerationRule = serde_json::from_str(json_full).unwrap();
-    match rule {
-        ModerationRule::ScreenFlooding {
+    let condition: RuleCondition = serde_json::from_str(json_full).unwrap();
+    match condition {
+        RuleCondition::ScreenFlooding {
             max_characters,
             max_words,
             max_lines,
@@ -571,9 +577,9 @@ fn test_serde_json_compatibility() {
         "max_lines": null,
         "chars_per_line": null
     }"#;
-    let rule: ModerationRule = serde_json::from_str(json_nulls).unwrap();
-    match rule {
-        ModerationRule::ScreenFlooding {
+    let condition: RuleCondition = serde_json::from_str(json_nulls).unwrap();
+    match condition {
+        RuleCondition::ScreenFlooding {
             max_characters,
             max_words,
             max_lines,
@@ -593,9 +599,9 @@ fn test_serde_json_compatibility() {
 
     // 3. Deserializing minimal JSON {"type": "ScreenFlooding"}:
     let json_min = r#"{"type": "ScreenFlooding"}"#;
-    let rule: ModerationRule = serde_json::from_str(json_min).unwrap();
-    match rule {
-        ModerationRule::ScreenFlooding {
+    let condition: RuleCondition = serde_json::from_str(json_min).unwrap();
+    match condition {
+        RuleCondition::ScreenFlooding {
             max_characters,
             max_words,
             max_lines,
@@ -614,7 +620,7 @@ fn test_serde_json_compatibility() {
     }
 
     // 4. Serialization always includes all integer and boolean fields (never omitted):
-    let serialized = serde_json::to_string(&rule).unwrap();
+    let serialized = serde_json::to_string(&condition).unwrap();
     assert!(serialized.contains(r#""max_characters":0"#));
     assert!(serialized.contains(r#""max_words":0"#));
     assert!(serialized.contains(r#""max_lines":0"#));

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::domain::bot_dm::ports::{BotMessenger, Err as BotDmErr, UserId as BotDmUserId};
 use crate::domain::moderator::ports::{
     Err as ModeratorErr, GroupId as ModGroupId, GroupModerator, MessageId as ModMessageId,
-    MessengerGroupId,
+    MessengerGroupId, UserId as ModUserId,
 };
 use crate::infrastructure::drivers::simplex::SimplexDriver;
 
@@ -41,6 +41,19 @@ impl GroupModerator for SimplexAdapter {
     ) -> Result<(), ModeratorErr> {
         self.driver
             .moderate_group_message(*group_id, *message_id)
+            .await
+            .map_err(|e| -> ModeratorErr { e.to_string().into() })?;
+        Ok(())
+    }
+
+    async fn kick_member(
+        &self,
+        group_id: &ModGroupId,
+        user_id: &ModUserId,
+        delete_messages: bool,
+    ) -> Result<(), ModeratorErr> {
+        self.driver
+            .kick_group_member(*group_id, *user_id, delete_messages)
             .await
             .map_err(|e| -> ModeratorErr { e.to_string().into() })?;
         Ok(())

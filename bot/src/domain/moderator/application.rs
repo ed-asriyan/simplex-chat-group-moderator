@@ -3,10 +3,13 @@ use std::sync::Arc;
 
 use super::message_filter::should_moderate;
 use super::ports::{
-    Err, Group, GroupId, GroupInvitation, GroupMessage, GroupModerator, MessengerGroupId,
-    ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule,
-    OwnedModerationRule, UserId,
+    DeleteAuthorMessages, Err, Group, GroupId, GroupInvitation, GroupMessage, GroupModerator,
+    MessengerGroupId, ModerationAction, ModerationEngine, ModerationNotifier, ModerationRepository,
+    ModerationRule, OwnedModerationRule, UserId,
 };
+
+#[cfg(test)]
+mod tests;
 
 pub struct ModeratorApplication {
     repository: Arc<dyn ModerationRepository>,
@@ -38,7 +41,7 @@ impl ModerationEngine for ModeratorApplication {
 
         let rules_list: Vec<ModerationRule> = rules.into_iter().map(|o| o.rule).collect();
 
-        if let Some(reason) = should_moderate(&group_message.text, &rules_list) {
+        if let Some(matched) = should_moderate(&group_message.text, &rules_list) {
             let group = self
                 .repository
                 .get_group_by_messenger_id(&group_message.group.id)
@@ -47,9 +50,45 @@ impl ModerationEngine for ModeratorApplication {
             let dry_mode = group.as_ref().is_some_and(|g| g.dry_mode_enabled);
 
             if !dry_mode {
-                self.group_moderator
-                    .delete_message(&group_message.group.id, &group_message.message_id)
-                    .await?;
+                match matched.action {
+                    ModerationAction::ModerateMessage => {
+                        self.group_moderator
+                            .delete_message(&group_message.group.id, &group_message.message_id)
+                            .await?;
+                    }
+                    ModerationAction::KickAuthor { delete_messages } => match delete_messages {
+                        DeleteAuthorMessages::None => {
+                            self.group_moderator
+                                .kick_member(
+                                    &group_message.group.id,
+                                    &group_message.author_id,
+                                    false,
+                                )
+                                .await?;
+                        }
+                        DeleteAuthorMessages::TriggeredMessage => {
+                            self.group_moderator
+                                .kick_member(
+                                    &group_message.group.id,
+                                    &group_message.author_id,
+                                    false,
+                                )
+                                .await?;
+                            self.group_moderator
+                                .delete_message(&group_message.group.id, &group_message.message_id)
+                                .await?;
+                        }
+                        DeleteAuthorMessages::AllMessages => {
+                            self.group_moderator
+                                .kick_member(
+                                    &group_message.group.id,
+                                    &group_message.author_id,
+                                    true,
+                                )
+                                .await?;
+                        }
+                    },
+                }
             }
 
             if let Some(group) = group
@@ -58,7 +97,13 @@ impl ModerationEngine for ModeratorApplication {
                 // Best-effort: a failed notification must not undo moderation.
                 let _ = self
                     .notifier
-                    .notify_moderated_message(group.owner_id, &group, &group_message.text, &reason)
+                    .notify_moderation_action(
+                        group.owner_id,
+                        &group,
+                        &matched.action,
+                        &group_message.text,
+                        &matched.reason,
+                    )
                     .await;
             }
         }
