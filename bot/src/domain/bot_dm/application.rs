@@ -4,7 +4,6 @@ use super::ports::{
 };
 use crate::domain::bot_dm::ports::{Group, Message};
 use async_trait::async_trait;
-use const_format::formatcp;
 use std::sync::Arc;
 
 fn lz_compress(s: &str) -> String {
@@ -19,39 +18,59 @@ fn lz_decompress(s: &str) -> Option<String> {
 const MAX_MESSAGE_LENGTH: usize = 300;
 
 const HELP: &str = "\
-How to use this bot:
+*How to use this bot:*
 
-1. Invite me to your group as a moderator if you want me to moderate messages, or as an owner if you also want me to kick users.
-2. Use /groups to list your groups. For each group, tap the rules link to view and edit its moderation rules.
-3. I will automatically monitor the chat and delete any message that violates the rules.
+1. Invite me to your group as:
+   • Moderator — to delete violating messages.
+   • Owner — to also kick violators out of the group.
+2. Once I join, use /groups to list your groups and open the visual rules editor.
+3. I will automatically monitor the chat and take action according to your rules.
 
-If you want me to stop moderating a group, just kick me from it.
+*If you want me to stop moderating a group, just kick me from it.*
 
-Commands:
-  /start  - Show this guide.
-  /help   - Show this guide.
-  /groups - List and manage groups I moderate for you.
-  /source - Link to my source code.
-  /issue  - Report a bug or unexpected moderation behaviour.
+*Commands:*
+  /start   - Show welcome guide.
+  /help    - Show this guide.
+  /groups  - List and manage groups I moderate for you.
+  /source  - View my source code.
+  /issue   - Report a bug or unexpected moderation behaviour.
   /feature - Request a new moderation rule type or feature.
 
-For each group you can also turn moderation notifications on or off (use /groups to get the links). When enabled, I'll DM you whenever I delete a message.
+*Notifications:*
+For each group you can turn moderation notifications on or off (use /groups to get the links). When enabled, I'll DM you whenever I take a moderation action.
 
-You can also enable dry mode for a group. In dry mode I run all checks and notify you about what I would delete, but I don't actually delete anything. Use /groups to get the links.
+*Dry mode:*
+You can also enable dry mode for a group. In dry mode I run all checks and notify you about what I would moderate, but I don't actually delete anything or kick anyone. Use /groups to get the links.
 ";
 
 const ISSUE_URL: &str = "https://github.com/ed-asriyan/simplex-chat-group-moderator/issues/new?template=moderation-rule-bug.yml";
 
 const FEATURE_REQUEST_URL: &str = "https://github.com/ed-asriyan/simplex-chat-group-moderator/issues/new?template=feature-request.yml";
 
-const START: &str = formatcp!(
-    "Hi! Invite me to your group as a moderator (to moderate messages) \
-    or as an owner (if you also want me to kick users). \
-    Then use /groups to configure moderation rules for it \
-    — I support keyword blocking, link blacklists, link whitelists, and more. \
-    You can manage multiple groups with me.\n\n{}",
-    HELP,
-);
+const START: &str = "\
+Hi! I'm an *automated moderation* bot for SimpleX groups.
+
+*What I can detect:*
+• 🚫 *Banned words & exact phrases* (even obfuscated like b@d_w0rd)
+• 🔗 *Links* (blocklist specific sites, allow only whitelist, or auto-allow Top 100 safe sites)
+• 🌊 *Screen flooding & spam* (long messages, empty/invisible text, line flood)
+...and much more! This is just a glimpse of what I can do.
+
+*What I can do to violators:*:
+• 🗑 *Moderate their messages*
+• 🚪 *Kick authors out of the group* — with an option to wipe all their past messages
+
+*How to get started:*
+1. In your group settings, generate an invite link with:
+   • Moderator role — if you only want me to 🗑 delete messages.
+   • Owner role — if you also want me to 🚪 kick users.
+2. Send that invite link directly to me here in this chat.
+3. Once I join, use /groups to configure your moderation rules in the visual editor.
+
+Use /help anytime for commands and extra features (like Dry Mode and notifications).
+
+My code is open source and [available on GitHub](https://github.com/ed-asriyan/simplex-chat-group-moderator).
+";
 
 pub struct BotDmApplication {
     messenger: Arc<dyn BotMessenger>,
