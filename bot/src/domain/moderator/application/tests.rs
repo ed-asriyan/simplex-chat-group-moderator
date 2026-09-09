@@ -189,7 +189,7 @@ async fn test_process_group_message_moderate_message_action() {
         id: 1,
         rule: ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["badword".to_string()],
             },
         },
@@ -254,7 +254,7 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -322,7 +322,7 @@ async fn test_process_group_message_kick_author_with_delete_messages_none() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::None,
             },
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -391,7 +391,7 @@ async fn test_process_group_message_kick_author_with_delete_messages_all_message
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::AllMessages,
             },
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -459,7 +459,7 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -517,7 +517,7 @@ async fn test_process_group_message_no_match_does_nothing() {
         id: 1,
         rule: ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["badword".to_string()],
             },
         },
@@ -575,7 +575,7 @@ async fn test_process_group_message_rule_order_first_match_wins() {
         id: 1,
         rule: ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["first".to_string()],
             },
         },
@@ -586,7 +586,7 @@ async fn test_process_group_message_rule_order_first_match_wins() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["second".to_string()],
             },
         },
@@ -647,7 +647,7 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::TriggeredMessage,
             },
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -726,7 +726,7 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::None,
             },
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -804,7 +804,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::TriggeredMessage,
             },
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -866,7 +866,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::None,
             },
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -927,7 +927,7 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::TriggeredMessage,
             },
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -986,7 +986,7 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::TriggeredMessage,
             },
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -1054,7 +1054,7 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::TriggeredMessage,
             },
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["first".to_string()],
             },
         },
@@ -1063,7 +1063,7 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
         id: 2,
         rule: ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["second".to_string()],
             },
         },
@@ -1127,7 +1127,7 @@ async fn test_process_group_message_rule_order_prior_rule_wins_over_set_author_o
         id: 1,
         rule: ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["first".to_string()],
             },
         },
@@ -1138,7 +1138,7 @@ async fn test_process_group_message_rule_order_prior_rule_wins_over_set_author_o
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::TriggeredMessage,
             },
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["second".to_string()],
             },
         },

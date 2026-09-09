@@ -191,7 +191,7 @@ fn render_group(group: &Group, rules_url: &str) -> String {
         format!("Enable dry mode: /dry_on_{}", group.id)
     };
     format!(
-        "*{}*\n[View and Edit Rules]({})\n{}\n{}\\\n",
+        "*{}*\n[View and Edit Rules]({})\n{}\n{}",
         group.name, rules_url, notifications_command, dry_mode_command,
     )
 }

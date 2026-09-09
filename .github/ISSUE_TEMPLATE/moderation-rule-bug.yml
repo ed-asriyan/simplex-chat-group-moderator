@@ -28,12 +28,12 @@ body:
     attributes:
       label: Which rule type is misbehaving?
       options:
-        - Block Exact Messages
-        - Block Specific Words
-        - Block Specific Websites
-        - Allow Only Specific Websites
-        - Allow Top100 Websites Only
-        - Prevent Screen Flooding
+        - Message Contains Banned Words
+        - Message Matches Exact Text
+        - Message Contains Links to Forbidden Websites
+        - Message Contains Links Outside Approved Websites
+        - Message Contains Links Outside Top 100 Safe Websites
+        - Message Floods Chat or Exceeds Limits
         - Not sure / multiple
     validations:
       required: true
@@ -46,10 +46,10 @@ body:
       options:
         - "Moderate the message"
         - "Kick the author — Don't delete any messages"
-        - "Kick the author — Delete the message that triggered the rule"
+        - "Kick the author — Moderate the message that triggered the rule"
         - "Kick the author — Delete ALL messages the author has sent in this group"
         - "Set author as observer — Don't delete the message"
-        - "Set author as observer — Delete the message that triggered the rule"
+        - "Set author as observer — Moderate the message that triggered the rule"
         - "Not sure / multiple"
     validations:
       required: true

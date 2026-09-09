@@ -69,23 +69,23 @@ pub enum ModerationAction {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum RuleCondition {
-    WordsBlacklist {
+    ContainsBannedWords {
         keywords: Vec<String>,
     },
-    MessagesBlacklist {
+    MatchesExactMessage {
         messages: Vec<String>,
         case_sensitive: bool,
     },
-    LinksBlacklist {
+    ContainsLinksToForbiddenWebsites {
         blocked: Vec<String>,
     },
-    LinksWhitelist {
+    ContainsLinksOutsideAllowedList {
         allowed: Vec<String>,
     },
-    LinksWhitelistTop100 {
+    ContainsLinksOutsideTop100 {
         allowed: Vec<String>,
     },
-    ScreenFlooding {
+    FloodsChatOrExceedsLimits {
         #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
         max_characters: u32,
         #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
@@ -121,24 +121,24 @@ pub struct ModerationMatch {
 
 fn should_moderate_by_condition(message: &str, condition: &RuleCondition) -> Option<String> {
     match condition {
-        RuleCondition::WordsBlacklist { keywords, .. } => {
+        RuleCondition::ContainsBannedWords { keywords, .. } => {
             keywords::should_moderate(message.trim(), keywords)
                 .map(|keyword| format!("blacklisted word: '{keyword}'"))
         }
-        RuleCondition::MessagesBlacklist {
+        RuleCondition::MatchesExactMessage {
             messages: blocked,
             case_sensitive,
         } => messages_blacklist::should_moderate(message.trim(), blocked, *case_sensitive),
-        RuleCondition::LinksBlacklist { blocked } => {
+        RuleCondition::ContainsLinksToForbiddenWebsites { blocked } => {
             links::should_moderate_blacklist(message.trim(), blocked)
         }
-        RuleCondition::LinksWhitelist { allowed } => {
+        RuleCondition::ContainsLinksOutsideAllowedList { allowed } => {
             links::should_moderate_whitelist(message.trim(), allowed)
         }
-        RuleCondition::LinksWhitelistTop100 { allowed } => {
+        RuleCondition::ContainsLinksOutsideTop100 { allowed } => {
             links::should_moderate_whitelist_top100(message.trim(), allowed)
         }
-        RuleCondition::ScreenFlooding {
+        RuleCondition::FloodsChatOrExceedsLimits {
             max_characters,
             max_words,
             max_lines,

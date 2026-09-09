@@ -58,13 +58,13 @@
                             ],
                             "enum_titles": [
                                 "Don't delete any messages",
-                                "Delete the message that triggered the rule",
+                                "Moderate the message that triggered the rule",
                                 "Delete ALL messages the author has sent in this group"
                             ],
                             "options": {
                                 "enum_titles": [
                                     "Don't delete any messages",
-                                    "Delete the message that triggered the rule",
+                                    "Moderate the message that triggered the rule",
                                     "Delete ALL messages the author has sent in this group"
                                 ]
                             },
@@ -99,12 +99,12 @@
                             ],
                             "enum_titles": [
                                 "Don't delete any messages",
-                                "Delete the message that triggered the rule"
+                                "Moderate the message that triggered the rule"
                             ],
                             "options": {
                                 "enum_titles": [
                                     "Don't delete any messages",
-                                    "Delete the message that triggered the rule"
+                                    "Moderate the message that triggered the rule"
                                 ]
                             },
                             "default": "TriggeredMessage"
@@ -123,8 +123,8 @@
             "oneOf": [
                 {
                     "type": "object",
-                    "title": "🚫 Block Specific Words",
-                    "description": "Deletes messages containing specific banned words. It automatically catches different capitalizations and common tricks used to obfuscate words (like writing `b@dw0rd` instead of `badword`). _List of ready-to-use bad words: [🔞 List of Dirty, Naughty, Obscene Words](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words), [☕ Google Profanity Words](https://github.com/coffee-and-fun/google-profanity-words/tree/main/data), [💬 Comment Blocklist](https://github.com/splorp/wordpress-comment-blocklist)_",
+                    "title": "🚫 Message Contains Banned Words",
+                    "description": "Matches when the message contains specified banned words or phrases. It automatically catches different capitalizations and common tricks used to obfuscate words (like writing `b@dw0rd` instead of `badword`). _List of ready-to-use bad words: [🔞 List of Dirty, Naughty, Obscene Words](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words), [☕ Google Profanity Words](https://github.com/coffee-and-fun/google-profanity-words/tree/main/data), [💬 Comment Blocklist](https://github.com/splorp/wordpress-comment-blocklist)_",
                     "required": [
                         "type",
                         "keywords"
@@ -133,15 +133,15 @@
                     "properties": {
                         "type": {
                             "type": "string",
-                            "const": "WordsBlacklist",
-                            "default": "WordsBlacklist",
+                            "const": "ContainsBannedWords",
+                            "default": "ContainsBannedWords",
                             "options": {
                                 "hidden": true
                             }
                         },
                         "keywords": {
                             "type": "array",
-                            "title": "Words/Phrases to Block",
+                            "title": "Banned Words / Phrases",
                             "options": {
                                 "disable_collapse": true
                             },
@@ -156,8 +156,8 @@
                 },
                 {
                     "type": "object",
-                    "title": "🚫 Block Exact Messages",
-                    "description": "Deletes messages if the message text exactly matches one of the specified messages.",
+                    "title": "🚫 Message Matches Exact Text",
+                    "description": "Matches when the message text exactly matches one of the specified messages.",
                     "required": [
                         "type",
                         "messages",
@@ -167,8 +167,8 @@
                     "properties": {
                         "type": {
                             "type": "string",
-                            "const": "MessagesBlacklist",
-                            "default": "MessagesBlacklist",
+                            "const": "MatchesExactMessage",
+                            "default": "MatchesExactMessage",
                             "options": {
                                 "hidden": true
                             }
@@ -181,7 +181,7 @@
                         },
                         "messages": {
                             "type": "array",
-                            "title": "Messages to Block",
+                            "title": "Forbidden Exact Messages",
                             "options": {
                                 "disable_collapse": true
                             },
@@ -196,8 +196,8 @@
                 },
                 {
                     "type": "object",
-                    "title": "🚫 Block Specific Websites",
-                    "description": "Deletes messages that share links to specific forbidden websites (even obfuscated links like `spam [dot] com` or `hxxp://`).",
+                    "title": "🚫 Message Contains Links to Forbidden Websites",
+                    "description": "Matches when the message contains links to specified forbidden websites or domains (including obfuscated links like `spam [dot] com` or `hxxp://`).",
                     "required": [
                         "type",
                         "blocked"
@@ -206,16 +206,16 @@
                     "properties": {
                         "type": {
                             "type": "string",
-                            "const": "LinksBlacklist",
-                            "default": "LinksBlacklist",
+                            "const": "ContainsLinksToForbiddenWebsites",
+                            "default": "ContainsLinksToForbiddenWebsites",
                             "options": {
                                 "hidden": true
                             }
                         },
                         "blocked": {
                             "type": "array",
-                            "title": "Blocked Websites",
-                            "description": "Specific websites to block (e.g., `spam.com`). You can block entire domains (e.g., `example.com` will block `sub.example.com`) or only specific subdomains (e.g., `sub.example.com` will block `sub.example.com` but not `example.com`). Do not include `http://` or `https://`, just type the domain name.",
+                            "title": "Forbidden Websites",
+                            "description": "Specific websites or domains to match (e.g., `spam.com`). You can specify entire domains (e.g., `example.com` will match `sub.example.com`) or only specific subdomains (e.g., `sub.example.com` will match `sub.example.com` but not `example.com`). Do not include `http://` or `https://`, just type the domain name.",
                             "options": {
                                 "disable_collapse": true
                             },
@@ -230,8 +230,8 @@
                 },
                 {
                     "type": "object",
-                    "title": "✅ Allow Only Specific Websites",
-                    "description": "Only allows messages with links to approved websites. Messages with links to any other website will be deleted (even if users try to obfuscate the links like `spam [dot] com` or `hxxp://`).",
+                    "title": "✅ Message Contains Links Outside Approved Websites",
+                    "description": "Matches when the message contains links to websites that are NOT on the approved list (including obfuscated links like `spam [dot] com` or `hxxp://`). Leave the list empty to match ALL links.",
                     "required": [
                         "type",
                         "allowed"
@@ -240,8 +240,8 @@
                     "properties": {
                         "type": {
                             "type": "string",
-                            "const": "LinksWhitelist",
-                            "default": "LinksWhitelist",
+                            "const": "ContainsLinksOutsideAllowedList",
+                            "default": "ContainsLinksOutsideAllowedList",
                             "options": {
                                 "hidden": true
                             }
@@ -249,7 +249,7 @@
                         "allowed": {
                             "type": "array",
                             "title": "Approved Websites",
-                            "description": "Add permitted domains (e.g., `simplex.chat`). You can allow entire domain (e.g., `example.com` will allow `sub.example.com` and `example.com`) or allow only the specific sub domain (e.g., `sub.example.com` will allow `sub.example.com` but not `example.com`). Do not include `http://` or `https://`, just type the domain name.  Leave the list empty to block ALL links.",
+                            "description": "Domains permitted in messages (e.g., `simplex.chat`). You can allow an entire domain (e.g., `example.com` will allow `sub.example.com` and `example.com`) or allow only a specific subdomain (e.g., `sub.example.com` will allow `sub.example.com` but not `example.com`). Do not include `http://` or `https://`, just type the domain name. Leave the list empty to match ALL links.",
                             "options": {
                                 "disable_collapse": true
                             },
@@ -262,8 +262,8 @@
                 },
                 {
                     "type": "object",
-                    "title": "✅ Allow Top100 Websites Only",
-                    "description": "Only allows links to well-known, safe websites (**Google**, **GitHub**, **Wikipedia**, **YouTube**, **Reddit**, etc.). Messages linking to unknown websites are deleted (even obfuscated links like `spam [dot] com` or `hxxp://`).",
+                    "title": "✅ Message Contains Links Outside Top 100 Safe Websites",
+                    "description": "Matches when the message contains links to websites other than the built-in top 100 well-known safe sites (**Google**, **GitHub**, **Wikipedia**, **YouTube**, **Reddit**, etc.) and any additional approved websites (even obfuscated links like `spam [dot] com` or `hxxp://`).",
                     "required": [
                         "type",
                         "allowed"
@@ -272,8 +272,8 @@
                     "properties": {
                         "type": {
                             "type": "string",
-                            "const": "LinksWhitelistTop100",
-                            "default": "LinksWhitelistTop100",
+                            "const": "ContainsLinksOutsideTop100",
+                            "default": "ContainsLinksOutsideTop100",
                             "options": {
                                 "hidden": true
                             }
@@ -294,8 +294,8 @@
                 },
                 {
                     "type": "object",
-                    "title": "🚫 Block Screen Flooding",
-                    "description": "Deletes messages that are blank, excessively long, or flood the chat with too many lines or words. By default, it blocks all empty/invisible messages. You can optionally limit the maximum characters, words, or lines (with custom characters-per-line soft wrapping), or strictly forbid any hidden/invisible characters.",
+                    "title": "🚫 Message Floods Chat or Exceeds Limits",
+                    "description": "Matches when the message is blank, excessively long, contains invisible characters, or floods the chat with too many lines or words. By default, it matches all empty/invisible messages. You can optionally limit the maximum characters, words, or lines (with custom characters-per-line soft wrapping), or strictly forbid any hidden/invisible characters.",
                     "required": [
                         "type",
                         "max_characters",
@@ -309,8 +309,8 @@
                     "properties": {
                         "type": {
                             "type": "string",
-                            "const": "ScreenFlooding",
-                            "default": "ScreenFlooding",
+                            "const": "FloodsChatOrExceedsLimits",
+                            "default": "FloodsChatOrExceedsLimits",
                             "options": {
                                 "hidden": true
                             }
@@ -318,21 +318,21 @@
                         "max_characters": {
                             "type": "integer",
                             "title": "Max Characters",
-                            "description": "Maximum number of characters allowed in a message (0 to disable).",
+                            "description": "Matches if the message exceeds this number of characters (0 to disable).",
                             "minimum": 0,
                             "default": 0
                         },
                         "max_words": {
                             "type": "integer",
                             "title": "Max Words",
-                            "description": "Maximum number of words allowed in a message (0 to disable).",
+                            "description": "Matches if the message exceeds this number of words (0 to disable).",
                             "minimum": 0,
                             "default": 0
                         },
                         "max_lines": {
                             "type": "integer",
                             "title": "Max Lines",
-                            "description": "Maximum number of lines allowed in a message (0 to disable). Line wrapping is calculated using 'Characters per Line' below.",
+                            "description": "Matches if the message exceeds this number of lines (0 to disable). Line wrapping is calculated using 'Characters per Line' below.",
                             "minimum": 0,
                             "default": 0
                         },
@@ -346,15 +346,15 @@
                         "disallow_empty_messages": {
                             "type": "boolean",
                             "format": "checkbox",
-                            "title": "Delete Empty Messages",
-                            "description": "If enabled, deletes messages that consist only of whitespace, line breaks, or invisible/special characters.",
+                            "title": "Message is Empty or Blank",
+                            "description": "If enabled, matches messages that consist only of whitespace, line breaks, or invisible/special characters.",
                             "default": true
                         },
                         "disallow_invisible_chars": {
                             "type": "boolean",
                             "format": "checkbox",
-                            "title": "Strictly Disallow Invisible Characters",
-                            "description": "If enabled, deletes any message that contains even a single invisible or formatting character (e.g. zero-width spaces, Braille blank pattern, bidi overrides, variation selectors), even if the message also has regular text.",
+                            "title": "Message Contains Invisible Characters",
+                            "description": "If enabled, matches any message that contains even a single invisible or formatting character (e.g. zero-width spaces, Braille blank pattern, bidi overrides, variation selectors), even if the message also has regular text.",
                             "default": false
                         }
                     }

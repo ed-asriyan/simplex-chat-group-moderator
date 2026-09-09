@@ -7,17 +7,17 @@ fn test_deserialize_rule_with_moderate_message_action() {
             "type": "ModerateMessage"
         },
         "condition": {
-            "type": "WordsBlacklist",
+            "type": "ContainsBannedWords",
             "keywords": ["spam", "ad"]
         }
     }"#;
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
     assert_eq!(rule.action, ModerationAction::ModerateMessage);
     match rule.condition {
-        RuleCondition::WordsBlacklist { keywords } => {
+        RuleCondition::ContainsBannedWords { keywords } => {
             assert_eq!(keywords, vec!["spam".to_string(), "ad".to_string()]);
         }
-        _ => panic!("Expected WordsBlacklist condition"),
+        _ => panic!("Expected ContainsBannedWords condition"),
     }
 }
 
@@ -29,7 +29,7 @@ fn test_deserialize_rule_with_kick_author_action() {
             "delete_messages": "TriggeredMessage"
         },
         "condition": {
-            "type": "WordsBlacklist",
+            "type": "ContainsBannedWords",
             "keywords": ["malware"]
         }
     }"#;
@@ -48,7 +48,7 @@ fn test_deserialize_rule_with_kick_author_action() {
             "delete_messages": "None"
         },
         "condition": {
-            "type": "WordsBlacklist",
+            "type": "ContainsBannedWords",
             "keywords": ["malware"]
         }
     }"#;
@@ -67,7 +67,7 @@ fn test_deserialize_rule_with_kick_author_action() {
             "delete_messages": "AllMessages"
         },
         "condition": {
-            "type": "WordsBlacklist",
+            "type": "ContainsBannedWords",
             "keywords": ["malware"]
         }
     }"#;
@@ -85,7 +85,7 @@ fn test_deserialize_rule_with_kick_author_action() {
             "type": "KickAuthor"
         },
         "condition": {
-            "type": "WordsBlacklist",
+            "type": "ContainsBannedWords",
             "keywords": ["malware"]
         }
     }"#;
@@ -106,7 +106,7 @@ fn test_deserialize_rule_with_set_author_observer_action() {
             "delete_message": "TriggeredMessage"
         },
         "condition": {
-            "type": "WordsBlacklist",
+            "type": "ContainsBannedWords",
             "keywords": ["malware"]
         }
     }"#;
@@ -125,7 +125,7 @@ fn test_deserialize_rule_with_set_author_observer_action() {
             "delete_message": "None"
         },
         "condition": {
-            "type": "WordsBlacklist",
+            "type": "ContainsBannedWords",
             "keywords": ["malware"]
         }
     }"#;
@@ -143,7 +143,7 @@ fn test_deserialize_rule_with_set_author_observer_action() {
             "type": "SetAuthorObserver"
         },
         "condition": {
-            "type": "WordsBlacklist",
+            "type": "ContainsBannedWords",
             "keywords": ["malware"]
         }
     }"#;
@@ -154,7 +154,6 @@ fn test_deserialize_rule_with_set_author_observer_action() {
             delete_message: DeleteObserverMessages::TriggeredMessage,
         }
     );
-
 }
 
 #[test]
@@ -163,7 +162,7 @@ fn test_serialization_roundtrip() {
         action: ModerationAction::KickAuthor {
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         },
-        condition: RuleCondition::MessagesBlacklist {
+        condition: RuleCondition::MatchesExactMessage {
             messages: vec!["banned message".to_string()],
             case_sensitive: false,
         },
@@ -180,7 +179,7 @@ fn test_should_moderate_returns_matching_action_and_reason() {
         action: ModerationAction::KickAuthor {
             delete_messages: DeleteAuthorMessages::None,
         },
-        condition: RuleCondition::WordsBlacklist {
+        condition: RuleCondition::ContainsBannedWords {
             keywords: vec!["danger".to_string()],
         },
     }];
@@ -202,7 +201,7 @@ fn test_rules_applied_in_order_first_match_wins() {
     let rules = vec![
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["first".to_string()],
             },
         },
@@ -210,7 +209,7 @@ fn test_rules_applied_in_order_first_match_wins() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: RuleCondition::WordsBlacklist {
+            condition: RuleCondition::ContainsBannedWords {
                 keywords: vec!["second".to_string()],
             },
         },
@@ -241,7 +240,7 @@ fn test_rules_applied_in_order_first_match_wins() {
 fn test_no_rules_match_returns_none() {
     let rules = vec![ModerationRule {
         action: ModerationAction::ModerateMessage,
-        condition: RuleCondition::WordsBlacklist {
+        condition: RuleCondition::ContainsBannedWords {
             keywords: vec!["banned".to_string()],
         },
     }];

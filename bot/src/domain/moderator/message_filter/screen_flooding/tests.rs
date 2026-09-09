@@ -459,7 +459,7 @@ fn test_integration_with_message_filter_rules() {
 
     let rules = vec![ModerationRule {
         action: ModerationAction::ModerateMessage,
-        condition: RuleCondition::ScreenFlooding {
+        condition: RuleCondition::FloodsChatOrExceedsLimits {
             max_characters: 100,
             max_words: 10,
             max_lines: 5,
@@ -490,7 +490,7 @@ fn test_integration_with_message_filter_rules() {
     // With disallow_empty_messages = false and no limits exceeded
     let rules_no_empty_ban = vec![ModerationRule {
         action: ModerationAction::ModerateMessage,
-        condition: RuleCondition::ScreenFlooding {
+        condition: RuleCondition::FloodsChatOrExceedsLimits {
             max_characters: 0,
             max_words: 0,
             max_lines: 0,
@@ -541,7 +541,7 @@ fn test_serde_json_compatibility() {
 
     // 1. Deserializing full JSON with all integer fields:
     let json_full = r#"{
-        "type": "ScreenFlooding",
+        "type": "FloodsChatOrExceedsLimits",
         "max_characters": 100,
         "max_words": 20,
         "max_lines": 5,
@@ -551,7 +551,7 @@ fn test_serde_json_compatibility() {
     }"#;
     let condition: RuleCondition = serde_json::from_str(json_full).unwrap();
     match condition {
-        RuleCondition::ScreenFlooding {
+        RuleCondition::FloodsChatOrExceedsLimits {
             max_characters,
             max_words,
             max_lines,
@@ -571,7 +571,7 @@ fn test_serde_json_compatibility() {
 
     // 2. Deserializing JSON with nulls:
     let json_nulls = r#"{
-        "type": "ScreenFlooding",
+        "type": "FloodsChatOrExceedsLimits",
         "max_characters": null,
         "max_words": null,
         "max_lines": null,
@@ -579,7 +579,7 @@ fn test_serde_json_compatibility() {
     }"#;
     let condition: RuleCondition = serde_json::from_str(json_nulls).unwrap();
     match condition {
-        RuleCondition::ScreenFlooding {
+        RuleCondition::FloodsChatOrExceedsLimits {
             max_characters,
             max_words,
             max_lines,
@@ -597,11 +597,11 @@ fn test_serde_json_compatibility() {
         _ => panic!("wrong variant"),
     }
 
-    // 3. Deserializing minimal JSON {"type": "ScreenFlooding"}:
-    let json_min = r#"{"type": "ScreenFlooding"}"#;
+    // 3. Deserializing minimal JSON {"type": "FloodsChatOrExceedsLimits"}:
+    let json_min = r#"{"type": "FloodsChatOrExceedsLimits"}"#;
     let condition: RuleCondition = serde_json::from_str(json_min).unwrap();
     match condition {
-        RuleCondition::ScreenFlooding {
+        RuleCondition::FloodsChatOrExceedsLimits {
             max_characters,
             max_words,
             max_lines,

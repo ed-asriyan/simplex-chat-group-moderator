@@ -77,9 +77,9 @@ pub(crate) fn load_rules_for_group(
     // editor-supplied order can be reconstructed across the split tables.
     let mut ranked: Vec<(i64, OwnedModerationRule)> = Vec::new();
 
-    // WordsBlacklist
+    // ContainsBannedWords
     let mut stmt = guard.prepare(
-        "SELECT id, rank, action_id FROM moderation_rule__words_blacklist WHERE group_id = ?1",
+        "SELECT id, rank, action_id FROM moderation_rule__contains_banned_words WHERE group_id = ?1",
     )?;
     let rows: Vec<(i64, i64, Option<i64>)> = stmt
         .query_map(params![gid], |row| {
@@ -89,7 +89,7 @@ pub(crate) fn load_rules_for_group(
     for (rule_id, rank, action_id) in rows {
         let keywords = load_rule_values(
             &guard,
-            "moderation_rule__words_blacklist__keywords",
+            "moderation_rule__contains_banned_words__keywords",
             "keyword",
             rule_id,
         )?;
@@ -99,15 +99,15 @@ pub(crate) fn load_rules_for_group(
                 id: rule_id as usize,
                 rule: ModerationRule {
                     action: load_action(&guard, action_id)?,
-                    condition: RuleCondition::WordsBlacklist { keywords },
+                    condition: RuleCondition::ContainsBannedWords { keywords },
                 },
             },
         ));
     }
 
-    // MessagesBlacklist
+    // MatchesExactMessage
     let mut stmt = guard.prepare(
-        "SELECT id, rank, case_sensitive, action_id FROM moderation_rule__messages_blacklist WHERE group_id = ?1",
+        "SELECT id, rank, case_sensitive, action_id FROM moderation_rule__matches_exact_message WHERE group_id = ?1",
     )?;
     let rows: Vec<(i64, i64, bool, Option<i64>)> = stmt
         .query_map(params![gid], |row| {
@@ -117,7 +117,7 @@ pub(crate) fn load_rules_for_group(
     for (rule_id, rank, case_sensitive, action_id) in rows {
         let messages = load_rule_values(
             &guard,
-            "moderation_rule__messages_blacklist__messages",
+            "moderation_rule__matches_exact_message__messages",
             "message",
             rule_id,
         )?;
@@ -127,7 +127,7 @@ pub(crate) fn load_rules_for_group(
                 id: rule_id as usize,
                 rule: ModerationRule {
                     action: load_action(&guard, action_id)?,
-                    condition: RuleCondition::MessagesBlacklist {
+                    condition: RuleCondition::MatchesExactMessage {
                         messages,
                         case_sensitive,
                     },
@@ -136,9 +136,9 @@ pub(crate) fn load_rules_for_group(
         ));
     }
 
-    // LinksBlacklist
+    // ContainsLinksToForbiddenWebsites
     let mut stmt = guard.prepare(
-        "SELECT id, rank, action_id FROM moderation_rule__links_blacklist WHERE group_id = ?1",
+        "SELECT id, rank, action_id FROM moderation_rule__contains_links_to_forbidden_websites WHERE group_id = ?1",
     )?;
     let rows: Vec<(i64, i64, Option<i64>)> = stmt
         .query_map(params![gid], |row| {
@@ -148,7 +148,7 @@ pub(crate) fn load_rules_for_group(
     for (rule_id, rank, action_id) in rows {
         let blocked = load_rule_values(
             &guard,
-            "moderation_rule__links_blacklist__domains",
+            "moderation_rule__contains_links_to_forbidden_websites__domains",
             "domain",
             rule_id,
         )?;
@@ -158,15 +158,15 @@ pub(crate) fn load_rules_for_group(
                 id: rule_id as usize,
                 rule: ModerationRule {
                     action: load_action(&guard, action_id)?,
-                    condition: RuleCondition::LinksBlacklist { blocked },
+                    condition: RuleCondition::ContainsLinksToForbiddenWebsites { blocked },
                 },
             },
         ));
     }
 
-    // LinksWhitelist
+    // ContainsLinksOutsideAllowedList
     let mut stmt = guard.prepare(
-        "SELECT id, rank, action_id FROM moderation_rule__links_whitelist WHERE group_id = ?1",
+        "SELECT id, rank, action_id FROM moderation_rule__contains_links_outside_allowed_list WHERE group_id = ?1",
     )?;
     let rows: Vec<(i64, i64, Option<i64>)> = stmt
         .query_map(params![gid], |row| {
@@ -176,7 +176,7 @@ pub(crate) fn load_rules_for_group(
     for (rule_id, rank, action_id) in rows {
         let allowed = load_rule_values(
             &guard,
-            "moderation_rule__links_whitelist__domains",
+            "moderation_rule__contains_links_outside_allowed_list__domains",
             "domain",
             rule_id,
         )?;
@@ -186,15 +186,15 @@ pub(crate) fn load_rules_for_group(
                 id: rule_id as usize,
                 rule: ModerationRule {
                     action: load_action(&guard, action_id)?,
-                    condition: RuleCondition::LinksWhitelist { allowed },
+                    condition: RuleCondition::ContainsLinksOutsideAllowedList { allowed },
                 },
             },
         ));
     }
 
-    // LinksWhitelistTop100
+    // ContainsLinksOutsideTop100
     let mut stmt = guard.prepare(
-        "SELECT id, rank, action_id FROM moderation_rule__links_whitelist_top100 WHERE group_id = ?1",
+        "SELECT id, rank, action_id FROM moderation_rule__contains_links_outside_top100 WHERE group_id = ?1",
     )?;
     let rows: Vec<(i64, i64, Option<i64>)> = stmt
         .query_map(params![gid], |row| {
@@ -204,7 +204,7 @@ pub(crate) fn load_rules_for_group(
     for (rule_id, rank, action_id) in rows {
         let allowed = load_rule_values(
             &guard,
-            "moderation_rule__links_whitelist_top100__allowed",
+            "moderation_rule__contains_links_outside_top100__allowed",
             "domain",
             rule_id,
         )?;
@@ -214,15 +214,15 @@ pub(crate) fn load_rules_for_group(
                 id: rule_id as usize,
                 rule: ModerationRule {
                     action: load_action(&guard, action_id)?,
-                    condition: RuleCondition::LinksWhitelistTop100 { allowed },
+                    condition: RuleCondition::ContainsLinksOutsideTop100 { allowed },
                 },
             },
         ));
     }
 
-    // ScreenFlooding
+    // FloodsChatOrExceedsLimits
     let mut stmt = guard.prepare(
-        "SELECT id, rank, max_characters, max_words, max_lines, chars_per_line, disallow_invisible_chars, disallow_empty_messages, action_id FROM moderation_rule__screen_flooding WHERE group_id = ?1",
+        "SELECT id, rank, max_characters, max_words, max_lines, chars_per_line, disallow_invisible_chars, disallow_empty_messages, action_id FROM moderation_rule__floods_chat_or_exceeds_limits WHERE group_id = ?1",
     )?;
     let rows: Vec<(
         i64,
@@ -267,7 +267,7 @@ pub(crate) fn load_rules_for_group(
                 id: rule_id as usize,
                 rule: ModerationRule {
                     action: load_action(&guard, action_id)?,
-                    condition: RuleCondition::ScreenFlooding {
+                    condition: RuleCondition::FloodsChatOrExceedsLimits {
                         max_characters: max_characters.unwrap_or(0) as u32,
                         max_words: max_words.unwrap_or(0) as u32,
                         max_lines: max_lines.unwrap_or(0) as u32,
