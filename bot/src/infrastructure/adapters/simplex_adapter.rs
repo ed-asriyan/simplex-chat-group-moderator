@@ -59,6 +59,18 @@ impl GroupModerator for SimplexAdapter {
         Ok(())
     }
 
+    async fn set_member_observer(
+        &self,
+        group_id: &ModGroupId,
+        user_id: &ModUserId,
+    ) -> Result<(), ModeratorErr> {
+        self.driver
+            .set_group_member_observer(*group_id, *user_id)
+            .await
+            .map_err(|e| -> ModeratorErr { e.to_string().into() })?;
+        Ok(())
+    }
+
     async fn join_group(
         &self,
         messenger_group_id: MessengerGroupId,

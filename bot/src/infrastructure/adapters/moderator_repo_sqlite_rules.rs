@@ -1,5 +1,6 @@
 use crate::domain::moderator::ports::{
-    DeleteAuthorMessages, Err, ModerationAction, ModerationRule, OwnedModerationRule, RuleCondition,
+    DeleteAuthorMessages, DeleteObserverMessages, Err, ModerationAction, ModerationRule,
+    OwnedModerationRule, RuleCondition,
 };
 use rusqlite::params;
 use std::sync::{Arc, Mutex};
@@ -32,6 +33,18 @@ fn load_action(
                 _ => DeleteAuthorMessages::TriggeredMessage,
             };
             Ok(ModerationAction::KickAuthor { delete_messages })
+        }
+        "SetAuthorObserver" => {
+            let delete_message_code: i64 = guard.query_row(
+                "SELECT delete_message FROM moderation_action__set_author_observer WHERE action_id = ?1",
+                params![action_id],
+                |row| row.get(0),
+            )?;
+            let delete_message = match delete_message_code {
+                0 => DeleteObserverMessages::None,
+                _ => DeleteObserverMessages::TriggeredMessage,
+            };
+            Ok(ModerationAction::SetAuthorObserver { delete_message })
         }
         _ => Ok(ModerationAction::ModerateMessage),
     }

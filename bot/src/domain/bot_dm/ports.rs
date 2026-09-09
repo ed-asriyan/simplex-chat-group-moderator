@@ -17,10 +17,19 @@ pub enum DeleteAuthorMessages {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeleteObserverMessages {
+    None,
+    TriggeredMessage,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModerationAction {
     ModerateMessage,
     KickAuthor {
         delete_messages: DeleteAuthorMessages,
+    },
+    SetAuthorObserver {
+        delete_message: DeleteObserverMessages,
     },
 }
 

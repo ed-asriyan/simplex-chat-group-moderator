@@ -44,11 +44,12 @@ body:
       label: Which rule action was configured?
       description: What action was set to trigger when a message matches this rule?
       options:
-        - "Delete the message"
-        - "Kick the author"
+        - "Moderate the message"
         - "Kick the author — Don't delete any messages"
         - "Kick the author — Delete the message that triggered the rule"
         - "Kick the author — Delete ALL messages the author has sent in this group"
+        - "Set author as observer — Don't delete the message"
+        - "Set author as observer — Delete the message that triggered the rule"
         - "Not sure / multiple"
     validations:
       required: true

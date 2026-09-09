@@ -99,6 +99,65 @@ fn test_deserialize_rule_with_kick_author_action() {
 }
 
 #[test]
+fn test_deserialize_rule_with_set_author_observer_action() {
+    let json = r#"{
+        "action": {
+            "type": "SetAuthorObserver",
+            "delete_message": "TriggeredMessage"
+        },
+        "condition": {
+            "type": "WordsBlacklist",
+            "keywords": ["malware"]
+        }
+    }"#;
+    let rule: ModerationRule = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        rule.action,
+        ModerationAction::SetAuthorObserver {
+            delete_message: DeleteObserverMessages::TriggeredMessage,
+        }
+    );
+
+    // Test with delete_messages: "None"
+    let json_no_delete = r#"{
+        "action": {
+            "type": "SetAuthorObserver",
+            "delete_message": "None"
+        },
+        "condition": {
+            "type": "WordsBlacklist",
+            "keywords": ["malware"]
+        }
+    }"#;
+    let rule_no_delete: ModerationRule = serde_json::from_str(json_no_delete).unwrap();
+    assert_eq!(
+        rule_no_delete.action,
+        ModerationAction::SetAuthorObserver {
+            delete_message: DeleteObserverMessages::None,
+        }
+    );
+
+    // Test with default when delete_messages is omitted
+    let json_default = r#"{
+        "action": {
+            "type": "SetAuthorObserver"
+        },
+        "condition": {
+            "type": "WordsBlacklist",
+            "keywords": ["malware"]
+        }
+    }"#;
+    let rule_default: ModerationRule = serde_json::from_str(json_default).unwrap();
+    assert_eq!(
+        rule_default.action,
+        ModerationAction::SetAuthorObserver {
+            delete_message: DeleteObserverMessages::TriggeredMessage,
+        }
+    );
+
+}
+
+#[test]
 fn test_serialization_roundtrip() {
     let rule = ModerationRule {
         action: ModerationAction::KickAuthor {

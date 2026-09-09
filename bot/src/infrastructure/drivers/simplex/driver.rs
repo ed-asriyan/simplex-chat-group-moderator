@@ -197,6 +197,17 @@ impl SimplexDriver {
         Ok(())
     }
 
+    pub async fn set_group_member_observer(
+        &self,
+        group_id: GroupId,
+        user_id: UserId,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        self.client
+            .api_members_role(group_id, vec![user_id], GroupMemberRole::Observer)
+            .await?;
+        Ok(())
+    }
+
     pub async fn new(
         config: SimpleXConfig,
     ) -> Result<(Self, impl Stream<Item = SimplexEvent>), Box<dyn Error>> {

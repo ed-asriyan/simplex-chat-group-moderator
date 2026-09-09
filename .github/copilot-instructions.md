@@ -122,6 +122,7 @@ A rule is a `ModerationRule { action: ModerationAction, condition: RuleCondition
 ## General conventions
 - Async traits use `#[async_trait]`.
 - Convert errors and types **at boundaries** (adapters/routers), not inside the domain.
+- Keep tests in separate files (e.g. `#[cfg(test)] mod tests;` pointing to `<module_name>/tests.rs` or `<module_dir>/tests.rs`), never inline in implementation files.
 - Keep changes minimal and within the established structure; if a change seems to require breaking one of the hard rules above, stop and ask rather than working around it.
 
 ## Deployment

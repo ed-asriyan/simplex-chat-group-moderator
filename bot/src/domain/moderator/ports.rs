@@ -1,5 +1,6 @@
 pub use super::message_filter::{
-    DeleteAuthorMessages, ModerationAction, ModerationMatch, ModerationRule, RuleCondition,
+    DeleteAuthorMessages, DeleteObserverMessages, ModerationAction, ModerationMatch,
+    ModerationRule, RuleCondition,
 };
 use async_trait::async_trait;
 use std::error::Error;
@@ -112,6 +113,12 @@ pub trait GroupModerator: Send + Sync {
         group_id: &GroupId,
         user_id: &UserId,
         delete_all_messages: bool,
+    ) -> Result<(), Err>;
+
+    async fn set_member_observer(
+        &self,
+        group_id: &GroupId,
+        user_id: &UserId,
     ) -> Result<(), Err>;
 
     async fn join_group(

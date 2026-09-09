@@ -2,11 +2,13 @@ use async_trait::async_trait;
 use std::sync::{Arc, OnceLock};
 
 use crate::domain::bot_dm::ports::{
-    DeleteAuthorMessages as BotDmDeleteMessages, Group as BotDmGroup,
+    DeleteAuthorMessages as BotDmDeleteMessages,
+    DeleteObserverMessages as BotDmDeleteObserverMessages, Group as BotDmGroup,
     ModerationAction as BotDmAction, ModerationNotificationReceiver,
 };
 use crate::domain::moderator::ports::{
-    DeleteAuthorMessages as ModDeleteMessages, Err as ModErr, Group as ModGroup,
+    DeleteAuthorMessages as ModDeleteMessages,
+    DeleteObserverMessages as ModDeleteObserverMessages, Err as ModErr, Group as ModGroup,
     ModerationAction as ModAction, ModerationNotifier, UserId as ModUserId,
 };
 
@@ -61,6 +63,14 @@ impl ModerationNotifier for ModerationNotificationRouter {
                     ModDeleteMessages::None => BotDmDeleteMessages::None,
                     ModDeleteMessages::TriggeredMessage => BotDmDeleteMessages::TriggeredMessage,
                     ModDeleteMessages::AllMessages => BotDmDeleteMessages::AllMessages,
+                },
+            },
+            ModAction::SetAuthorObserver { delete_message } => BotDmAction::SetAuthorObserver {
+                delete_message: match delete_message {
+                    ModDeleteObserverMessages::None => BotDmDeleteObserverMessages::None,
+                    ModDeleteObserverMessages::TriggeredMessage => {
+                        BotDmDeleteObserverMessages::TriggeredMessage
+                    }
                 },
             },
         };

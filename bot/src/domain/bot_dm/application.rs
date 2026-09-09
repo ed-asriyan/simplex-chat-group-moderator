@@ -1,6 +1,6 @@
 use super::ports::{
-    BotDmReceiver, BotMessenger, DeleteAuthorMessages, Err, GroupId, GroupInvitation,
-    GroupOperations, ModerationAction, ModerationNotificationReceiver, UserId,
+    BotDmReceiver, BotMessenger, DeleteAuthorMessages, DeleteObserverMessages, Err, GroupId,
+    GroupInvitation, GroupOperations, ModerationAction, ModerationNotificationReceiver, UserId,
 };
 use crate::domain::bot_dm::ports::{Group, Message};
 use async_trait::async_trait;
@@ -22,6 +22,7 @@ const HELP: &str = "\
 
 1. Invite me to your group as:
    • Moderator — to delete violating messages.
+   • Admin — to also set violators as observers.
    • Owner — to also kick violators out of the group.
 2. Once I join, use /groups to list your groups and open the visual rules editor.
 3. I will automatically monitor the chat and take action according to your rules.
@@ -56,16 +57,17 @@ Hi! I'm an *automated moderation* bot for SimpleX groups.
 • 🌊 *Screen flooding & spam* (long messages, empty/invisible text, line flood)
 ...and much more! This is just a glimpse of what I can do.
 
-*What I can do to violators:*:
+*What I can do to violators:*
 • 🗑 *Moderate their messages*
-• 🚪 *Kick authors out of the group* — with an option to wipe all their past messages
+• 👁 *Change role to observer*
+• 🚪 *Kick them out of the group*
 
 *How to get started:*
-1. In your group settings, generate an invite link with:
-   • Moderator role — if you only want me to 🗑 delete messages.
-   • Owner role — if you also want me to 🚪 kick users.
-2. Send that invite link directly to me here in this chat.
-3. Once I join, use /groups to configure your moderation rules in the visual editor.
+1. Invite me to your group as:
+   • Moderator — if you only want me to 🗑 delete messages.
+   • Admin — if you also want me to 👁 change roles to observer.
+   • Owner — if you also want me to 🚪 kick users.
+2. Once I join, use /groups to configure your moderation rules in the visual editor.
 
 Use /help anytime for commands and extra features (like Dry Mode and notifications).
 
@@ -440,6 +442,23 @@ impl ModerationNotificationReceiver for BotDmApplication {
                             "🛡 I kicked the author and moderated their message"
                         }
                         DeleteAuthorMessages::None => "🛡 I kicked the author",
+                    }
+                }
+            }
+            ModerationAction::SetAuthorObserver { delete_message } => {
+                if group.dry_mode_enabled {
+                    match delete_message {
+                        DeleteObserverMessages::None => "🛡 I would set the author as observer",
+                        DeleteObserverMessages::TriggeredMessage => {
+                            "🛡 I would set the author as observer and moderate the message"
+                        }
+                    }
+                } else {
+                    match delete_message {
+                        DeleteObserverMessages::None => "🛡 I set the author as observer",
+                        DeleteObserverMessages::TriggeredMessage => {
+                            "🛡 I set the author as observer and moderated the message"
+                        }
                     }
                 }
             }

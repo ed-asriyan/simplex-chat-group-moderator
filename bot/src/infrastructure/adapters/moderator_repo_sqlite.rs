@@ -4,8 +4,9 @@ use rusqlite::{Connection, OptionalExtension, params};
 use std::sync::{Arc, Mutex};
 
 use crate::domain::moderator::ports::{
-    DeleteAuthorMessages, Err, Group, GroupId, MessengerGroupId, ModerationAction,
-    ModerationRepository, ModerationRule, OwnedModerationRule, RuleCondition, UserId,
+    DeleteAuthorMessages, DeleteObserverMessages, Err, Group, GroupId, MessengerGroupId,
+    ModerationAction, ModerationRepository, ModerationRule, OwnedModerationRule, RuleCondition,
+    UserId,
 };
 const GROUP_ID_MIN: i64 = 1;
 const GROUP_ID_MAX: i64 = 1_000_000;
@@ -29,6 +30,7 @@ fn insert_action(tx: &rusqlite::Transaction, action: &ModerationAction) -> Resul
     let type_tag = match action {
         ModerationAction::ModerateMessage => "ModerateMessage",
         ModerationAction::KickAuthor { .. } => "KickAuthor",
+        ModerationAction::SetAuthorObserver { .. } => "SetAuthorObserver",
     };
     tx.execute(
         "INSERT INTO moderation_actions (type) VALUES (?1)",
@@ -53,6 +55,17 @@ fn insert_action(tx: &rusqlite::Transaction, action: &ModerationAction) -> Resul
             tx.execute(
                 "INSERT INTO moderation_action__kick_author (action_id, delete_messages) VALUES (?1, ?2)",
                 params![action_id, delete_messages_code],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
+        }
+        ModerationAction::SetAuthorObserver { delete_message } => {
+            let delete_message_code: i64 = match delete_message {
+                DeleteObserverMessages::None => 0,
+                DeleteObserverMessages::TriggeredMessage => 1,
+            };
+            tx.execute(
+                "INSERT INTO moderation_action__set_author_observer (action_id, delete_message) VALUES (?1, ?2)",
+                params![action_id, delete_message_code],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
@@ -631,3 +644,6 @@ impl ModerationRepository for SqliteModerationRepository {
         .map_err(|e| -> Err { e.to_string().into() })
     }
 }
+
+#[cfg(test)]
+mod tests;

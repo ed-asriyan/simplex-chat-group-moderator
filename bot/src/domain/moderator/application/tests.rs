@@ -3,10 +3,20 @@ use crate::domain::moderator::message_filter::RuleCondition;
 use crate::domain::moderator::ports::{MessageId, MessengerGroup};
 use std::sync::Mutex;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PortCall {
+    SetObserver(GroupId, UserId),
+    DeleteMessage(GroupId, MessageId),
+    KickMember(GroupId, UserId),
+    NotifyAction(UserId, GroupId, ModerationAction),
+}
+
 #[derive(Default)]
 struct MockGroupModerator {
     deleted_messages: Arc<Mutex<Vec<(GroupId, MessageId)>>>,
     kicked_members: Arc<Mutex<Vec<(GroupId, UserId)>>>,
+    observer_members: Arc<Mutex<Vec<(GroupId, UserId)>>>,
+    call_log: Arc<Mutex<Vec<PortCall>>>,
 }
 
 #[async_trait]
@@ -16,6 +26,10 @@ impl GroupModerator for MockGroupModerator {
             .lock()
             .unwrap()
             .push((*group_id, *message_id));
+        self.call_log
+            .lock()
+            .unwrap()
+            .push(PortCall::DeleteMessage(*group_id, *message_id));
         Ok(())
     }
 
@@ -29,6 +43,26 @@ impl GroupModerator for MockGroupModerator {
             .lock()
             .unwrap()
             .push((*group_id, *user_id));
+        self.call_log
+            .lock()
+            .unwrap()
+            .push(PortCall::KickMember(*group_id, *user_id));
+        Ok(())
+    }
+
+    async fn set_member_observer(
+        &self,
+        group_id: &GroupId,
+        user_id: &UserId,
+    ) -> Result<(), Err> {
+        self.observer_members
+            .lock()
+            .unwrap()
+            .push((*group_id, *user_id));
+        self.call_log
+            .lock()
+            .unwrap()
+            .push(PortCall::SetObserver(*group_id, *user_id));
         Ok(())
     }
 
@@ -43,6 +77,8 @@ impl GroupModerator for MockGroupModerator {
 #[derive(Default)]
 struct MockModerationNotifier {
     notifications: Arc<Mutex<Vec<(UserId, GroupId, ModerationAction, String, String)>>>,
+    call_log: Arc<Mutex<Vec<PortCall>>>,
+    fail_notification: bool,
 }
 
 #[async_trait]
@@ -62,6 +98,13 @@ impl ModerationNotifier for MockModerationNotifier {
             message.to_string(),
             reason.to_string(),
         ));
+        self.call_log
+            .lock()
+            .unwrap()
+            .push(PortCall::NotifyAction(user_id, group.id, *action));
+        if self.fail_notification {
+            return Err("notification failed".into());
+        }
         Ok(())
     }
 }
@@ -164,9 +207,11 @@ async fn test_process_group_message_moderate_message_action() {
         Arc::new(MockGroupModerator {
             deleted_messages: deleted_messages.clone(),
             kicked_members: kicked_members.clone(),
+            ..Default::default()
         }),
         Arc::new(MockModerationNotifier {
             notifications: notifications.clone(),
+            ..Default::default()
         }),
     );
 
@@ -227,9 +272,11 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
         Arc::new(MockGroupModerator {
             deleted_messages: deleted_messages.clone(),
             kicked_members: kicked_members.clone(),
+            ..Default::default()
         }),
         Arc::new(MockModerationNotifier {
             notifications: notifications.clone(),
+            ..Default::default()
         }),
     );
 
@@ -293,9 +340,11 @@ async fn test_process_group_message_kick_author_with_delete_messages_none() {
         Arc::new(MockGroupModerator {
             deleted_messages: deleted_messages.clone(),
             kicked_members: kicked_members.clone(),
+            ..Default::default()
         }),
         Arc::new(MockModerationNotifier {
             notifications: notifications.clone(),
+            ..Default::default()
         }),
     );
 
@@ -360,9 +409,11 @@ async fn test_process_group_message_kick_author_with_delete_messages_all_message
         Arc::new(MockGroupModerator {
             deleted_messages: deleted_messages.clone(),
             kicked_members: kicked_members.clone(),
+            ..Default::default()
         }),
         Arc::new(MockModerationNotifier {
             notifications: notifications.clone(),
+            ..Default::default()
         }),
     );
 
@@ -426,9 +477,11 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
         Arc::new(MockGroupModerator {
             deleted_messages: deleted_messages.clone(),
             kicked_members: kicked_members.clone(),
+            ..Default::default()
         }),
         Arc::new(MockModerationNotifier {
             notifications: notifications.clone(),
+            ..Default::default()
         }),
     );
 
@@ -482,9 +535,11 @@ async fn test_process_group_message_no_match_does_nothing() {
         Arc::new(MockGroupModerator {
             deleted_messages: deleted_messages.clone(),
             kicked_members: kicked_members.clone(),
+            ..Default::default()
         }),
         Arc::new(MockModerationNotifier {
             notifications: notifications.clone(),
+            ..Default::default()
         }),
     );
 
@@ -549,9 +604,11 @@ async fn test_process_group_message_rule_order_first_match_wins() {
         Arc::new(MockGroupModerator {
             deleted_messages: deleted_messages.clone(),
             kicked_members: kicked_members.clone(),
+            ..Default::default()
         }),
         Arc::new(MockModerationNotifier {
             notifications: notifications.clone(),
+            ..Default::default()
         }),
     );
 
@@ -573,4 +630,554 @@ async fn test_process_group_message_rule_order_first_match_wins() {
     let notifs = notifications.lock().unwrap();
     assert_eq!(notifs.len(), 1);
     assert_eq!(notifs[0].2, ModerationAction::ModerateMessage);
+}
+
+#[tokio::test]
+async fn test_process_group_message_set_author_observer_with_triggered_message_sequence() {
+    let group = Group {
+        id: 10,
+        owner_id: 100,
+        name: "Test Group".to_string(),
+        notifications_enabled: true,
+        dry_mode_enabled: false,
+    };
+    let rule = OwnedModerationRule {
+        id: 1,
+        rule: ModerationRule {
+            action: ModerationAction::SetAuthorObserver {
+                delete_message: DeleteObserverMessages::TriggeredMessage,
+            },
+            condition: RuleCondition::WordsBlacklist {
+                keywords: vec!["danger".to_string()],
+            },
+        },
+    };
+
+    let call_log = Arc::new(Mutex::new(Vec::new()));
+    let deleted_messages = Arc::new(Mutex::new(Vec::new()));
+    let kicked_members = Arc::new(Mutex::new(Vec::new()));
+    let observer_members = Arc::new(Mutex::new(Vec::new()));
+    let notifications = Arc::new(Mutex::new(Vec::new()));
+
+    let app = ModeratorApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(group),
+            rules: vec![rule],
+        }),
+        Arc::new(MockGroupModerator {
+            deleted_messages: deleted_messages.clone(),
+            kicked_members: kicked_members.clone(),
+            observer_members: observer_members.clone(),
+            call_log: call_log.clone(),
+        }),
+        Arc::new(MockModerationNotifier {
+            notifications: notifications.clone(),
+            call_log: call_log.clone(),
+            fail_notification: false,
+        }),
+    );
+
+    let msg = GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id: 42,
+        author_id: 777,
+        text: "Contains danger here".to_string(),
+    };
+
+    app.process_group_message(msg).await.unwrap();
+
+    // Sequence MUST be strictly: SetObserver -> DeleteMessage -> NotifyAction
+    assert_eq!(
+        *call_log.lock().unwrap(),
+        vec![
+            PortCall::SetObserver(10, 777),
+            PortCall::DeleteMessage(10, 42),
+            PortCall::NotifyAction(
+                100,
+                10,
+                ModerationAction::SetAuthorObserver {
+                    delete_message: DeleteObserverMessages::TriggeredMessage,
+                },
+            ),
+        ]
+    );
+
+    assert_eq!(*observer_members.lock().unwrap(), vec![(10, 777)]);
+    assert!(kicked_members.lock().unwrap().is_empty());
+    assert_eq!(*deleted_messages.lock().unwrap(), vec![(10, 42)]);
+    assert_eq!(notifications.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn test_process_group_message_set_author_observer_with_delete_message_none_sequence() {
+    let group = Group {
+        id: 10,
+        owner_id: 100,
+        name: "Test Group".to_string(),
+        notifications_enabled: true,
+        dry_mode_enabled: false,
+    };
+    let rule = OwnedModerationRule {
+        id: 1,
+        rule: ModerationRule {
+            action: ModerationAction::SetAuthorObserver {
+                delete_message: DeleteObserverMessages::None,
+            },
+            condition: RuleCondition::WordsBlacklist {
+                keywords: vec!["danger".to_string()],
+            },
+        },
+    };
+
+    let call_log = Arc::new(Mutex::new(Vec::new()));
+    let deleted_messages = Arc::new(Mutex::new(Vec::new()));
+    let kicked_members = Arc::new(Mutex::new(Vec::new()));
+    let observer_members = Arc::new(Mutex::new(Vec::new()));
+    let notifications = Arc::new(Mutex::new(Vec::new()));
+
+    let app = ModeratorApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(group),
+            rules: vec![rule],
+        }),
+        Arc::new(MockGroupModerator {
+            deleted_messages: deleted_messages.clone(),
+            kicked_members: kicked_members.clone(),
+            observer_members: observer_members.clone(),
+            call_log: call_log.clone(),
+        }),
+        Arc::new(MockModerationNotifier {
+            notifications: notifications.clone(),
+            call_log: call_log.clone(),
+            fail_notification: false,
+        }),
+    );
+
+    let msg = GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id: 42,
+        author_id: 777,
+        text: "Contains danger here".to_string(),
+    };
+
+    app.process_group_message(msg).await.unwrap();
+
+    // Sequence MUST be strictly: SetObserver -> NotifyAction (no DeleteMessage)
+    assert_eq!(
+        *call_log.lock().unwrap(),
+        vec![
+            PortCall::SetObserver(10, 777),
+            PortCall::NotifyAction(
+                100,
+                10,
+                ModerationAction::SetAuthorObserver {
+                    delete_message: DeleteObserverMessages::None,
+                },
+            ),
+        ]
+    );
+
+    assert_eq!(*observer_members.lock().unwrap(), vec![(10, 777)]);
+    assert!(kicked_members.lock().unwrap().is_empty());
+    assert!(deleted_messages.lock().unwrap().is_empty());
+    assert_eq!(notifications.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_message() {
+    let group = Group {
+        id: 10,
+        owner_id: 100,
+        name: "Test Group".to_string(),
+        notifications_enabled: true,
+        dry_mode_enabled: true,
+    };
+    let rule = OwnedModerationRule {
+        id: 1,
+        rule: ModerationRule {
+            action: ModerationAction::SetAuthorObserver {
+                delete_message: DeleteObserverMessages::TriggeredMessage,
+            },
+            condition: RuleCondition::WordsBlacklist {
+                keywords: vec!["danger".to_string()],
+            },
+        },
+    };
+
+    let call_log = Arc::new(Mutex::new(Vec::new()));
+    let app = ModeratorApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(group),
+            rules: vec![rule],
+        }),
+        Arc::new(MockGroupModerator {
+            call_log: call_log.clone(),
+            ..Default::default()
+        }),
+        Arc::new(MockModerationNotifier {
+            call_log: call_log.clone(),
+            ..Default::default()
+        }),
+    );
+
+    let msg = GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id: 42,
+        author_id: 777,
+        text: "Contains danger here".to_string(),
+    };
+
+    app.process_group_message(msg).await.unwrap();
+
+    // In dry mode: neither SetObserver nor DeleteMessage is called; ONLY NotifyAction
+    assert_eq!(
+        *call_log.lock().unwrap(),
+        vec![PortCall::NotifyAction(
+            100,
+            10,
+            ModerationAction::SetAuthorObserver {
+                delete_message: DeleteObserverMessages::TriggeredMessage,
+            },
+        )]
+    );
+}
+
+#[tokio::test]
+async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
+    let group = Group {
+        id: 10,
+        owner_id: 100,
+        name: "Test Group".to_string(),
+        notifications_enabled: true,
+        dry_mode_enabled: true,
+    };
+    let rule = OwnedModerationRule {
+        id: 1,
+        rule: ModerationRule {
+            action: ModerationAction::SetAuthorObserver {
+                delete_message: DeleteObserverMessages::None,
+            },
+            condition: RuleCondition::WordsBlacklist {
+                keywords: vec!["danger".to_string()],
+            },
+        },
+    };
+
+    let call_log = Arc::new(Mutex::new(Vec::new()));
+    let app = ModeratorApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(group),
+            rules: vec![rule],
+        }),
+        Arc::new(MockGroupModerator {
+            call_log: call_log.clone(),
+            ..Default::default()
+        }),
+        Arc::new(MockModerationNotifier {
+            call_log: call_log.clone(),
+            ..Default::default()
+        }),
+    );
+
+    let msg = GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id: 42,
+        author_id: 777,
+        text: "Contains danger here".to_string(),
+    };
+
+    app.process_group_message(msg).await.unwrap();
+
+    assert_eq!(
+        *call_log.lock().unwrap(),
+        vec![PortCall::NotifyAction(
+            100,
+            10,
+            ModerationAction::SetAuthorObserver {
+                delete_message: DeleteObserverMessages::None,
+            },
+        )]
+    );
+}
+
+#[tokio::test]
+async fn test_process_group_message_set_author_observer_notifications_disabled() {
+    let group = Group {
+        id: 10,
+        owner_id: 100,
+        name: "Test Group".to_string(),
+        notifications_enabled: false,
+        dry_mode_enabled: false,
+    };
+    let rule = OwnedModerationRule {
+        id: 1,
+        rule: ModerationRule {
+            action: ModerationAction::SetAuthorObserver {
+                delete_message: DeleteObserverMessages::TriggeredMessage,
+            },
+            condition: RuleCondition::WordsBlacklist {
+                keywords: vec!["danger".to_string()],
+            },
+        },
+    };
+
+    let call_log = Arc::new(Mutex::new(Vec::new()));
+    let app = ModeratorApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(group),
+            rules: vec![rule],
+        }),
+        Arc::new(MockGroupModerator {
+            call_log: call_log.clone(),
+            ..Default::default()
+        }),
+        Arc::new(MockModerationNotifier {
+            call_log: call_log.clone(),
+            ..Default::default()
+        }),
+    );
+
+    let msg = GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id: 42,
+        author_id: 777,
+        text: "Contains danger here".to_string(),
+    };
+
+    app.process_group_message(msg).await.unwrap();
+
+    // Sequence: SetObserver -> DeleteMessage (NO NotifyAction)
+    assert_eq!(
+        *call_log.lock().unwrap(),
+        vec![
+            PortCall::SetObserver(10, 777),
+            PortCall::DeleteMessage(10, 42),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn test_process_group_message_set_author_observer_notification_failure_does_not_fail_action() {
+    let group = Group {
+        id: 10,
+        owner_id: 100,
+        name: "Test Group".to_string(),
+        notifications_enabled: true,
+        dry_mode_enabled: false,
+    };
+    let rule = OwnedModerationRule {
+        id: 1,
+        rule: ModerationRule {
+            action: ModerationAction::SetAuthorObserver {
+                delete_message: DeleteObserverMessages::TriggeredMessage,
+            },
+            condition: RuleCondition::WordsBlacklist {
+                keywords: vec!["danger".to_string()],
+            },
+        },
+    };
+
+    let call_log = Arc::new(Mutex::new(Vec::new()));
+    let app = ModeratorApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(group),
+            rules: vec![rule],
+        }),
+        Arc::new(MockGroupModerator {
+            call_log: call_log.clone(),
+            ..Default::default()
+        }),
+        Arc::new(MockModerationNotifier {
+            call_log: call_log.clone(),
+            fail_notification: true,
+            ..Default::default()
+        }),
+    );
+
+    let msg = GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id: 42,
+        author_id: 777,
+        text: "Contains danger here".to_string(),
+    };
+
+    // Even if notification fails, the overall processing must succeed (best-effort)
+    assert!(app.process_group_message(msg).await.is_ok());
+
+    // Both moderation actions were performed before notification attempt
+    assert_eq!(
+        *call_log.lock().unwrap(),
+        vec![
+            PortCall::SetObserver(10, 777),
+            PortCall::DeleteMessage(10, 42),
+            PortCall::NotifyAction(
+                100,
+                10,
+                ModerationAction::SetAuthorObserver {
+                    delete_message: DeleteObserverMessages::TriggeredMessage,
+                },
+            ),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn test_process_group_message_set_author_observer_rule_order_first_match_wins() {
+    let group = Group {
+        id: 10,
+        owner_id: 100,
+        name: "Test Group".to_string(),
+        notifications_enabled: true,
+        dry_mode_enabled: false,
+    };
+    let rule1 = OwnedModerationRule {
+        id: 1,
+        rule: ModerationRule {
+            action: ModerationAction::SetAuthorObserver {
+                delete_message: DeleteObserverMessages::TriggeredMessage,
+            },
+            condition: RuleCondition::WordsBlacklist {
+                keywords: vec!["first".to_string()],
+            },
+        },
+    };
+    let rule2 = OwnedModerationRule {
+        id: 2,
+        rule: ModerationRule {
+            action: ModerationAction::ModerateMessage,
+            condition: RuleCondition::WordsBlacklist {
+                keywords: vec!["second".to_string()],
+            },
+        },
+    };
+
+    let call_log = Arc::new(Mutex::new(Vec::new()));
+    let app = ModeratorApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(group),
+            rules: vec![rule1, rule2],
+        }),
+        Arc::new(MockGroupModerator {
+            call_log: call_log.clone(),
+            ..Default::default()
+        }),
+        Arc::new(MockModerationNotifier {
+            call_log: call_log.clone(),
+            ..Default::default()
+        }),
+    );
+
+    let msg = GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id: 42,
+        author_id: 888,
+        text: "first and second in the same message".to_string(),
+    };
+
+    app.process_group_message(msg).await.unwrap();
+
+    // Rule 1 (SetAuthorObserver) wins
+    assert_eq!(
+        *call_log.lock().unwrap(),
+        vec![
+            PortCall::SetObserver(10, 888),
+            PortCall::DeleteMessage(10, 42),
+            PortCall::NotifyAction(
+                100,
+                10,
+                ModerationAction::SetAuthorObserver {
+                    delete_message: DeleteObserverMessages::TriggeredMessage,
+                },
+            ),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn test_process_group_message_rule_order_prior_rule_wins_over_set_author_observer() {
+    let group = Group {
+        id: 10,
+        owner_id: 100,
+        name: "Test Group".to_string(),
+        notifications_enabled: true,
+        dry_mode_enabled: false,
+    };
+    let rule1 = OwnedModerationRule {
+        id: 1,
+        rule: ModerationRule {
+            action: ModerationAction::ModerateMessage,
+            condition: RuleCondition::WordsBlacklist {
+                keywords: vec!["first".to_string()],
+            },
+        },
+    };
+    let rule2 = OwnedModerationRule {
+        id: 2,
+        rule: ModerationRule {
+            action: ModerationAction::SetAuthorObserver {
+                delete_message: DeleteObserverMessages::TriggeredMessage,
+            },
+            condition: RuleCondition::WordsBlacklist {
+                keywords: vec!["second".to_string()],
+            },
+        },
+    };
+
+    let call_log = Arc::new(Mutex::new(Vec::new()));
+    let app = ModeratorApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(group),
+            rules: vec![rule1, rule2],
+        }),
+        Arc::new(MockGroupModerator {
+            call_log: call_log.clone(),
+            ..Default::default()
+        }),
+        Arc::new(MockModerationNotifier {
+            call_log: call_log.clone(),
+            ..Default::default()
+        }),
+    );
+
+    let msg = GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id: 42,
+        author_id: 888,
+        text: "first and second in the same message".to_string(),
+    };
+
+    app.process_group_message(msg).await.unwrap();
+
+    // Rule 1 (ModerateMessage) wins -> DeleteMessage, but NO SetObserver!
+    assert_eq!(
+        *call_log.lock().unwrap(),
+        vec![
+            PortCall::DeleteMessage(10, 42),
+            PortCall::NotifyAction(100, 10, ModerationAction::ModerateMessage),
+        ]
+    );
 }

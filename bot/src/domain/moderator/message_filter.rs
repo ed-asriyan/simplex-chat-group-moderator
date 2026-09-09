@@ -35,13 +35,18 @@ where
 /// Action to perform on the author's messages when kicking an author.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DeleteAuthorMessages {
-    #[serde(alias = "none", alias = "DoNotDelete")]
     None,
     #[default]
-    #[serde(alias = "triggered_message", alias = "Triggered")]
     TriggeredMessage,
-    #[serde(alias = "all_messages", alias = "All")]
     AllMessages,
+}
+
+/// Action to perform on the author's messages when setting an author as observer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DeleteObserverMessages {
+    None,
+    #[default]
+    TriggeredMessage,
 }
 
 /// Action to perform when a moderation rule triggers.
@@ -53,6 +58,10 @@ pub enum ModerationAction {
     KickAuthor {
         #[serde(default)]
         delete_messages: DeleteAuthorMessages,
+    },
+    SetAuthorObserver {
+        #[serde(default)]
+        delete_message: DeleteObserverMessages,
     },
 }
 

@@ -71,6 +71,45 @@
                             "default": "TriggeredMessage"
                         }
                     }
+                },
+                {
+                    "type": "object",
+                    "title": "👁 Set author as observer",
+                    "description": "Sets the author to the observer role. The bot must have the **Admin or higher** role in the group to perform this action.",
+                    "required": [
+                        "type",
+                        "delete_message"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "SetAuthorObserver",
+                            "default": "SetAuthorObserver",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "delete_message": {
+                            "type": "string",
+                            "title": "Author's message",
+                            "enum": [
+                                "None",
+                                "TriggeredMessage"
+                            ],
+                            "enum_titles": [
+                                "Don't delete any messages",
+                                "Delete the message that triggered the rule"
+                            ],
+                            "options": {
+                                "enum_titles": [
+                                    "Don't delete any messages",
+                                    "Delete the message that triggered the rule"
+                                ]
+                            },
+                            "default": "TriggeredMessage"
+                        }
+                    }
                 }
             ]
         },

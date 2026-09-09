@@ -3,9 +3,9 @@ use std::sync::Arc;
 
 use super::message_filter::should_moderate;
 use super::ports::{
-    DeleteAuthorMessages, Err, Group, GroupId, GroupInvitation, GroupMessage, GroupModerator,
-    MessengerGroupId, ModerationAction, ModerationEngine, ModerationNotifier, ModerationRepository,
-    ModerationRule, OwnedModerationRule, UserId,
+    DeleteAuthorMessages, DeleteObserverMessages, Err, Group, GroupId, GroupInvitation,
+    GroupMessage, GroupModerator, MessengerGroupId, ModerationAction, ModerationEngine,
+    ModerationNotifier, ModerationRepository, ModerationRule, OwnedModerationRule, UserId,
 };
 
 #[cfg(test)]
@@ -88,6 +88,25 @@ impl ModerationEngine for ModeratorApplication {
                                 .await?;
                         }
                     },
+                    ModerationAction::SetAuthorObserver { delete_message } => {
+                        self.group_moderator
+                            .set_member_observer(
+                                &group_message.group.id,
+                                &group_message.author_id,
+                            )
+                            .await?;
+                        match delete_message {
+                            DeleteObserverMessages::None => {}
+                            DeleteObserverMessages::TriggeredMessage => {
+                                self.group_moderator
+                                    .delete_message(
+                                        &group_message.group.id,
+                                        &group_message.message_id,
+                                    )
+                                    .await?;
+                            }
+                        }
+                    }
                 }
             }
 
