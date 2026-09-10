@@ -30,6 +30,7 @@ body:
       options:
         - Message Contains Banned Words
         - Message Matches Exact Text
+        - Message Matches Regex Patterns
         - Message Contains Links to Forbidden Websites
         - Message Contains Links Outside Approved Websites
         - Message Contains Links Outside Top 100 Safe Websites

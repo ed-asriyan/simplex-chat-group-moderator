@@ -44,6 +44,24 @@
 //! such rule exists, the pre-pass is skipped and conditions are evaluated lazily in the main
 //! loop.
 //!
+//! # Where things live
+//! One module per entity, each owning the type and every submodule that only serves it:
+//! - `moderation_condition` — [`ModerationCondition`]: its parameters, the checks applied when
+//!   an owner saves them, and how one is evaluated against a message. The per-kind matching
+//!   algorithms are its children (`keywords`, `links`, `regex_match`, `screen_flooding`, ...).
+//! - `moderation_action` — [`ModerationAction`]: what a matched rule does. A plain file, not a
+//!   directory: unlike a condition, an action carries no per-kind logic of its own.
+//! - `moderation_rule` — [`ModerationRule`]: the pairing of the two.
+//!
+//! Alongside them — deliberately *not* inside `moderation_action` — sits `action_planner`,
+//! which owns [`PlannedAction`] and merges the actions of several matched rules into one
+//! non-redundant plan. It reasons about a *set* of actions coming from a *set* of rules, so it
+//! belongs at the same level as this module's own [`should_moderate`], not one level down
+//! inside the module that describes a single action.
+//!
+//! This module is left with the orchestration across a set of rules ([`should_moderate`]) and
+//! its result, [`ModerationMatch`].
+//!
 //! # Guidance for future changes
 //! - Put action comparison / subsumption / ordering in the `action_planner` submodule, not
 //!   here. This module must not learn that "one rule is stronger than another"; it only asks
@@ -53,159 +71,20 @@
 //! - Every condition should be evaluated at most once per message.
 
 mod action_planner;
-mod keywords;
-mod links;
-mod messages_blacklist;
-mod moderation_rate_limit;
-mod rate_limit;
-mod screen_flooding;
+mod moderation_action;
+mod moderation_condition;
+mod moderation_rule;
 
 #[cfg(test)]
 mod tests;
 
 pub use action_planner::PlannedAction;
+pub use moderation_action::{DeleteAuthorMessages, DeleteObserverMessages, ModerationAction};
+pub use moderation_condition::ModerationCondition;
+pub use moderation_rule::ModerationRule;
 
 use super::ports::{Err, GroupMessage, UserActivityRepository, UserModerationActivityRepository};
-use serde::{Deserialize, Serialize};
-
-fn default_true() -> bool {
-    true
-}
-
-fn default_chars_per_line() -> u32 {
-    40
-}
-
-fn deserialize_u32_default_zero<'de, D>(deserializer: D) -> Result<u32, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let opt = Option::<u32>::deserialize(deserializer)?;
-    Ok(opt.unwrap_or(0))
-}
-
-fn deserialize_chars_per_line<'de, D>(deserializer: D) -> Result<u32, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let opt = Option::<u32>::deserialize(deserializer)?;
-    Ok(opt.unwrap_or(40))
-}
-
-/// Action to perform on the author's messages when kicking an author.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DeleteAuthorMessages {
-    None,
-    #[default]
-    TriggeredMessage,
-    AllMessages,
-}
-
-/// Action to perform on the author's messages when setting an author as observer.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DeleteObserverMessages {
-    None,
-    #[default]
-    TriggeredMessage,
-}
-
-/// Action to perform when a moderation rule triggers.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ModerationAction {
-    #[default]
-    ModerateMessage,
-    KickAuthor {
-        #[serde(default)]
-        delete_messages: DeleteAuthorMessages,
-    },
-    SetAuthorObserver {
-        #[serde(default)]
-        delete_message: DeleteObserverMessages,
-    },
-}
-
-/// Condition/filter criteria for moderation.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum RuleCondition {
-    ContainsBannedWords {
-        keywords: Vec<String>,
-    },
-    MatchesExactMessage {
-        messages: Vec<String>,
-        case_sensitive: bool,
-    },
-    ContainsLinksToForbiddenWebsites {
-        blocked: Vec<String>,
-    },
-    ContainsLinksOutsideAllowedList {
-        allowed: Vec<String>,
-    },
-    ContainsLinksOutsideTop100 {
-        allowed: Vec<String>,
-    },
-    FloodsChatOrExceedsLimits {
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
-        max_characters: u32,
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
-        max_words: u32,
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
-        max_lines: u32,
-        #[serde(
-            default = "default_chars_per_line",
-            deserialize_with = "deserialize_chars_per_line"
-        )]
-        chars_per_line: u32,
-        #[serde(default = "default_true")]
-        disallow_empty_messages: bool,
-        #[serde(default)]
-        disallow_invisible_chars: bool,
-    },
-    #[serde(alias = "RateLimit")]
-    UserExceedsMessagesRateLimit {
-        #[serde(
-            default,
-            deserialize_with = "deserialize_u32_default_zero",
-            alias = "count",
-            alias = "messages"
-        )]
-        message_count: u32,
-        #[serde(
-            default,
-            deserialize_with = "deserialize_u32_default_zero",
-            alias = "minutes",
-            alias = "window_minutes"
-        )]
-        time_window_minutes: u32,
-    },
-    #[serde(alias = "UserExceededModerationRateLimit")]
-    UserExceedsModerationRateLimit {
-        #[serde(
-            default,
-            deserialize_with = "deserialize_u32_default_zero",
-            alias = "count",
-            alias = "moderated_count",
-            alias = "messages"
-        )]
-        message_count: u32,
-        #[serde(
-            default,
-            deserialize_with = "deserialize_u32_default_zero",
-            alias = "minutes",
-            alias = "window_minutes"
-        )]
-        time_window_minutes: u32,
-    },
-}
-
-/// A moderation rule combining an action and a filtering condition.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModerationRule {
-    #[serde(default)]
-    pub action: ModerationAction,
-    pub condition: RuleCondition,
-}
+use moderation_condition::check_condition;
 
 /// Result of evaluating message against moderation rules.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -221,111 +100,6 @@ impl ModerationMatch {
     }
 }
 
-fn should_moderate_by_condition(message: &str, condition: &RuleCondition) -> Option<String> {
-    match condition {
-        RuleCondition::ContainsBannedWords { keywords, .. } => {
-            keywords::should_moderate(message.trim(), keywords)
-                .map(|keyword| format!("blacklisted word: '{keyword}'"))
-        }
-        RuleCondition::MatchesExactMessage {
-            messages: blocked,
-            case_sensitive,
-        } => messages_blacklist::should_moderate(message.trim(), blocked, *case_sensitive),
-        RuleCondition::ContainsLinksToForbiddenWebsites { blocked } => {
-            links::should_moderate_blacklist(message.trim(), blocked)
-        }
-        RuleCondition::ContainsLinksOutsideAllowedList { allowed } => {
-            links::should_moderate_whitelist(message.trim(), allowed)
-        }
-        RuleCondition::ContainsLinksOutsideTop100 { allowed } => {
-            links::should_moderate_whitelist_top100(message.trim(), allowed)
-        }
-        RuleCondition::FloodsChatOrExceedsLimits {
-            max_characters,
-            max_words,
-            max_lines,
-            chars_per_line,
-            disallow_invisible_chars,
-            disallow_empty_messages,
-        } => screen_flooding::should_moderate(
-            message,
-            *max_characters,
-            *max_words,
-            *max_lines,
-            *chars_per_line,
-            *disallow_invisible_chars,
-            *disallow_empty_messages,
-        ),
-        RuleCondition::UserExceedsMessagesRateLimit { .. } => None,
-        RuleCondition::UserExceedsModerationRateLimit { .. } => None,
-    }
-}
-
-async fn check_condition(
-    group_message: &GroupMessage,
-    condition: &RuleCondition,
-    activity_repo: &dyn UserActivityRepository,
-    moderation_activity_repo: &dyn UserModerationActivityRepository,
-    current_message_is_moderated: bool,
-) -> Result<Option<String>, Err> {
-    match condition {
-        RuleCondition::UserExceedsMessagesRateLimit {
-            message_count,
-            time_window_minutes,
-        } => {
-            rate_limit::check_rate_limit(
-                activity_repo,
-                &group_message.group.id,
-                &group_message.author_id,
-                *message_count,
-                *time_window_minutes,
-                group_message.timestamp,
-            )
-            .await
-        }
-        RuleCondition::UserExceedsModerationRateLimit {
-            message_count,
-            time_window_minutes,
-        } if current_message_is_moderated => {
-            if *message_count == 0 || *time_window_minutes == 0 {
-                Ok(None)
-            } else {
-                let since = group_message.timestamp
-                    - chrono::Duration::minutes(*time_window_minutes as i64);
-                let count = moderation_activity_repo
-                    .count_moderated_messages_since(
-                        &group_message.group.id,
-                        &group_message.author_id,
-                        since,
-                        group_message.timestamp,
-                    )
-                    .await?
-                    + 1;
-                Ok(moderation_rate_limit::should_moderate(
-                    count,
-                    *message_count,
-                    *time_window_minutes,
-                ))
-            }
-        }
-        RuleCondition::UserExceedsModerationRateLimit {
-            message_count,
-            time_window_minutes,
-        } => {
-            moderation_rate_limit::check_moderation_rate_limit(
-                moderation_activity_repo,
-                &group_message.group.id,
-                &group_message.author_id,
-                *message_count,
-                *time_window_minutes,
-                group_message.timestamp,
-            )
-            .await
-        }
-        other => Ok(should_moderate_by_condition(&group_message.text, other)),
-    }
-}
-
 pub async fn should_moderate(
     group_message: &GroupMessage,
     rules: &[ModerationRule],
@@ -335,7 +109,7 @@ pub async fn should_moderate(
     let is_moderation_rate = |rule: &ModerationRule| {
         matches!(
             rule.condition,
-            RuleCondition::UserExceedsModerationRateLimit { .. }
+            ModerationCondition::UserExceedsModerationRateLimit { .. }
         )
     };
 
@@ -364,7 +138,7 @@ pub async fn should_moderate(
         }
     }
 
-    let mut current_actions: Vec<action_planner::PlannedAction> = Vec::new();
+    let mut current_actions: Vec<PlannedAction> = Vec::new();
     let mut reasons: Vec<String> = Vec::new();
 
     for (index, rule) in rules.iter().enumerate() {

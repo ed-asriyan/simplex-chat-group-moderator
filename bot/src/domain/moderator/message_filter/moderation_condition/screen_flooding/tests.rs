@@ -506,7 +506,8 @@ fn test_leading_and_trailing_flood_edge_cases() {
 #[tokio::test]
 async fn test_integration_with_message_filter_rules() {
     use crate::domain::moderator::message_filter::{
-        ModerationAction, ModerationRule, RuleCondition, should_moderate as top_level_moderate,
+        ModerationAction, ModerationCondition, ModerationRule,
+        should_moderate as top_level_moderate,
     };
     use crate::domain::moderator::ports::GroupMessage;
     use crate::infrastructure::adapters::user_activity_repo_in_memory::InMemoryUserActivityRepository;
@@ -521,7 +522,7 @@ async fn test_integration_with_message_filter_rules() {
 
     let rules = vec![ModerationRule {
         action: ModerationAction::ModerateMessage,
-        condition: RuleCondition::FloodsChatOrExceedsLimits {
+        condition: ModerationCondition::FloodsChatOrExceedsLimits {
             max_characters: 100,
             max_words: 10,
             max_lines: 5,
@@ -577,7 +578,7 @@ async fn test_integration_with_message_filter_rules() {
     // With disallow_empty_messages = false and no limits exceeded
     let rules_no_empty_ban = vec![ModerationRule {
         action: ModerationAction::ModerateMessage,
-        condition: RuleCondition::FloodsChatOrExceedsLimits {
+        condition: ModerationCondition::FloodsChatOrExceedsLimits {
             max_characters: 0,
             max_words: 0,
             max_lines: 0,
@@ -629,7 +630,7 @@ fn test_zero_limits_treated_as_unlimited() {
 
 #[test]
 fn test_serde_json_compatibility() {
-    use crate::domain::moderator::message_filter::RuleCondition;
+    use crate::domain::moderator::message_filter::ModerationCondition;
 
     // 1. Deserializing full JSON with all integer fields:
     let json_full = r#"{
@@ -641,9 +642,9 @@ fn test_serde_json_compatibility() {
         "disallow_empty_messages": true,
         "disallow_invisible_chars": false
     }"#;
-    let condition: RuleCondition = serde_json::from_str(json_full).unwrap();
+    let condition: ModerationCondition = serde_json::from_str(json_full).unwrap();
     match condition {
-        RuleCondition::FloodsChatOrExceedsLimits {
+        ModerationCondition::FloodsChatOrExceedsLimits {
             max_characters,
             max_words,
             max_lines,
@@ -669,9 +670,9 @@ fn test_serde_json_compatibility() {
         "max_lines": null,
         "chars_per_line": null
     }"#;
-    let condition: RuleCondition = serde_json::from_str(json_nulls).unwrap();
+    let condition: ModerationCondition = serde_json::from_str(json_nulls).unwrap();
     match condition {
-        RuleCondition::FloodsChatOrExceedsLimits {
+        ModerationCondition::FloodsChatOrExceedsLimits {
             max_characters,
             max_words,
             max_lines,
@@ -691,9 +692,9 @@ fn test_serde_json_compatibility() {
 
     // 3. Deserializing minimal JSON {"type": "FloodsChatOrExceedsLimits"}:
     let json_min = r#"{"type": "FloodsChatOrExceedsLimits"}"#;
-    let condition: RuleCondition = serde_json::from_str(json_min).unwrap();
+    let condition: ModerationCondition = serde_json::from_str(json_min).unwrap();
     match condition {
-        RuleCondition::FloodsChatOrExceedsLimits {
+        ModerationCondition::FloodsChatOrExceedsLimits {
             max_characters,
             max_words,
             max_lines,

@@ -20,7 +20,7 @@ fn test_deserialize_rule_with_moderate_message_action() {
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
     assert_eq!(rule.action, ModerationAction::ModerateMessage);
     match rule.condition {
-        RuleCondition::ContainsBannedWords { keywords } => {
+        ModerationCondition::ContainsBannedWords { keywords } => {
             assert_eq!(keywords, vec!["spam".to_string(), "ad".to_string()]);
         }
         _ => panic!("Expected ContainsBannedWords condition"),
@@ -168,7 +168,7 @@ fn test_serialization_roundtrip() {
         action: ModerationAction::KickAuthor {
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         },
-        condition: RuleCondition::MatchesExactMessage {
+        condition: ModerationCondition::MatchesExactMessage {
             messages: vec!["banned message".to_string()],
             case_sensitive: false,
         },
@@ -185,7 +185,7 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
         action: ModerationAction::KickAuthor {
             delete_messages: DeleteAuthorMessages::None,
         },
-        condition: RuleCondition::ContainsBannedWords {
+        condition: ModerationCondition::ContainsBannedWords {
             keywords: vec!["danger".to_string()],
         },
     }];
@@ -215,7 +215,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
     let rules = vec![
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["first".to_string()],
             },
         },
@@ -223,7 +223,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["second".to_string()],
             },
         },
@@ -285,7 +285,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
 async fn test_no_rules_match_returns_none() {
     let rules = vec![ModerationRule {
         action: ModerationAction::ModerateMessage,
-        condition: RuleCondition::ContainsBannedWords {
+        condition: ModerationCondition::ContainsBannedWords {
             keywords: vec!["banned".to_string()],
         },
     }];
@@ -327,7 +327,7 @@ fn test_deserialize_rate_limit_rule() {
     );
     assert_eq!(
         rule.condition,
-        RuleCondition::UserExceedsMessagesRateLimit {
+        ModerationCondition::UserExceedsMessagesRateLimit {
             message_count: 5,
             time_window_minutes: 10,
         }
@@ -349,7 +349,7 @@ fn test_deserialize_rate_limit_rule_aliases() {
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
     assert_eq!(
         rule.condition,
-        RuleCondition::UserExceedsMessagesRateLimit {
+        ModerationCondition::UserExceedsMessagesRateLimit {
             message_count: 3,
             time_window_minutes: 2,
         }
@@ -371,7 +371,7 @@ fn test_deserialize_moderation_rate_limit_rule_aliases() {
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
     assert_eq!(
         rule.condition,
-        RuleCondition::UserExceedsModerationRateLimit {
+        ModerationCondition::UserExceedsModerationRateLimit {
             message_count: 4,
             time_window_minutes: 30,
         }
@@ -382,7 +382,7 @@ fn test_deserialize_moderation_rate_limit_rule_aliases() {
 fn test_rate_limit_serialization_roundtrip() {
     let rule = ModerationRule {
         action: ModerationAction::ModerateMessage,
-        condition: RuleCondition::UserExceedsMessagesRateLimit {
+        condition: ModerationCondition::UserExceedsMessagesRateLimit {
             message_count: 10,
             time_window_minutes: 5,
         },
@@ -448,7 +448,7 @@ async fn test_should_moderate_with_rate_limit() {
         action: ModerationAction::KickAuthor {
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         },
-        condition: RuleCondition::UserExceedsMessagesRateLimit {
+        condition: ModerationCondition::UserExceedsMessagesRateLimit {
             message_count: 5,
             time_window_minutes: 1,
         },
@@ -496,7 +496,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
         action: ModerationAction::KickAuthor {
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         },
-        condition: RuleCondition::UserExceedsModerationRateLimit {
+        condition: ModerationCondition::UserExceedsModerationRateLimit {
             message_count: 3,
             time_window_minutes: 60,
         },
@@ -543,7 +543,7 @@ async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_mess
     let rules = vec![
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["spam".to_string()],
             },
         },
@@ -551,7 +551,7 @@ async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_mess
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::AllMessages,
             },
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["malware".to_string()],
             },
         },
@@ -590,7 +590,7 @@ async fn test_independent_rules_combine_and_order_deletion_before_kick() {
     let rules = vec![
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["spam".to_string()],
             },
         },
@@ -598,7 +598,7 @@ async fn test_independent_rules_combine_and_order_deletion_before_kick() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::None,
             },
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["kickme".to_string()],
             },
         },
@@ -643,7 +643,7 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
     let rules = vec![
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["badword".to_string()],
             },
         },
@@ -651,7 +651,7 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: RuleCondition::UserExceedsModerationRateLimit {
+            condition: ModerationCondition::UserExceedsModerationRateLimit {
                 message_count: 3,
                 time_window_minutes: 60,
             },
@@ -695,14 +695,14 @@ async fn test_moderation_rate_limit_is_order_independent() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: RuleCondition::UserExceedsModerationRateLimit {
+            condition: ModerationCondition::UserExceedsModerationRateLimit {
                 message_count: 3,
                 time_window_minutes: 60,
             },
         },
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["badword".to_string()],
             },
         },

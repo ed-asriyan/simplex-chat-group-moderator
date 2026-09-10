@@ -1,6 +1,6 @@
 pub use super::message_filter::{
-    DeleteAuthorMessages, DeleteObserverMessages, ModerationAction, ModerationMatch,
-    ModerationRule, PlannedAction, RuleCondition,
+    DeleteAuthorMessages, DeleteObserverMessages, ModerationAction, ModerationCondition,
+    ModerationMatch, ModerationRule, PlannedAction,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};

@@ -5,24 +5,12 @@ use std::sync::{Arc, Mutex};
 
 use crate::domain::moderator::ports::{
     DeleteAuthorMessages, DeleteObserverMessages, Err, Group, GroupId, MessengerGroupId,
-    ModerationAction, ModerationRepository, ModerationRule, OwnedModerationRule, RuleCondition,
-    UserId,
+    ModerationAction, ModerationCondition, ModerationRepository, ModerationRule,
+    OwnedModerationRule, UserId,
 };
 const GROUP_ID_MIN: i64 = 1;
 const GROUP_ID_MAX: i64 = 1_000_000;
 const GROUP_ID_ALLOC_MAX_ATTEMPTS: usize = 32;
-
-/// Maximum number of keywords allowed per group.
-const MAX_KEYWORDS_PER_GROUP: usize = 10_000;
-
-/// Maximum length (in characters) allowed for a single keyword.
-const MAX_KEYWORD_LENGTH: usize = 100;
-
-/// Maximum number of messages allowed per group.
-const MAX_MESSAGES_PER_GROUP: usize = 10_000;
-
-/// Maximum length (in characters) allowed for a single message in the messages blacklist.
-const MAX_MESSAGE_LENGTH: usize = 1000;
 
 /// Insert an action into the `moderation_actions` registry (plus its per-type
 /// subtable) and return the new action id for a rule to reference.
@@ -255,117 +243,7 @@ impl ModerationRepository for SqliteModerationRepository {
         let conn = self.conn.clone();
         let gid = *group_id;
 
-        let mut rules = rules.to_vec();
-        for rule in &mut rules {
-            match &mut rule.condition {
-                RuleCondition::ContainsBannedWords { keywords } => {
-                    keywords.sort();
-                    keywords.dedup();
-                    if keywords.len() > MAX_KEYWORDS_PER_GROUP {
-                        return Err(format!(
-                            "Too many keywords: {} provided, maximum is {}",
-                            keywords.len(),
-                            MAX_KEYWORDS_PER_GROUP
-                        )
-                        .into());
-                    }
-                    if let Some(keyword) = keywords
-                        .iter()
-                        .find(|k| k.chars().count() > MAX_KEYWORD_LENGTH)
-                    {
-                        return Err(format!(
-                            "Keyword too long: {} characters, maximum is {}",
-                            keyword.chars().count(),
-                            MAX_KEYWORD_LENGTH
-                        )
-                        .into());
-                    }
-                }
-                RuleCondition::MatchesExactMessage {
-                    messages,
-                    case_sensitive: _,
-                } => {
-                    messages.sort();
-                    messages.dedup();
-                    if messages.len() > MAX_MESSAGES_PER_GROUP {
-                        return Err(format!(
-                            "Too many messages: {} provided, maximum is {}",
-                            messages.len(),
-                            MAX_MESSAGES_PER_GROUP
-                        )
-                        .into());
-                    }
-                    if let Some(msg) = messages
-                        .iter()
-                        .find(|d| d.chars().count() > MAX_MESSAGE_LENGTH)
-                    {
-                        return Err(format!(
-                            "Message too long: {} characters, maximum is {}",
-                            msg.chars().count(),
-                            MAX_MESSAGE_LENGTH,
-                        )
-                        .into());
-                    }
-                }
-                RuleCondition::ContainsLinksToForbiddenWebsites { blocked } => {
-                    blocked.sort();
-                    blocked.dedup();
-                    if blocked.len() > MAX_KEYWORDS_PER_GROUP {
-                        return Err(format!(
-                            "Too many domains: {} provided, maximum is {}",
-                            blocked.len(),
-                            MAX_KEYWORDS_PER_GROUP
-                        )
-                        .into());
-                    }
-                    if let Some(domain) = blocked
-                        .iter()
-                        .find(|d| d.chars().count() > MAX_KEYWORD_LENGTH)
-                    {
-                        return Err(format!(
-                            "Domain too long: {} characters, maximum is {}",
-                            domain.chars().count(),
-                            MAX_KEYWORD_LENGTH
-                        )
-                        .into());
-                    }
-                }
-                RuleCondition::ContainsLinksOutsideAllowedList { allowed } => {
-                    allowed.sort();
-                    allowed.dedup();
-                    if allowed.len() > MAX_KEYWORDS_PER_GROUP {
-                        return Err(format!(
-                            "Too many domains: {} provided, maximum is {}",
-                            allowed.len(),
-                            MAX_KEYWORDS_PER_GROUP
-                        )
-                        .into());
-                    }
-                    if let Some(domain) = allowed
-                        .iter()
-                        .find(|d| d.chars().count() > MAX_KEYWORD_LENGTH)
-                    {
-                        return Err(format!(
-                            "Domain too long: {} characters, maximum is {}",
-                            domain.chars().count(),
-                            MAX_KEYWORD_LENGTH
-                        )
-                        .into());
-                    }
-                }
-                RuleCondition::ContainsLinksOutsideTop100 { allowed: _ } => {}
-                RuleCondition::FloodsChatOrExceedsLimits {
-                    max_characters: _,
-                    max_words: _,
-                    max_lines: _,
-                    chars_per_line: _,
-                    disallow_invisible_chars: _,
-                    disallow_empty_messages: _,
-                } => {}
-                RuleCondition::UserExceedsMessagesRateLimit { .. } => {}
-                RuleCondition::UserExceedsModerationRateLimit { .. } => {}
-            }
-        }
+        let rules = rules.to_vec();
 
         tokio::task::spawn_blocking(move || -> Result<(), Err> {
             let mut guard = conn.lock().expect("moderation repo connection poisoned");
@@ -379,6 +257,7 @@ impl ModerationRepository for SqliteModerationRepository {
             let rule_tables = [
                 "moderation_rule__contains_banned_words",
                 "moderation_rule__matches_exact_message",
+                "moderation_rule__matches_regex",
                 "moderation_rule__contains_links_to_forbidden_websites",
                 "moderation_rule__contains_links_outside_allowed_list",
                 "moderation_rule__contains_links_outside_top100",
@@ -421,7 +300,7 @@ impl ModerationRepository for SqliteModerationRepository {
                 let rank = rank as i64;
                 let action_id = insert_action(&tx, &rule.action)?;
                 match rule.condition {
-                    RuleCondition::ContainsBannedWords { keywords } => {
+                    ModerationCondition::ContainsBannedWords { keywords } => {
                         tx.execute(
                             "INSERT INTO moderation_rule__contains_banned_words (group_id, rank, action_id) VALUES (?1, ?2, ?3)",
                             rusqlite::params![gid, rank, action_id],
@@ -431,12 +310,12 @@ impl ModerationRepository for SqliteModerationRepository {
                         let mut stmt = tx
                             .prepare("INSERT INTO moderation_rule__contains_banned_words__keywords (rule_id, keyword) VALUES (?1, ?2)")
                             .map_err(|e| -> Err { e.to_string().into() })?;
-                        for kw in keywords.iter().filter(|k| !k.is_empty()) {
+                        for kw in &keywords {
                             stmt.execute(rusqlite::params![rule_id, kw])
                                 .map_err(|e| -> Err { e.to_string().into() })?;
                         }
                     }
-                    RuleCondition::MatchesExactMessage { messages, case_sensitive } => {
+                    ModerationCondition::MatchesExactMessage { messages, case_sensitive } => {
                         tx.execute(
                             "INSERT INTO moderation_rule__matches_exact_message (group_id, rank, case_sensitive, action_id) VALUES (?1, ?2, ?3, ?4)",
                             rusqlite::params![gid, rank, case_sensitive, action_id],
@@ -446,12 +325,27 @@ impl ModerationRepository for SqliteModerationRepository {
                         let mut stmt = tx
                             .prepare("INSERT INTO moderation_rule__matches_exact_message__messages (rule_id, message) VALUES (?1, ?2)")
                             .map_err(|e| -> Err { e.to_string().into() })?;
-                        for msg in messages.iter().filter(|k| !k.is_empty()) {
+                        for msg in &messages {
                             stmt.execute(rusqlite::params![rule_id, msg])
                                 .map_err(|e| -> Err { e.to_string().into() })?;
                         }
                     }
-                    RuleCondition::ContainsLinksToForbiddenWebsites { blocked } => {
+                    ModerationCondition::MatchesRegex { patterns } => {
+                        tx.execute(
+                            "INSERT INTO moderation_rule__matches_regex (group_id, rank, action_id) VALUES (?1, ?2, ?3)",
+                            rusqlite::params![gid, rank, action_id],
+                        )
+                        .map_err(|e| -> Err { e.to_string().into() })?;
+                        let rule_id = tx.last_insert_rowid();
+                        let mut stmt = tx
+                            .prepare("INSERT INTO moderation_rule__matches_regex__patterns (rule_id, pattern) VALUES (?1, ?2)")
+                            .map_err(|e| -> Err { e.to_string().into() })?;
+                        for pattern in &patterns {
+                            stmt.execute(rusqlite::params![rule_id, pattern])
+                                .map_err(|e| -> Err { e.to_string().into() })?;
+                        }
+                    }
+                    ModerationCondition::ContainsLinksToForbiddenWebsites { blocked } => {
                         tx.execute(
                             "INSERT INTO moderation_rule__contains_links_to_forbidden_websites (group_id, rank, action_id) VALUES (?1, ?2, ?3)",
                             rusqlite::params![gid, rank, action_id],
@@ -466,7 +360,7 @@ impl ModerationRepository for SqliteModerationRepository {
                                 .map_err(|e| -> Err { e.to_string().into() })?;
                         }
                     }
-                    RuleCondition::ContainsLinksOutsideAllowedList { allowed } => {
+                    ModerationCondition::ContainsLinksOutsideAllowedList { allowed } => {
                         tx.execute(
                             "INSERT INTO moderation_rule__contains_links_outside_allowed_list (group_id, rank, action_id) VALUES (?1, ?2, ?3)",
                             rusqlite::params![gid, rank, action_id],
@@ -481,7 +375,7 @@ impl ModerationRepository for SqliteModerationRepository {
                                 .map_err(|e| -> Err { e.to_string().into() })?;
                         }
                     }
-                    RuleCondition::ContainsLinksOutsideTop100 { allowed } => {
+                    ModerationCondition::ContainsLinksOutsideTop100 { allowed } => {
                         tx.execute(
                             "INSERT INTO moderation_rule__contains_links_outside_top100 (group_id, rank, action_id) VALUES (?1, ?2, ?3)",
                             rusqlite::params![gid, rank, action_id],
@@ -491,12 +385,12 @@ impl ModerationRepository for SqliteModerationRepository {
                         let mut stmt = tx
                             .prepare("INSERT INTO moderation_rule__contains_links_outside_top100__allowed (rule_id, domain) VALUES (?1, ?2)")
                             .map_err(|e| -> Err { e.to_string().into() })?;
-                        for a in allowed.iter().filter(|k| !k.is_empty()) {
+                        for a in &allowed {
                             stmt.execute(rusqlite::params![rule_id, a])
                                 .map_err(|e| -> Err { e.to_string().into() })?;
                         }
                     }
-                    RuleCondition::FloodsChatOrExceedsLimits {
+                    ModerationCondition::FloodsChatOrExceedsLimits {
                         max_characters,
                         max_words,
                         max_lines,
@@ -510,7 +404,7 @@ impl ModerationRepository for SqliteModerationRepository {
                         )
                         .map_err(|e| -> Err { e.to_string().into() })?;
                     }
-                    RuleCondition::UserExceedsMessagesRateLimit {
+                    ModerationCondition::UserExceedsMessagesRateLimit {
                         message_count,
                         time_window_minutes,
                     } => {
@@ -520,7 +414,7 @@ impl ModerationRepository for SqliteModerationRepository {
                         )
                         .map_err(|e| -> Err { e.to_string().into() })?;
                     }
-                    RuleCondition::UserExceedsModerationRateLimit {
+                    ModerationCondition::UserExceedsModerationRateLimit {
                         message_count,
                         time_window_minutes,
                     } => {
@@ -562,6 +456,7 @@ impl ModerationRepository for SqliteModerationRepository {
                 for table in [
                     "moderation_rule__contains_banned_words",
                     "moderation_rule__matches_exact_message",
+                    "moderation_rule__matches_regex",
                     "moderation_rule__contains_links_to_forbidden_websites",
                     "moderation_rule__contains_links_outside_allowed_list",
                     "moderation_rule__contains_links_outside_top100",

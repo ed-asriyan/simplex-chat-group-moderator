@@ -1,5 +1,5 @@
 use super::*;
-use crate::domain::moderator::message_filter::RuleCondition;
+use crate::domain::moderator::message_filter::ModerationCondition;
 use crate::domain::moderator::ports::{
     DeleteAuthorMessages, DeleteObserverMessages, MessageId, MessengerGroup, ModerationAction,
     UserActivityRepository, UserModerationActivityRepository,
@@ -257,7 +257,7 @@ async fn test_process_group_message_moderate_message_action() {
         id: 1,
         rule: ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["badword".to_string()],
             },
         },
@@ -325,7 +325,7 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -396,7 +396,7 @@ async fn test_process_group_message_kick_author_with_delete_messages_none() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::None,
             },
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -467,7 +467,7 @@ async fn test_process_group_message_kick_author_with_delete_messages_all_message
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::AllMessages,
             },
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -538,7 +538,7 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -599,7 +599,7 @@ async fn test_process_group_message_no_match_does_nothing() {
         id: 1,
         rule: ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["badword".to_string()],
             },
         },
@@ -660,7 +660,7 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
         id: 1,
         rule: ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["first".to_string()],
             },
         },
@@ -671,7 +671,7 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["second".to_string()],
             },
         },
@@ -741,7 +741,7 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::TriggeredMessage,
             },
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -823,7 +823,7 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::None,
             },
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -904,7 +904,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::TriggeredMessage,
             },
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -969,7 +969,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::None,
             },
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -1033,7 +1033,7 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::TriggeredMessage,
             },
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -1096,7 +1096,7 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::TriggeredMessage,
             },
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["danger".to_string()],
             },
         },
@@ -1167,7 +1167,7 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::TriggeredMessage,
             },
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["first".to_string()],
             },
         },
@@ -1176,7 +1176,7 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
         id: 2,
         rule: ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["second".to_string()],
             },
         },
@@ -1243,7 +1243,7 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
         id: 1,
         rule: ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["first".to_string()],
             },
         },
@@ -1254,7 +1254,7 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::TriggeredMessage,
             },
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["second".to_string()],
             },
         },
@@ -1322,7 +1322,7 @@ async fn test_process_group_message_rate_limit_triggers_on_threshold() {
         id: 1,
         rule: ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::UserExceedsMessagesRateLimit {
+            condition: ModerationCondition::UserExceedsMessagesRateLimit {
                 message_count: 3,
                 time_window_minutes: 1,
             },
@@ -1402,7 +1402,7 @@ async fn test_process_group_message_rate_limit_kick_author() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: RuleCondition::UserExceedsMessagesRateLimit {
+            condition: ModerationCondition::UserExceedsMessagesRateLimit {
                 message_count: 2,
                 time_window_minutes: 5,
             },
@@ -1474,7 +1474,7 @@ async fn test_process_group_message_rate_limit_dry_mode() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: RuleCondition::UserExceedsMessagesRateLimit {
+            condition: ModerationCondition::UserExceedsMessagesRateLimit {
                 message_count: 1,
                 time_window_minutes: 1,
             },
@@ -1537,7 +1537,7 @@ async fn test_process_group_message_rate_limit_uses_message_timestamp() {
         id: 1,
         rule: ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::UserExceedsMessagesRateLimit {
+            condition: ModerationCondition::UserExceedsMessagesRateLimit {
                 message_count: 2,
                 time_window_minutes: 5,
             },
@@ -1625,7 +1625,7 @@ async fn test_track_user_message_called_when_rate_limit_rule_configured() {
         id: 1,
         rule: ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::UserExceedsMessagesRateLimit {
+            condition: ModerationCondition::UserExceedsMessagesRateLimit {
                 message_count: 5,
                 time_window_minutes: 10,
             },
@@ -1691,7 +1691,7 @@ async fn test_track_user_message_uses_max_window_across_multiple_rate_limit_rule
             id: 1,
             rule: ModerationRule {
                 action: ModerationAction::ModerateMessage,
-                condition: RuleCondition::UserExceedsMessagesRateLimit {
+                condition: ModerationCondition::UserExceedsMessagesRateLimit {
                     message_count: 5,
                     time_window_minutes: 5,
                 },
@@ -1703,7 +1703,7 @@ async fn test_track_user_message_uses_max_window_across_multiple_rate_limit_rule
                 action: ModerationAction::KickAuthor {
                     delete_messages: DeleteAuthorMessages::None,
                 },
-                condition: RuleCondition::UserExceedsMessagesRateLimit {
+                condition: ModerationCondition::UserExceedsMessagesRateLimit {
                     message_count: 20,
                     time_window_minutes: 25,
                 },
@@ -1756,7 +1756,7 @@ async fn test_track_user_message_not_called_when_no_rate_limit_rules() {
             id: 1,
             rule: ModerationRule {
                 action: ModerationAction::ModerateMessage,
-                condition: RuleCondition::ContainsBannedWords {
+                condition: ModerationCondition::ContainsBannedWords {
                     keywords: vec!["badword".to_string()],
                 },
             },
@@ -1765,7 +1765,7 @@ async fn test_track_user_message_not_called_when_no_rate_limit_rules() {
             id: 2,
             rule: ModerationRule {
                 action: ModerationAction::ModerateMessage,
-                condition: RuleCondition::FloodsChatOrExceedsLimits {
+                condition: ModerationCondition::FloodsChatOrExceedsLimits {
                     max_characters: 100,
                     max_words: 20,
                     max_lines: 5,
@@ -1863,7 +1863,7 @@ async fn test_track_user_message_not_called_when_rate_limit_window_is_zero() {
         id: 1,
         rule: ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::UserExceedsMessagesRateLimit {
+            condition: ModerationCondition::UserExceedsMessagesRateLimit {
                 message_count: 5,
                 time_window_minutes: 0,
             },
@@ -1914,7 +1914,7 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
         id: 1,
         rule: ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::UserExceedsMessagesRateLimit {
+            condition: ModerationCondition::UserExceedsMessagesRateLimit {
                 message_count: 5,
                 time_window_minutes: 120, // exceeds 60 min ceiling
             },
@@ -1971,7 +1971,7 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
                 action: ModerationAction::KickAuthor {
                     delete_messages: DeleteAuthorMessages::TriggeredMessage,
                 },
-                condition: RuleCondition::UserExceedsModerationRateLimit {
+                condition: ModerationCondition::UserExceedsModerationRateLimit {
                     message_count: 2,
                     time_window_minutes: 60,
                 },
@@ -1981,7 +1981,7 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
             id: 2,
             rule: ModerationRule {
                 action: ModerationAction::ModerateMessage,
-                condition: RuleCondition::ContainsBannedWords {
+                condition: ModerationCondition::ContainsBannedWords {
                     keywords: vec!["spam".to_string()],
                 },
             },
@@ -2069,7 +2069,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
                 action: ModerationAction::KickAuthor {
                     delete_messages: DeleteAuthorMessages::None,
                 },
-                condition: RuleCondition::UserExceedsModerationRateLimit {
+                condition: ModerationCondition::UserExceedsModerationRateLimit {
                     message_count: 5,
                     time_window_minutes: 30,
                 },
@@ -2079,7 +2079,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
             id: 2,
             rule: ModerationRule {
                 action: ModerationAction::ModerateMessage,
-                condition: RuleCondition::ContainsBannedWords {
+                condition: ModerationCondition::ContainsBannedWords {
                     keywords: vec!["badword".to_string()],
                 },
             },
@@ -2152,7 +2152,7 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
         id: 1,
         rule: ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["badword".to_string()],
             },
         },
@@ -2188,5 +2188,96 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
     assert!(
         mod_recorder.recorded.lock().unwrap().is_empty(),
         "record_moderated_message must not be called when group has no UserExceedsModerationRateLimit rules"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Rule saving: conditions are validated before they reach the repository.
+// ---------------------------------------------------------------------------
+
+fn app_owning_group(group_id: GroupId, owner_id: UserId) -> ModeratorApplication {
+    ModeratorApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(Group {
+                id: group_id,
+                owner_id,
+                name: "Test Group".to_string(),
+                notifications_enabled: true,
+                dry_mode_enabled: false,
+            }),
+            rules: vec![],
+        }),
+        Arc::new(MockGroupModerator::default()),
+        Arc::new(MockModerationNotifier::default()),
+        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
+    )
+}
+
+#[tokio::test]
+async fn test_set_group_rules_rejects_invalid_condition() {
+    let app = app_owning_group(10, 100);
+
+    let err = app
+        .set_group_rules(
+            100,
+            10,
+            vec![ModerationRule {
+                action: ModerationAction::ModerateMessage,
+                condition: ModerationCondition::ContainsBannedWords {
+                    keywords: vec!["a".repeat(101)],
+                },
+            }],
+        )
+        .await
+        .expect_err("an over-long keyword should be rejected");
+
+    assert!(
+        err.to_string().contains("Keyword too long"),
+        "unexpected error: {err}"
+    );
+}
+
+#[tokio::test]
+async fn test_set_group_rules_accepts_valid_conditions() {
+    let app = app_owning_group(10, 100);
+
+    app.set_group_rules(
+        100,
+        10,
+        vec![ModerationRule {
+            action: ModerationAction::ModerateMessage,
+            condition: ModerationCondition::ContainsBannedWords {
+                keywords: vec!["badword".to_string()],
+            },
+        }],
+    )
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn test_set_group_rules_checks_ownership_before_validating() {
+    let app = app_owning_group(10, 100);
+
+    // User 999 does not own the group; the invalid keyword must not be what is
+    // reported, so that rule contents are never validated for a non-owner.
+    let err = app
+        .set_group_rules(
+            999,
+            10,
+            vec![ModerationRule {
+                action: ModerationAction::ModerateMessage,
+                condition: ModerationCondition::ContainsBannedWords {
+                    keywords: vec!["a".repeat(101)],
+                },
+            }],
+        )
+        .await
+        .expect_err("a non-owner should be rejected");
+
+    assert!(
+        err.to_string().contains("is not the owner"),
+        "unexpected error: {err}"
     );
 }

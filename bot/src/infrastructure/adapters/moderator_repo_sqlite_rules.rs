@@ -1,6 +1,6 @@
 use crate::domain::moderator::ports::{
-    DeleteAuthorMessages, DeleteObserverMessages, Err, ModerationAction, ModerationRule,
-    OwnedModerationRule, RuleCondition,
+    DeleteAuthorMessages, DeleteObserverMessages, Err, ModerationAction, ModerationCondition,
+    ModerationRule, OwnedModerationRule,
 };
 use rusqlite::params;
 use std::sync::{Arc, Mutex};
@@ -99,7 +99,7 @@ pub(crate) fn load_rules_for_group(
                 id: rule_id as usize,
                 rule: ModerationRule {
                     action: load_action(&guard, action_id)?,
-                    condition: RuleCondition::ContainsBannedWords { keywords },
+                    condition: ModerationCondition::ContainsBannedWords { keywords },
                 },
             },
         ));
@@ -127,10 +127,38 @@ pub(crate) fn load_rules_for_group(
                 id: rule_id as usize,
                 rule: ModerationRule {
                     action: load_action(&guard, action_id)?,
-                    condition: RuleCondition::MatchesExactMessage {
+                    condition: ModerationCondition::MatchesExactMessage {
                         messages,
                         case_sensitive,
                     },
+                },
+            },
+        ));
+    }
+
+    // MatchesRegex
+    let mut stmt = guard.prepare(
+        "SELECT id, rank, action_id FROM moderation_rule__matches_regex WHERE group_id = ?1",
+    )?;
+    let rows: Vec<(i64, i64, Option<i64>)> = stmt
+        .query_map(params![gid], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
+        .collect::<Result<_, _>>()?;
+    for (rule_id, rank, action_id) in rows {
+        let patterns = load_rule_values(
+            &guard,
+            "moderation_rule__matches_regex__patterns",
+            "pattern",
+            rule_id,
+        )?;
+        ranked.push((
+            rank,
+            OwnedModerationRule {
+                id: rule_id as usize,
+                rule: ModerationRule {
+                    action: load_action(&guard, action_id)?,
+                    condition: ModerationCondition::MatchesRegex { patterns },
                 },
             },
         ));
@@ -158,7 +186,7 @@ pub(crate) fn load_rules_for_group(
                 id: rule_id as usize,
                 rule: ModerationRule {
                     action: load_action(&guard, action_id)?,
-                    condition: RuleCondition::ContainsLinksToForbiddenWebsites { blocked },
+                    condition: ModerationCondition::ContainsLinksToForbiddenWebsites { blocked },
                 },
             },
         ));
@@ -186,7 +214,7 @@ pub(crate) fn load_rules_for_group(
                 id: rule_id as usize,
                 rule: ModerationRule {
                     action: load_action(&guard, action_id)?,
-                    condition: RuleCondition::ContainsLinksOutsideAllowedList { allowed },
+                    condition: ModerationCondition::ContainsLinksOutsideAllowedList { allowed },
                 },
             },
         ));
@@ -214,7 +242,7 @@ pub(crate) fn load_rules_for_group(
                 id: rule_id as usize,
                 rule: ModerationRule {
                     action: load_action(&guard, action_id)?,
-                    condition: RuleCondition::ContainsLinksOutsideTop100 { allowed },
+                    condition: ModerationCondition::ContainsLinksOutsideTop100 { allowed },
                 },
             },
         ));
@@ -267,7 +295,7 @@ pub(crate) fn load_rules_for_group(
                 id: rule_id as usize,
                 rule: ModerationRule {
                     action: load_action(&guard, action_id)?,
-                    condition: RuleCondition::FloodsChatOrExceedsLimits {
+                    condition: ModerationCondition::FloodsChatOrExceedsLimits {
                         max_characters: max_characters.unwrap_or(0) as u32,
                         max_words: max_words.unwrap_or(0) as u32,
                         max_lines: max_lines.unwrap_or(0) as u32,
@@ -302,7 +330,7 @@ pub(crate) fn load_rules_for_group(
                 id: rule_id as usize,
                 rule: ModerationRule {
                     action: load_action(&guard, action_id)?,
-                    condition: RuleCondition::UserExceedsMessagesRateLimit {
+                    condition: ModerationCondition::UserExceedsMessagesRateLimit {
                         message_count: message_count as u32,
                         time_window_minutes: time_window_minutes as u32,
                     },
@@ -333,7 +361,7 @@ pub(crate) fn load_rules_for_group(
                 id: rule_id as usize,
                 rule: ModerationRule {
                     action: load_action(&guard, action_id)?,
-                    condition: RuleCondition::UserExceedsModerationRateLimit {
+                    condition: ModerationCondition::UserExceedsModerationRateLimit {
                         message_count: message_count as u32,
                         time_window_minutes: time_window_minutes as u32,
                     },

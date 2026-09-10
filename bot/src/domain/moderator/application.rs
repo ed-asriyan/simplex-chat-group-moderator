@@ -5,8 +5,8 @@ use std::time::Duration;
 use super::message_filter::should_moderate;
 use super::ports::{
     Err, Group, GroupId, GroupInvitation, GroupMessage, GroupModerator, MessengerGroupId,
-    ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule,
-    OwnedModerationRule, PlannedAction, RuleCondition, UserActivityRepository, UserId,
+    ModerationCondition, ModerationEngine, ModerationNotifier, ModerationRepository,
+    ModerationRule, OwnedModerationRule, PlannedAction, UserActivityRepository, UserId,
     UserModerationActivityRepository,
 };
 
@@ -46,7 +46,7 @@ impl ModeratorApplication {
         let max_rate_limit_window = rules
             .iter()
             .filter_map(|r| match &r.condition {
-                RuleCondition::UserExceedsMessagesRateLimit {
+                ModerationCondition::UserExceedsMessagesRateLimit {
                     time_window_minutes,
                     ..
                 } if *time_window_minutes > 0 => Some((*time_window_minutes).min(60)),
@@ -77,7 +77,7 @@ impl ModeratorApplication {
         let max_moderation_window = rules
             .iter()
             .filter_map(|r| match &r.condition {
-                RuleCondition::UserExceedsModerationRateLimit {
+                ModerationCondition::UserExceedsModerationRateLimit {
                     time_window_minutes,
                     ..
                 } if *time_window_minutes > 0 => Some((*time_window_minutes).min(60)),
@@ -219,6 +219,11 @@ impl ModerationEngine for ModeratorApplication {
                 );
             }
             Some(_) => {}
+        }
+
+        let mut rules = rules;
+        for rule in &mut rules {
+            rule.condition.normalize_and_validate()?;
         }
 
         self.repository.set_group_rules(&group_id, &rules).await?;

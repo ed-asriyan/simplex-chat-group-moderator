@@ -17,7 +17,7 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
     let rules = vec![
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsBannedWords {
                 keywords: vec!["word1".to_string()],
             },
         },
@@ -25,22 +25,28 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: RuleCondition::MatchesExactMessage {
+            condition: ModerationCondition::MatchesExactMessage {
                 messages: vec!["msg1".to_string()],
                 case_sensitive: true,
+            },
+        },
+        ModerationRule {
+            action: ModerationAction::ModerateMessage,
+            condition: ModerationCondition::MatchesRegex {
+                patterns: vec![r" {5,}".to_string()],
             },
         },
         ModerationRule {
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::None,
             },
-            condition: RuleCondition::ContainsLinksToForbiddenWebsites {
+            condition: ModerationCondition::ContainsLinksToForbiddenWebsites {
                 blocked: vec!["spam.com".to_string()],
             },
         },
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::ContainsLinksOutsideAllowedList {
+            condition: ModerationCondition::ContainsLinksOutsideAllowedList {
                 allowed: vec!["ok.com".to_string()],
             },
         },
@@ -48,7 +54,7 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::AllMessages,
             },
-            condition: RuleCondition::ContainsLinksOutsideTop100 {
+            condition: ModerationCondition::ContainsLinksOutsideTop100 {
                 allowed: vec!["extra.com".to_string()],
             },
         },
@@ -56,7 +62,7 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::TriggeredMessage,
             },
-            condition: RuleCondition::FloodsChatOrExceedsLimits {
+            condition: ModerationCondition::FloodsChatOrExceedsLimits {
                 max_characters: 100,
                 max_words: 20,
                 max_lines: 5,
@@ -69,7 +75,7 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::AllMessages,
             },
-            condition: RuleCondition::UserExceedsMessagesRateLimit {
+            condition: ModerationCondition::UserExceedsMessagesRateLimit {
                 message_count: 5,
                 time_window_minutes: 2,
             },
@@ -84,7 +90,7 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
         let action_count: i64 = guard
             .query_row("SELECT COUNT(*) FROM moderation_actions", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(action_count, 7);
+        assert_eq!(action_count, 8);
     }
 
     // Delete group data
@@ -99,6 +105,8 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
             "moderation_rule__contains_banned_words__keywords",
             "moderation_rule__matches_exact_message",
             "moderation_rule__matches_exact_message__messages",
+            "moderation_rule__matches_regex",
+            "moderation_rule__matches_regex__patterns",
             "moderation_rule__contains_links_to_forbidden_websites",
             "moderation_rule__contains_links_to_forbidden_websites__domains",
             "moderation_rule__contains_links_outside_allowed_list",
@@ -140,7 +148,7 @@ async fn test_save_and_load_rate_limit_rules() {
     let rules = vec![
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: RuleCondition::UserExceedsMessagesRateLimit {
+            condition: ModerationCondition::UserExceedsMessagesRateLimit {
                 message_count: 3,
                 time_window_minutes: 1,
             },
@@ -149,7 +157,7 @@ async fn test_save_and_load_rate_limit_rules() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: RuleCondition::UserExceedsMessagesRateLimit {
+            condition: ModerationCondition::UserExceedsMessagesRateLimit {
                 message_count: 10,
                 time_window_minutes: 60,
             },
@@ -162,4 +170,75 @@ async fn test_save_and_load_rate_limit_rules() {
     assert_eq!(loaded.len(), 2);
     assert_eq!(loaded[0].rule, rules[0]);
     assert_eq!(loaded[1].rule, rules[1]);
+}
+
+// ---------------------------------------------------------------------------
+// Persistence round-trips
+//
+// Condition limits and normalization are the domain's job (see
+// `message_filter::rule_condition`); what matters here is that a condition survives
+// a save/load cycle unchanged, including its child-table entries.
+// ---------------------------------------------------------------------------
+
+async fn repo_with_group(messenger_group_id: i64) -> (SqliteModerationRepository, i64) {
+    let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+    migrations::run(conn.clone()).await.unwrap();
+    let repo = SqliteModerationRepository::new(conn);
+    let group_id = repo
+        .save_owner(&messenger_group_id, "Round Trip Test Group", &42)
+        .await
+        .unwrap();
+    (repo, group_id)
+}
+
+async fn assert_round_trips(messenger_group_id: i64, condition: ModerationCondition) {
+    let (repo, group_id) = repo_with_group(messenger_group_id).await;
+    let rules = vec![ModerationRule {
+        action: ModerationAction::ModerateMessage,
+        condition,
+    }];
+
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+
+    let loaded = repo.get_group_rules(&group_id).await.unwrap();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].rule, rules[0]);
+}
+
+#[tokio::test]
+async fn test_round_trips_condition_with_a_child_table() {
+    assert_round_trips(
+        2001,
+        ModerationCondition::ContainsBannedWords {
+            keywords: vec!["alpha".to_string(), "beta".to_string()],
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_round_trips_condition_with_settings_columns() {
+    assert_round_trips(
+        2002,
+        ModerationCondition::FloodsChatOrExceedsLimits {
+            max_characters: 0,
+            max_words: 0,
+            max_lines: 0,
+            chars_per_line: 40,
+            disallow_empty_messages: true,
+            disallow_invisible_chars: false,
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_round_trips_regex_patterns() {
+    assert_round_trips(
+        2003,
+        ModerationCondition::MatchesRegex {
+            patterns: vec![r" {5,}".to_string(), r"\d{3}-\d{4}".to_string()],
+        },
+    )
+    .await;
 }

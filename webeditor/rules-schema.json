@@ -196,6 +196,39 @@
                 },
                 {
                     "type": "object",
+                    "title": "🚫 Message Matches Regex Patterns",
+                    "description": "Matches when the message matches any of the given regular expressions (Rust `regex` crate syntax — no lookaheads/lookbehinds/backreferences). Runs against the raw, unmodified message text — unlike `Message Contains Banned Words`, it does **not** see through leet-speak, look-alike characters, or other obfuscation. Use it for structural patterns (e.g. \"`\\d{4,}`\" for runs of 4+ digits, \"` {5,}`\" for 5+ consecutive spaces) rather than for banned words. _Build and test your patterns at [\ud83e\uddea regex101](https://regex101.com/) — pick **Rust** in the flavor list on the left, so it behaves exactly like this bot._",
+                    "required": [
+                        "type",
+                        "patterns"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "MatchesRegex",
+                            "default": "MatchesRegex",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "patterns": {
+                            "type": "array",
+                            "title": "Regex Patterns",
+                            "options": {
+                                "disable_collapse": true
+                            },
+                            "items": {
+                                "type": "string",
+                                "title": "Pattern",
+                                "maxLength": 200
+                            },
+                            "maxItems": 100
+                        }
+                    }
+                },
+                {
+                    "type": "object",
                     "title": "🚫 Message Contains Links to Forbidden Websites",
                     "description": "Matches when the message contains links to specified forbidden websites or domains (including obfuscated links like `spam [dot] com` or `hxxp://`).",
                     "required": [
