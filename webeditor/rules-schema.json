@@ -394,6 +394,42 @@
                             "default": 1
                         }
                     }
+                },
+                {
+                    "type": "object",
+                    "title": "🚫 User Exceeds Moderation Rate Limit",
+                    "description": "Matches when a user has had a specified number of messages moderated by the bot within a given time window (in minutes).",
+                    "required": [
+                        "type",
+                        "message_count",
+                        "time_window_minutes"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "UserExceedsModerationRateLimit",
+                            "default": "UserExceedsModerationRateLimit",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "message_count": {
+                            "type": "integer",
+                            "title": "Number of Moderated Messages",
+                            "description": "Matches when the number of messages from this user that were moderated by the bot reaches or exceeds this count.",
+                            "minimum": 1,
+                            "default": 3
+                        },
+                        "time_window_minutes": {
+                            "type": "integer",
+                            "title": "Time Window (Minutes)",
+                            "description": "The time window in minutes over which the moderated messages accumulate (maximum 60 minutes).",
+                            "minimum": 1,
+                            "maximum": 60,
+                            "default": 60
+                        }
+                    }
                 }
             ]
         }

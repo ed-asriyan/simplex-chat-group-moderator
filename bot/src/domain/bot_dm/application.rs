@@ -54,7 +54,8 @@ Hi! I'm an *automated moderation* bot for SimpleX groups.
 *What I can detect:*
 • 🚫 *Banned words & exact phrases* (even obfuscated like b@d_w0rd)
 • 🔗 *Links* (blocklist specific sites, allow only whitelist, or auto-allow Top 100 safe sites)
-• 🌊 *Screen flooding & spam* (long messages, empty/invisible text, line flood)
+• ⏱ *Rate limits* (too many messages or repeated rule violations in a time window)
+• 🌊 *Screen flooding* (long messages, empty/invisible text, line flood)
 ...and much more! This is just a glimpse of what I can do.
 
 *What I can do to violators:*

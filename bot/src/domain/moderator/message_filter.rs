@@ -1,13 +1,14 @@
 mod keywords;
 mod links;
 mod messages_blacklist;
+mod moderation_rate_limit;
 mod rate_limit;
 mod screen_flooding;
 
 #[cfg(test)]
 mod tests;
 
-use super::ports::{Err, GroupMessage, UserActivityRepository};
+use super::ports::{Err, GroupMessage, UserActivityRepository, UserModerationActivityRepository};
 use serde::{Deserialize, Serialize};
 
 fn default_true() -> bool {
@@ -106,9 +107,37 @@ pub enum RuleCondition {
     },
     #[serde(alias = "RateLimit")]
     UserExceedsMessagesRateLimit {
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
+        #[serde(
+            default,
+            deserialize_with = "deserialize_u32_default_zero",
+            alias = "count",
+            alias = "messages"
+        )]
         message_count: u32,
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
+        #[serde(
+            default,
+            deserialize_with = "deserialize_u32_default_zero",
+            alias = "minutes",
+            alias = "window_minutes"
+        )]
+        time_window_minutes: u32,
+    },
+    #[serde(alias = "UserExceededModerationRateLimit")]
+    UserExceedsModerationRateLimit {
+        #[serde(
+            default,
+            deserialize_with = "deserialize_u32_default_zero",
+            alias = "count",
+            alias = "moderated_count",
+            alias = "messages"
+        )]
+        message_count: u32,
+        #[serde(
+            default,
+            deserialize_with = "deserialize_u32_default_zero",
+            alias = "minutes",
+            alias = "window_minutes"
+        )]
         time_window_minutes: u32,
     },
 }
@@ -164,6 +193,7 @@ fn should_moderate_by_condition(message: &str, condition: &RuleCondition) -> Opt
             *disallow_empty_messages,
         ),
         RuleCondition::UserExceedsMessagesRateLimit { .. } => None,
+        RuleCondition::UserExceedsModerationRateLimit { .. } => None,
     }
 }
 
@@ -171,6 +201,7 @@ pub async fn should_moderate(
     group_message: &GroupMessage,
     rules: &[ModerationRule],
     activity_repo: &dyn UserActivityRepository,
+    moderation_activity_repo: &dyn UserModerationActivityRepository,
 ) -> Result<Option<ModerationMatch>, Err> {
     for rule in rules {
         let reason = match &rule.condition {
@@ -180,6 +211,20 @@ pub async fn should_moderate(
             } => {
                 rate_limit::check_rate_limit(
                     activity_repo,
+                    &group_message.group.id,
+                    &group_message.author_id,
+                    *message_count,
+                    *time_window_minutes,
+                    group_message.timestamp,
+                )
+                .await?
+            }
+            RuleCondition::UserExceedsModerationRateLimit {
+                message_count,
+                time_window_minutes,
+            } => {
+                moderation_rate_limit::check_moderation_rate_limit(
+                    moderation_activity_repo,
                     &group_message.group.id,
                     &group_message.author_id,
                     *message_count,

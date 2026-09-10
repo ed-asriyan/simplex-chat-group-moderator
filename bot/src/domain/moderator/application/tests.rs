@@ -1,10 +1,13 @@
 use super::*;
 use std::sync::Mutex;
 use std::time::Duration;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use crate::domain::moderator::message_filter::RuleCondition;
-use crate::domain::moderator::ports::{MessageId, MessengerGroup, UserActivityRepository};
+use crate::domain::moderator::ports::{
+    MessageId, MessengerGroup, UserActivityRepository, UserModerationActivityRepository,
+};
 use crate::infrastructure::adapters::user_activity_repo_in_memory::InMemoryUserActivityRepository;
+use crate::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum PortCall {
@@ -207,6 +210,39 @@ impl UserActivityRepository for MockActivityRecorder {
     }
 }
 
+#[derive(Default)]
+struct MockModerationActivityRecorder {
+    recorded: Arc<Mutex<Vec<(MessengerGroupId, UserId, DateTime<Utc>, Duration)>>>,
+    count_to_return: u32,
+}
+
+#[async_trait]
+impl UserModerationActivityRepository for MockModerationActivityRecorder {
+    async fn record_moderated_message(
+        &self,
+        group_id: &MessengerGroupId,
+        user_id: &UserId,
+        timestamp: DateTime<Utc>,
+        ttl: Duration,
+    ) -> Result<(), Err> {
+        self.recorded
+            .lock()
+            .unwrap()
+            .push((*group_id, *user_id, timestamp, ttl));
+        Ok(())
+    }
+
+    async fn count_moderated_messages_since(
+        &self,
+        _group_id: &MessengerGroupId,
+        _user_id: &UserId,
+        _since: DateTime<Utc>,
+        _now: DateTime<Utc>,
+    ) -> Result<u32, Err> {
+        Ok(self.count_to_return)
+    }
+}
+
 #[tokio::test]
 async fn test_process_group_message_moderate_message_action() {
     let group = Group {
@@ -245,6 +281,7 @@ async fn test_process_group_message_moderate_message_action() {
             ..Default::default()
         }),
         Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -312,6 +349,7 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
             ..Default::default()
         }),
         Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -382,6 +420,7 @@ async fn test_process_group_message_kick_author_with_delete_messages_none() {
             ..Default::default()
         }),
         Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -452,6 +491,7 @@ async fn test_process_group_message_kick_author_with_delete_messages_all_message
             ..Default::default()
         }),
         Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -522,6 +562,7 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
             ..Default::default()
         }),
         Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -582,6 +623,7 @@ async fn test_process_group_message_no_match_does_nothing() {
             ..Default::default()
         }),
         Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -653,6 +695,7 @@ async fn test_process_group_message_rule_order_first_match_wins() {
             ..Default::default()
         }),
         Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -720,6 +763,7 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
             fail_notification: false,
         }),
         Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -801,6 +845,7 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
             fail_notification: false,
         }),
         Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -873,6 +918,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
             ..Default::default()
         }),
         Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -937,6 +983,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
             ..Default::default()
         }),
         Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -1000,6 +1047,7 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
             ..Default::default()
         }),
         Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -1063,6 +1111,7 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
             ..Default::default()
         }),
         Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -1141,6 +1190,7 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
             ..Default::default()
         }),
         Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -1218,6 +1268,7 @@ async fn test_process_group_message_rule_order_prior_rule_wins_over_set_author_o
             ..Default::default()
         }),
         Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -1283,6 +1334,7 @@ async fn test_process_group_message_rate_limit_triggers_on_threshold() {
             ..Default::default()
         }),
         activity_repo,
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let make_msg = |msg_id: i64| GroupMessage {
@@ -1362,6 +1414,7 @@ async fn test_process_group_message_rate_limit_kick_author() {
             ..Default::default()
         }),
         activity_repo,
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let make_msg = |author_id: i64, msg_id: i64| GroupMessage {
@@ -1433,6 +1486,7 @@ async fn test_process_group_message_rate_limit_dry_mode() {
             ..Default::default()
         }),
         activity_repo,
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -1489,6 +1543,7 @@ async fn test_process_group_message_rate_limit_uses_message_timestamp() {
         }),
         Arc::new(MockModerationNotifier::default()),
         activity_repo,
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let base_time = Utc::now() - chrono::Duration::hours(1);
@@ -1571,6 +1626,7 @@ async fn test_track_user_message_called_when_rate_limit_rule_configured() {
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         recorder.clone(),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg_time = Utc::now();
@@ -1638,6 +1694,7 @@ async fn test_track_user_message_uses_max_window_across_multiple_rate_limit_rule
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         recorder.clone(),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -1703,6 +1760,7 @@ async fn test_track_user_message_not_called_when_no_rate_limit_rules() {
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         recorder.clone(),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -1744,6 +1802,7 @@ async fn test_track_user_message_not_called_when_group_has_empty_rules() {
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         recorder.clone(),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -1794,6 +1853,7 @@ async fn test_track_user_message_not_called_when_rate_limit_window_is_zero() {
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         recorder.clone(),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -1844,6 +1904,7 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         recorder.clone(),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
     );
 
     let msg = GroupMessage {
@@ -1865,5 +1926,231 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
         recorded[0].3,
         Duration::from_secs(60 * 60),
         "TTL must be capped at 60 minutes"
+    );
+}
+
+#[tokio::test]
+async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
+    let group = Group {
+        id: 10,
+        owner_id: 100,
+        name: "Test Group".to_string(),
+        notifications_enabled: true,
+        dry_mode_enabled: false,
+    };
+    let rules = vec![
+        OwnedModerationRule {
+            id: 1,
+            rule: ModerationRule {
+                action: ModerationAction::KickAuthor {
+                    delete_messages: DeleteAuthorMessages::TriggeredMessage,
+                },
+                condition: RuleCondition::UserExceedsModerationRateLimit {
+                    message_count: 2,
+                    time_window_minutes: 60,
+                },
+            },
+        },
+        OwnedModerationRule {
+            id: 2,
+            rule: ModerationRule {
+                action: ModerationAction::ModerateMessage,
+                condition: RuleCondition::ContainsBannedWords {
+                    keywords: vec!["spam".to_string()],
+                },
+            },
+        },
+    ];
+
+    let deleted_messages = Arc::new(Mutex::new(Vec::new()));
+    let kicked_members = Arc::new(Mutex::new(Vec::new()));
+    let notifications = Arc::new(Mutex::new(Vec::new()));
+    let activity_repo = Arc::new(InMemoryUserActivityRepository::new());
+    let moderation_activity_repo = Arc::new(InMemoryUserModerationActivityRepository::new());
+
+    let app = ModeratorApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(group),
+            rules,
+        }),
+        Arc::new(MockGroupModerator {
+            deleted_messages: deleted_messages.clone(),
+            kicked_members: kicked_members.clone(),
+            ..Default::default()
+        }),
+        Arc::new(MockModerationNotifier {
+            notifications: notifications.clone(),
+            ..Default::default()
+        }),
+        activity_repo,
+        moderation_activity_repo,
+    );
+
+    let make_msg = |msg_id: i64, text: &str| GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id: msg_id,
+        author_id: 777,
+        text: text.to_string(),
+        timestamp: Utc::now(),
+    };
+
+    // Message 1: contains spam -> moderated via rule 2 (ModerateMessage), violation count = 1
+    app.process_group_message(make_msg(1, "buy spam now")).await.unwrap();
+    assert_eq!(*deleted_messages.lock().unwrap(), vec![(10, 1)]);
+    assert!(kicked_members.lock().unwrap().is_empty());
+
+    // Message 2: contains spam -> moderated via rule 2 (ModerateMessage), violation count = 2
+    app.process_group_message(make_msg(2, "more spam here")).await.unwrap();
+    assert_eq!(*deleted_messages.lock().unwrap(), vec![(10, 1), (10, 2)]);
+    assert!(kicked_members.lock().unwrap().is_empty());
+
+    // Message 3: user sends a clean message, but already has 2 violations in the last 60 min -> rule 1 triggers KickAuthor!
+    app.process_group_message(make_msg(3, "clean message")).await.unwrap();
+    assert_eq!(*kicked_members.lock().unwrap(), vec![(10, 777)]);
+    assert_eq!(*deleted_messages.lock().unwrap(), vec![(10, 1), (10, 2), (10, 3)]);
+    let notifs = notifications.lock().unwrap();
+    assert_eq!(notifs.len(), 3);
+    assert_eq!(notifs[2].2, ModerationAction::KickAuthor { delete_messages: DeleteAuthorMessages::TriggeredMessage });
+    assert!(notifs[2].4.contains("user exceeds moderation rate limit: 2 moderated messages in 60 min"));
+}
+
+#[tokio::test]
+async fn test_track_moderated_message_called_only_when_message_moderated() {
+    let group = Group {
+        id: 10,
+        owner_id: 100,
+        name: "Test Group".to_string(),
+        notifications_enabled: true,
+        dry_mode_enabled: false,
+    };
+    let rules = vec![
+        OwnedModerationRule {
+            id: 1,
+            rule: ModerationRule {
+                action: ModerationAction::KickAuthor {
+                    delete_messages: DeleteAuthorMessages::None,
+                },
+                condition: RuleCondition::UserExceedsModerationRateLimit {
+                    message_count: 5,
+                    time_window_minutes: 30,
+                },
+            },
+        },
+        OwnedModerationRule {
+            id: 2,
+            rule: ModerationRule {
+                action: ModerationAction::ModerateMessage,
+                condition: RuleCondition::ContainsBannedWords {
+                    keywords: vec!["badword".to_string()],
+                },
+            },
+        },
+    ];
+
+    let mod_recorder = Arc::new(MockModerationActivityRecorder::default());
+    let app = ModeratorApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(group),
+            rules,
+        }),
+        Arc::new(MockGroupModerator::default()),
+        Arc::new(MockModerationNotifier::default()),
+        Arc::new(InMemoryUserActivityRepository::new()),
+        mod_recorder.clone(),
+    );
+
+    let clean_msg = GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id: 1,
+        author_id: 42,
+        text: "clean message".to_string(),
+        timestamp: Utc::now(),
+    };
+
+    // Clean message: should NOT record into moderation activity recorder
+    app.process_group_message(clean_msg).await.unwrap();
+    assert!(
+        mod_recorder.recorded.lock().unwrap().is_empty(),
+        "clean message must not be recorded in moderation activity"
+    );
+
+    let bad_time = Utc::now();
+    let bad_msg = GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id: 2,
+        author_id: 42,
+        text: "contains badword here".to_string(),
+        timestamp: bad_time,
+    };
+
+    // Moderated message: MUST record into moderation activity recorder
+    app.process_group_message(bad_msg).await.unwrap();
+    let recorded = mod_recorder.recorded.lock().unwrap();
+    assert_eq!(recorded.len(), 1, "moderated message must be recorded once");
+    assert_eq!(recorded[0].0, 10);
+    assert_eq!(recorded[0].1, 42);
+    assert_eq!(recorded[0].2, bad_time);
+    assert_eq!(recorded[0].3, Duration::from_secs(30 * 60));
+}
+
+#[tokio::test]
+async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_rules() {
+    let group = Group {
+        id: 10,
+        owner_id: 100,
+        name: "Test Group".to_string(),
+        notifications_enabled: true,
+        dry_mode_enabled: false,
+    };
+    // Group only has keyword rules, no UserExceedsModerationRateLimit rules
+    let rules = vec![OwnedModerationRule {
+        id: 1,
+        rule: ModerationRule {
+            action: ModerationAction::ModerateMessage,
+            condition: RuleCondition::ContainsBannedWords {
+                keywords: vec!["badword".to_string()],
+            },
+        },
+    }];
+
+    let mod_recorder = Arc::new(MockModerationActivityRecorder::default());
+    let app = ModeratorApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(group),
+            rules,
+        }),
+        Arc::new(MockGroupModerator::default()),
+        Arc::new(MockModerationNotifier::default()),
+        Arc::new(InMemoryUserActivityRepository::new()),
+        mod_recorder.clone(),
+    );
+
+    let bad_msg = GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id: 1,
+        author_id: 42,
+        text: "contains badword here".to_string(),
+        timestamp: Utc::now(),
+    };
+
+    app.process_group_message(bad_msg).await.unwrap();
+
+    // Even though message was moderated, no UserExceedsModerationRateLimit rule exists,
+    // so record_moderated_message must NOT be called.
+    assert!(
+        mod_recorder.recorded.lock().unwrap().is_empty(),
+        "record_moderated_message must not be called when group has no UserExceedsModerationRateLimit rules"
     );
 }

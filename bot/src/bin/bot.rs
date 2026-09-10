@@ -5,13 +5,14 @@ use bot::domain::bot_dm::ports::{
 use bot::domain::moderator::ModeratorApplication;
 use bot::domain::moderator::ports::{
     GroupMessage, GroupModerator, MessengerGroup, ModerationEngine, ModerationNotifier,
-    ModerationRepository, UserActivityRepository,
+    ModerationRepository, UserActivityRepository, UserModerationActivityRepository,
 };
 use bot::infrastructure::adapters::cross_domain_router::CrossDomainRouter;
 use bot::infrastructure::adapters::moderation_notification_router::ModerationNotificationRouter;
 use bot::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository;
 use bot::infrastructure::adapters::simplex_adapter::SimplexAdapter;
 use bot::infrastructure::adapters::user_activity_repo_in_memory::InMemoryUserActivityRepository;
+use bot::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
 use bot::infrastructure::drivers::simplex::{SimpleXConfig, SimplexDriver, SimplexEvent};
 use bot::infrastructure::migrations;
 use chrono::Local;
@@ -209,6 +210,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let moderation_repo: Arc<dyn ModerationRepository> = Arc::new(moderation_repo);
     let user_activity_repo: Arc<dyn UserActivityRepository> =
         Arc::new(InMemoryUserActivityRepository::new());
+    let user_moderation_activity_repo: Arc<dyn UserModerationActivityRepository> =
+        Arc::new(InMemoryUserModerationActivityRepository::new());
 
     let simplex_adapter = Arc::new(SimplexAdapter::new(simplex_driver.clone()));
     let bot_messenger: Arc<dyn BotMessenger> = simplex_adapter.clone();
@@ -224,6 +227,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         group_moderator,
         moderation_notifier,
         user_activity_repo,
+        user_moderation_activity_repo,
     ));
     let moderator_engine: Arc<dyn ModerationEngine> = moderator_app.clone();
 

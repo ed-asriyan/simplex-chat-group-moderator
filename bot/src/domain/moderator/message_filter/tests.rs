@@ -1,6 +1,9 @@
 use super::*;
-use crate::domain::moderator::ports::{GroupMessage, MessengerGroup, MessengerGroupId, UserId};
+use crate::domain::moderator::ports::{
+    GroupMessage, MessengerGroup, MessengerGroupId, UserId, UserModerationActivityRepository,
+};
 use crate::infrastructure::adapters::user_activity_repo_in_memory::InMemoryUserActivityRepository;
+use crate::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
 use chrono::{DateTime, Utc};
 
 #[test]
@@ -192,7 +195,8 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
         ..Default::default()
     };
     let repo = InMemoryUserActivityRepository::new();
-    let result = should_moderate(&msg, &rules, &repo).await.unwrap();
+    let mod_repo = InMemoryUserModerationActivityRepository::new();
+    let result = should_moderate(&msg, &rules, &repo, &mod_repo).await.unwrap();
     assert!(result.is_some());
     let m = result.unwrap();
     assert_eq!(
@@ -228,9 +232,10 @@ async fn test_rules_applied_in_order_first_match_wins() {
         ..Default::default()
     };
     let repo = InMemoryUserActivityRepository::new();
+    let mod_repo = InMemoryUserModerationActivityRepository::new();
 
     // Both keywords present; first rule must win
-    let result = should_moderate(&msg, &rules, &repo).await.unwrap();
+    let result = should_moderate(&msg, &rules, &repo, &mod_repo).await.unwrap();
     assert!(result.is_some());
     let m = result.unwrap();
     assert_eq!(m.action, ModerationAction::ModerateMessage);
@@ -238,7 +243,7 @@ async fn test_rules_applied_in_order_first_match_wins() {
 
     // Reversed rules list: now KickAuthor must win
     let reversed_rules = vec![rules[1].clone(), rules[0].clone()];
-    let reversed_result = should_moderate(&msg, &reversed_rules, &repo).await.unwrap();
+    let reversed_result = should_moderate(&msg, &reversed_rules, &repo, &mod_repo).await.unwrap();
     assert!(reversed_result.is_some());
     let rm = reversed_result.unwrap();
     assert_eq!(
@@ -264,8 +269,9 @@ async fn test_no_rules_match_returns_none() {
         ..Default::default()
     };
     let repo = InMemoryUserActivityRepository::new();
+    let mod_repo = InMemoryUserModerationActivityRepository::new();
 
-    assert!(should_moderate(&msg, &rules, &repo).await.unwrap().is_none());
+    assert!(should_moderate(&msg, &rules, &repo, &mod_repo).await.unwrap().is_none());
 }
 
 #[test]
@@ -320,6 +326,28 @@ fn test_deserialize_rate_limit_rule_aliases() {
 }
 
 #[test]
+fn test_deserialize_moderation_rate_limit_rule_aliases() {
+    let json = r#"{
+        "action": {
+            "type": "KickAuthor"
+        },
+        "condition": {
+            "type": "UserExceededModerationRateLimit",
+            "moderated_count": 4,
+            "window_minutes": 30
+        }
+    }"#;
+    let rule: ModerationRule = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        rule.condition,
+        RuleCondition::UserExceedsModerationRateLimit {
+            message_count: 4,
+            time_window_minutes: 30,
+        }
+    );
+}
+
+#[test]
 fn test_rate_limit_serialization_roundtrip() {
     let rule = ModerationRule {
         action: ModerationAction::ModerateMessage,
@@ -360,6 +388,29 @@ impl UserActivityRepository for MockActivityRepoForFilter {
     }
 }
 
+#[async_trait::async_trait]
+impl UserModerationActivityRepository for MockActivityRepoForFilter {
+    async fn record_moderated_message(
+        &self,
+        _group_id: &MessengerGroupId,
+        _user_id: &UserId,
+        _timestamp: DateTime<Utc>,
+        _ttl: std::time::Duration,
+    ) -> Result<(), Err> {
+        Ok(())
+    }
+
+    async fn count_moderated_messages_since(
+        &self,
+        _group_id: &MessengerGroupId,
+        _user_id: &UserId,
+        _since: DateTime<Utc>,
+        _now: DateTime<Utc>,
+    ) -> Result<u32, Err> {
+        Ok(self.count)
+    }
+}
+
 #[tokio::test]
 async fn test_should_moderate_with_rate_limit() {
     let rules = vec![ModerationRule {
@@ -384,13 +435,14 @@ async fn test_should_moderate_with_rate_limit() {
     };
 
     let repo_under_limit = MockActivityRepoForFilter { count: 4 };
-    let res = should_moderate(&msg, &rules, &repo_under_limit)
+    let mod_repo = InMemoryUserModerationActivityRepository::new();
+    let res = should_moderate(&msg, &rules, &repo_under_limit, &mod_repo)
         .await
         .unwrap();
     assert!(res.is_none());
 
     let repo_at_limit = MockActivityRepoForFilter { count: 5 };
-    let res = should_moderate(&msg, &rules, &repo_at_limit)
+    let res = should_moderate(&msg, &rules, &repo_at_limit, &mod_repo)
         .await
         .unwrap();
     assert!(res.is_some());
@@ -402,5 +454,50 @@ async fn test_should_moderate_with_rate_limit() {
         }
     );
     assert_eq!(m.reason, "user exceeds messages rate limit: 5 messages in 1 min");
+}
+
+#[tokio::test]
+async fn test_should_moderate_with_moderation_rate_limit() {
+    let rules = vec![ModerationRule {
+        action: ModerationAction::KickAuthor {
+            delete_messages: DeleteAuthorMessages::TriggeredMessage,
+        },
+        condition: RuleCondition::UserExceedsModerationRateLimit {
+            message_count: 3,
+            time_window_minutes: 60,
+        },
+    }];
+
+    let msg = GroupMessage {
+        group: MessengerGroup {
+            id: 1,
+            name: "Test Group".to_string(),
+        },
+        message_id: 10,
+        author_id: 2,
+        text: "hello".to_string(),
+        timestamp: Utc::now(),
+    };
+
+    let activity_repo = InMemoryUserActivityRepository::new();
+    let mod_repo_under = MockActivityRepoForFilter { count: 2 };
+    let res = should_moderate(&msg, &rules, &activity_repo, &mod_repo_under)
+        .await
+        .unwrap();
+    assert!(res.is_none());
+
+    let mod_repo_at = MockActivityRepoForFilter { count: 3 };
+    let res = should_moderate(&msg, &rules, &activity_repo, &mod_repo_at)
+        .await
+        .unwrap();
+    assert!(res.is_some());
+    let m = res.unwrap();
+    assert_eq!(
+        m.action,
+        ModerationAction::KickAuthor {
+            delete_messages: DeleteAuthorMessages::TriggeredMessage,
+        }
+    );
+    assert_eq!(m.reason, "user exceeds moderation rate limit: 3 moderated messages in 60 min");
 }
 

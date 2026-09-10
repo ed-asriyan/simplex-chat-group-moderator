@@ -35,6 +35,7 @@ body:
         - Message Contains Links Outside Top 100 Safe Websites
         - Message Floods Chat or Exceeds Limits
         - User Exceeds Messages Rate Limit
+        - User Exceeds Moderation Rate Limit
         - Not sure / multiple
     validations:
       required: true

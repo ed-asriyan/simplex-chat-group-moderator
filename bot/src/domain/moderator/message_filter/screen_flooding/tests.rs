@@ -458,8 +458,10 @@ async fn test_integration_with_message_filter_rules() {
     };
     use crate::domain::moderator::ports::GroupMessage;
     use crate::infrastructure::adapters::user_activity_repo_in_memory::InMemoryUserActivityRepository;
+    use crate::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
 
     let repo = InMemoryUserActivityRepository::new();
+    let mod_repo = InMemoryUserModerationActivityRepository::new();
     let msg = |text: &str| GroupMessage {
         text: text.to_string(),
         ..Default::default()
@@ -478,22 +480,47 @@ async fn test_integration_with_message_filter_rules() {
     }];
 
     // Normal message passes
-    assert!(top_level_moderate(&msg("Hello world"), &rules, &repo).await.unwrap().is_none());
+    assert!(
+        top_level_moderate(&msg("Hello world"), &rules, &repo, &mod_repo)
+            .await
+            .unwrap()
+            .is_none()
+    );
 
     // Message with trailing 500 newlines is NOT stripped by top-level trim and gets moderated!
     let trailing_newlines = format!(".{}", "\n".repeat(500));
-    assert!(top_level_moderate(&msg(&trailing_newlines), &rules, &repo).await.unwrap().is_some());
+    assert!(
+        top_level_moderate(&msg(&trailing_newlines), &rules, &repo, &mod_repo)
+            .await
+            .unwrap()
+            .is_some()
+    );
 
     // Message with leading 500 newlines is NOT stripped by top-level trim and gets moderated!
     let leading_newlines = format!("{}.", "\n".repeat(500));
-    assert!(top_level_moderate(&msg(&leading_newlines), &rules, &repo).await.unwrap().is_some());
+    assert!(
+        top_level_moderate(&msg(&leading_newlines), &rules, &repo, &mod_repo)
+            .await
+            .unwrap()
+            .is_some()
+    );
 
     // Message with 500 trailing spaces exceeds max_characters
     let trailing_spaces = format!(".{}", " ".repeat(500));
-    assert!(top_level_moderate(&msg(&trailing_spaces), &rules, &repo).await.unwrap().is_some());
+    assert!(
+        top_level_moderate(&msg(&trailing_spaces), &rules, &repo, &mod_repo)
+            .await
+            .unwrap()
+            .is_some()
+    );
 
     // Empty message gets moderated because disallow_empty_messages = true
-    assert!(top_level_moderate(&msg("   "), &rules, &repo).await.unwrap().is_some());
+    assert!(
+        top_level_moderate(&msg("   "), &rules, &repo, &mod_repo)
+            .await
+            .unwrap()
+            .is_some()
+    );
 
     // With disallow_empty_messages = false and no limits exceeded
     let rules_no_empty_ban = vec![ModerationRule {
@@ -507,7 +534,12 @@ async fn test_integration_with_message_filter_rules() {
             disallow_empty_messages: false,
         },
     }];
-    assert!(top_level_moderate(&msg("   "), &rules_no_empty_ban, &repo).await.unwrap().is_none());
+    assert!(
+        top_level_moderate(&msg("   "), &rules_no_empty_ban, &repo, &mod_repo)
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]

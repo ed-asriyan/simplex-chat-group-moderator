@@ -7,7 +7,7 @@ use super::ports::{
     DeleteAuthorMessages, DeleteObserverMessages, Err, Group, GroupId, GroupInvitation,
     GroupMessage, GroupModerator, MessengerGroupId, ModerationAction, ModerationEngine,
     ModerationNotifier, ModerationRepository, ModerationRule, OwnedModerationRule, RuleCondition,
-    UserActivityRepository, UserId,
+    UserActivityRepository, UserId, UserModerationActivityRepository,
 };
 
 #[cfg(test)]
@@ -18,6 +18,7 @@ pub struct ModeratorApplication {
     group_moderator: Arc<dyn GroupModerator>,
     notifier: Arc<dyn ModerationNotifier>,
     activity_repository: Arc<dyn UserActivityRepository>,
+    moderation_activity_repository: Arc<dyn UserModerationActivityRepository>,
 }
 
 impl ModeratorApplication {
@@ -26,12 +27,14 @@ impl ModeratorApplication {
         group_moderator: Arc<dyn GroupModerator>,
         notifier: Arc<dyn ModerationNotifier>,
         activity_repository: Arc<dyn UserActivityRepository>,
+        moderation_activity_repository: Arc<dyn UserModerationActivityRepository>,
     ) -> Self {
         Self {
             repository,
             group_moderator,
             notifier,
             activity_repository,
+            moderation_activity_repository,
         }
     }
 
@@ -65,6 +68,37 @@ impl ModeratorApplication {
 
         Ok(())
     }
+
+    async fn track_moderated_message_if_needed(
+        &self,
+        group_message: &GroupMessage,
+        rules: &[ModerationRule],
+    ) -> Result<(), Err> {
+        let max_moderation_window = rules
+            .iter()
+            .filter_map(|r| match &r.condition {
+                RuleCondition::UserExceedsModerationRateLimit {
+                    time_window_minutes,
+                    ..
+                } if *time_window_minutes > 0 => Some((*time_window_minutes).min(60)),
+                _ => None,
+            })
+            .max();
+
+        if let Some(max_window_minutes) = max_moderation_window {
+            let ttl = Duration::from_secs(max_window_minutes as u64 * 60);
+            self.moderation_activity_repository
+                .record_moderated_message(
+                    &group_message.group.id,
+                    &group_message.author_id,
+                    group_message.timestamp,
+                    ttl,
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -84,9 +118,12 @@ impl ModerationEngine for ModeratorApplication {
             &group_message,
             &rules_list,
             self.activity_repository.as_ref(),
+            self.moderation_activity_repository.as_ref(),
         )
         .await?
         {
+            self.track_moderated_message_if_needed(&group_message, &rules_list)
+                .await?;
             let group = self
                 .repository
                 .get_group_by_messenger_id(&group_message.group.id)

@@ -197,3 +197,24 @@ pub trait UserActivityRepository: Send + Sync {
         now: DateTime<Utc>,
     ) -> Result<u32, Err>;
 }
+
+/// Outbound port: persistence for user moderation activity (moderated messages history) and moderation rate limit state.
+#[async_trait]
+pub trait UserModerationActivityRepository: Send + Sync {
+    async fn record_moderated_message(
+        &self,
+        group_id: &MessengerGroupId,
+        user_id: &UserId,
+        timestamp: DateTime<Utc>,
+        ttl: Duration,
+    ) -> Result<(), Err>;
+
+    async fn count_moderated_messages_since(
+        &self,
+        group_id: &MessengerGroupId,
+        user_id: &UserId,
+        since: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<u32, Err>;
+}
+
