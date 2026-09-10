@@ -105,6 +105,19 @@ fn test_bidi_and_variation_selectors_only() {
 }
 
 #[test]
+fn test_hangul_filler_only() {
+    // Hangul filler characters render as blank but are letters (not whitespace/control) in Unicode.
+    assert_eq!(
+        should_moderate(&"\u{3164}".repeat(709), 0, 0, 0, 0, false, true),
+        Some("empty message".to_string())
+    );
+    assert_eq!(
+        should_moderate("\u{115F}\u{1160}\u{3164}\u{FFA0}", 0, 0, 0, 0, true, true),
+        Some("empty message".to_string())
+    );
+}
+
+#[test]
 fn test_control_characters_only() {
     assert_eq!(
         should_moderate(

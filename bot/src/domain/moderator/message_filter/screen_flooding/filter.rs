@@ -23,6 +23,9 @@ pub fn is_invisible(c: char) -> bool {
             | '\u{2061}'..='\u{2064}' // invisible operators/separator
             | '\u{2066}'..='\u{2069}' // bidi isolates
             | '\u{2800}' // Braille pattern blank
+            | '\u{115F}' | '\u{1160}' // Hangul choseong/jungseong filler
+            | '\u{3164}' // Hangul filler
+            | '\u{FFA0}' // halfwidth Hangul filler
             | '\u{FE00}'..='\u{FE0F}' // variation selectors 1..16
             | '\u{FEFF}' // zero width no-break space / BOM
             | '\u{FFF9}'..='\u{FFFB}' // interlinear annotation chars
