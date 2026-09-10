@@ -67,7 +67,9 @@ async fn test_check_rate_limit_triggered() {
         recorded: Mutex::new(Vec::new()),
     };
     let now = Utc::now();
-    let result = check_rate_limit(&repo, &100, &200, 5, 2, now).await.unwrap();
+    let result = check_rate_limit(&repo, &100, &200, 5, 2, now)
+        .await
+        .unwrap();
     assert_eq!(
         result,
         Some("user exceeds messages rate limit: 6 messages in 2 min".to_string())
@@ -81,7 +83,9 @@ async fn test_check_rate_limit_not_triggered() {
         recorded: Mutex::new(Vec::new()),
     };
     let now = Utc::now();
-    let result = check_rate_limit(&repo, &100, &200, 5, 2, now).await.unwrap();
+    let result = check_rate_limit(&repo, &100, &200, 5, 2, now)
+        .await
+        .unwrap();
     assert_eq!(result, None);
 }
 
@@ -92,6 +96,8 @@ async fn test_check_rate_limit_disabled_with_zero_limit() {
         recorded: Mutex::new(Vec::new()),
     };
     let now = Utc::now();
-    let result = check_rate_limit(&repo, &100, &200, 0, 2, now).await.unwrap();
+    let result = check_rate_limit(&repo, &100, &200, 0, 2, now)
+        .await
+        .unwrap();
     assert_eq!(result, None);
 }

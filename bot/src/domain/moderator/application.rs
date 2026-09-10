@@ -4,10 +4,10 @@ use std::time::Duration;
 
 use super::message_filter::should_moderate;
 use super::ports::{
-    DeleteAuthorMessages, DeleteObserverMessages, Err, Group, GroupId, GroupInvitation,
-    GroupMessage, GroupModerator, MessengerGroupId, ModerationAction, ModerationEngine,
-    ModerationNotifier, ModerationRepository, ModerationRule, OwnedModerationRule, RuleCondition,
-    UserActivityRepository, UserId, UserModerationActivityRepository,
+    Err, Group, GroupId, GroupInvitation, GroupMessage, GroupModerator, MessengerGroupId,
+    ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule,
+    OwnedModerationRule, PlannedAction, RuleCondition, UserActivityRepository, UserId,
+    UserModerationActivityRepository,
 };
 
 #[cfg(test)]
@@ -132,58 +132,31 @@ impl ModerationEngine for ModeratorApplication {
             let dry_mode = group.as_ref().is_some_and(|g| g.dry_mode_enabled);
 
             if !dry_mode {
-                match matched.action {
-                    ModerationAction::ModerateMessage => {
-                        self.group_moderator
-                            .delete_message(&group_message.group.id, &group_message.message_id)
-                            .await?;
-                    }
-                    ModerationAction::KickAuthor { delete_messages } => match delete_messages {
-                        DeleteAuthorMessages::None => {
+                for action in &matched.actions {
+                    match action {
+                        PlannedAction::SetObserver => {
                             self.group_moderator
-                                .kick_member(
+                                .set_member_observer(
                                     &group_message.group.id,
                                     &group_message.author_id,
-                                    false,
                                 )
                                 .await?;
                         }
-                        DeleteAuthorMessages::TriggeredMessage => {
-                            self.group_moderator
-                                .kick_member(
-                                    &group_message.group.id,
-                                    &group_message.author_id,
-                                    false,
-                                )
-                                .await?;
+                        PlannedAction::DeleteTriggeredMessage => {
                             self.group_moderator
                                 .delete_message(&group_message.group.id, &group_message.message_id)
                                 .await?;
                         }
-                        DeleteAuthorMessages::AllMessages => {
+                        PlannedAction::KickAuthor {
+                            delete_all_messages,
+                        } => {
                             self.group_moderator
                                 .kick_member(
                                     &group_message.group.id,
                                     &group_message.author_id,
-                                    true,
+                                    *delete_all_messages,
                                 )
                                 .await?;
-                        }
-                    },
-                    ModerationAction::SetAuthorObserver { delete_message } => {
-                        self.group_moderator
-                            .set_member_observer(&group_message.group.id, &group_message.author_id)
-                            .await?;
-                        match delete_message {
-                            DeleteObserverMessages::None => {}
-                            DeleteObserverMessages::TriggeredMessage => {
-                                self.group_moderator
-                                    .delete_message(
-                                        &group_message.group.id,
-                                        &group_message.message_id,
-                                    )
-                                    .await?;
-                            }
                         }
                     }
                 }
@@ -198,7 +171,7 @@ impl ModerationEngine for ModeratorApplication {
                     .notify_moderation_action(
                         group.owner_id,
                         &group,
-                        &matched.action,
+                        &matched.action(),
                         &group_message.text,
                         &matched.reason,
                     )

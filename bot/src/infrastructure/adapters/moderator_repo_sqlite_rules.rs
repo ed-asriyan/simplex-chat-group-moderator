@@ -286,7 +286,13 @@ pub(crate) fn load_rules_for_group(
     )?;
     let rows: Vec<(i64, i64, i64, i64, Option<i64>)> = stmt
         .query_map(params![gid], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
         })?
         .collect::<Result<_, _>>()?;
     for (rule_id, rank, message_count, time_window_minutes, action_id) in rows {
@@ -311,7 +317,13 @@ pub(crate) fn load_rules_for_group(
     )?;
     let rows: Vec<(i64, i64, i64, i64, Option<i64>)> = stmt
         .query_map(params![gid], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
         })?
         .collect::<Result<_, _>>()?;
     for (rule_id, rank, message_count, time_window_minutes, action_id) in rows {

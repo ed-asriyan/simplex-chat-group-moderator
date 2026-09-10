@@ -88,3 +88,16 @@ async fn test_check_moderation_rate_limit_not_triggered() {
         .unwrap();
     assert_eq!(result, None);
 }
+
+#[tokio::test]
+async fn test_check_moderation_rate_limit_disabled_with_zero_limit() {
+    let repo = MockModerationActivityRepo {
+        count_to_return: 10,
+        recorded: Mutex::new(Vec::new()),
+    };
+    let now = Utc::now();
+    let result = check_moderation_rate_limit(&repo, &100, &200, 0, 60, now)
+        .await
+        .unwrap();
+    assert_eq!(result, None);
+}

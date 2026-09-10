@@ -1,13 +1,14 @@
 use super::*;
-use std::sync::Mutex;
-use std::time::Duration;
-use chrono::{DateTime, Utc};
 use crate::domain::moderator::message_filter::RuleCondition;
 use crate::domain::moderator::ports::{
-    MessageId, MessengerGroup, UserActivityRepository, UserModerationActivityRepository,
+    DeleteAuthorMessages, DeleteObserverMessages, MessageId, MessengerGroup, ModerationAction,
+    UserActivityRepository, UserModerationActivityRepository,
 };
 use crate::infrastructure::adapters::user_activity_repo_in_memory::InMemoryUserActivityRepository;
 use crate::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
+use chrono::{DateTime, Utc};
+use std::sync::Mutex;
+use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum PortCall {
@@ -645,7 +646,7 @@ async fn test_process_group_message_no_match_does_nothing() {
 }
 
 #[tokio::test]
-async fn test_process_group_message_rule_order_first_match_wins() {
+async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_message() {
     let group = Group {
         id: 10,
         owner_id: 100,
@@ -711,12 +712,18 @@ async fn test_process_group_message_rule_order_first_match_wins() {
 
     app.process_group_message(msg).await.unwrap();
 
-    // Rule 1 wins -> ModerateMessage only
+    // Rule 2 is KickAuthor { delete_messages: TriggeredMessage }, which covers Rule 1 (ModerateMessage).
+    // Therefore, Rule 2 upgrades the planned actions: the message is deleted AND the member is kicked.
     assert_eq!(*deleted_messages.lock().unwrap(), vec![(10, 42)]);
-    assert!(kicked_members.lock().unwrap().is_empty());
+    assert_eq!(*kicked_members.lock().unwrap(), vec![(10, 888)]);
     let notifs = notifications.lock().unwrap();
     assert_eq!(notifs.len(), 1);
-    assert_eq!(notifs[0].2, ModerationAction::ModerateMessage);
+    assert_eq!(
+        notifs[0].2,
+        ModerationAction::KickAuthor {
+            delete_messages: DeleteAuthorMessages::TriggeredMessage,
+        }
+    );
 }
 
 #[tokio::test]
@@ -1224,7 +1231,7 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
 }
 
 #[tokio::test]
-async fn test_process_group_message_rule_order_prior_rule_wins_over_set_author_observer() {
+async fn test_process_group_message_set_author_observer_covers_and_upgrades_moderate_message() {
     let group = Group {
         id: 10,
         owner_id: 100,
@@ -1284,12 +1291,20 @@ async fn test_process_group_message_rule_order_prior_rule_wins_over_set_author_o
 
     app.process_group_message(msg).await.unwrap();
 
-    // Rule 1 (ModerateMessage) wins -> DeleteMessage, but NO SetObserver!
+    // Rule 2 (SetAuthorObserver { TriggeredMessage }) covers Rule 1 (ModerateMessage),
+    // so the action is upgraded: author is set as observer and message is deleted.
     assert_eq!(
         *call_log.lock().unwrap(),
         vec![
+            PortCall::SetObserver(10, 888),
             PortCall::DeleteMessage(10, 42),
-            PortCall::NotifyAction(100, 10, ModerationAction::ModerateMessage),
+            PortCall::NotifyAction(
+                100,
+                10,
+                ModerationAction::SetAuthorObserver {
+                    delete_message: DeleteObserverMessages::TriggeredMessage,
+                },
+            ),
         ]
     );
 }
@@ -1644,11 +1659,22 @@ async fn test_track_user_message_called_when_rate_limit_rule_configured() {
     app.process_group_message(msg).await.unwrap();
 
     let recorded = recorder.recorded.lock().unwrap();
-    assert_eq!(recorded.len(), 1, "record_user_message must be called exactly once");
+    assert_eq!(
+        recorded.len(),
+        1,
+        "record_user_message must be called exactly once"
+    );
     assert_eq!(recorded[0].0, 10, "group_id must match");
     assert_eq!(recorded[0].1, 42, "user_id must match");
-    assert_eq!(recorded[0].2, msg_time, "timestamp must match message timestamp");
-    assert_eq!(recorded[0].3, Duration::from_secs(10 * 60), "TTL must match 10 minutes");
+    assert_eq!(
+        recorded[0].2, msg_time,
+        "timestamp must match message timestamp"
+    );
+    assert_eq!(
+        recorded[0].3,
+        Duration::from_secs(10 * 60),
+        "TTL must match 10 minutes"
+    );
 }
 
 #[tokio::test]
@@ -1997,24 +2023,34 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
         timestamp: Utc::now(),
     };
 
-    // Message 1: contains spam -> moderated via rule 2 (ModerateMessage), violation count = 1
-    app.process_group_message(make_msg(1, "buy spam now")).await.unwrap();
+    // Message 1: contains spam -> moderated via rule 2 (ModerateMessage).
+    // Effective moderation count including this message = 0 prior + 1 = 1 < limit 2 -> not kicked yet.
+    app.process_group_message(make_msg(1, "buy spam now"))
+        .await
+        .unwrap();
     assert_eq!(*deleted_messages.lock().unwrap(), vec![(10, 1)]);
     assert!(kicked_members.lock().unwrap().is_empty());
 
-    // Message 2: contains spam -> moderated via rule 2 (ModerateMessage), violation count = 2
-    app.process_group_message(make_msg(2, "more spam here")).await.unwrap();
+    // Message 2: contains spam -> moderated again. Effective count = 1 prior + this one = 2 >= limit 2,
+    // so rule 1 triggers KickAuthor on this same message.
+    app.process_group_message(make_msg(2, "more spam here"))
+        .await
+        .unwrap();
     assert_eq!(*deleted_messages.lock().unwrap(), vec![(10, 1), (10, 2)]);
-    assert!(kicked_members.lock().unwrap().is_empty());
-
-    // Message 3: user sends a clean message, but already has 2 violations in the last 60 min -> rule 1 triggers KickAuthor!
-    app.process_group_message(make_msg(3, "clean message")).await.unwrap();
     assert_eq!(*kicked_members.lock().unwrap(), vec![(10, 777)]);
-    assert_eq!(*deleted_messages.lock().unwrap(), vec![(10, 1), (10, 2), (10, 3)]);
     let notifs = notifications.lock().unwrap();
-    assert_eq!(notifs.len(), 3);
-    assert_eq!(notifs[2].2, ModerationAction::KickAuthor { delete_messages: DeleteAuthorMessages::TriggeredMessage });
-    assert!(notifs[2].4.contains("user exceeds moderation rate limit: 2 moderated messages in 60 min"));
+    assert_eq!(notifs.len(), 2);
+    assert_eq!(
+        notifs[1].2,
+        ModerationAction::KickAuthor {
+            delete_messages: DeleteAuthorMessages::TriggeredMessage
+        }
+    );
+    assert!(
+        notifs[1]
+            .4
+            .contains("user exceeds moderation rate limit: 2 moderated messages in 60 min")
+    );
 }
 
 #[tokio::test]

@@ -52,7 +52,6 @@ pub fn should_moderate(text: &str, blocked_keywords: &[String]) -> Option<String
             return None;
         }
         if needle_present(&tokens, &merged, &needle) || compound_present(&tokens, &needle) {
-
             return Some(kw.clone());
         }
         None

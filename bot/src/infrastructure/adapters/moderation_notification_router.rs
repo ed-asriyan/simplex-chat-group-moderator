@@ -7,9 +7,9 @@ use crate::domain::bot_dm::ports::{
     ModerationAction as BotDmAction, ModerationNotificationReceiver,
 };
 use crate::domain::moderator::ports::{
-    DeleteAuthorMessages as ModDeleteMessages,
-    DeleteObserverMessages as ModDeleteObserverMessages, Err as ModErr, Group as ModGroup,
-    ModerationAction as ModAction, ModerationNotifier, UserId as ModUserId,
+    DeleteAuthorMessages as ModDeleteMessages, DeleteObserverMessages as ModDeleteObserverMessages,
+    Err as ModErr, Group as ModGroup, ModerationAction as ModAction, ModerationNotifier,
+    UserId as ModUserId,
 };
 
 /// Bridges the `moderator` bounded context to the `bot_dm` bounded context by

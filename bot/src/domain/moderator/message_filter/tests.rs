@@ -196,11 +196,13 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
     };
     let repo = InMemoryUserActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
-    let result = should_moderate(&msg, &rules, &repo, &mod_repo).await.unwrap();
+    let result = should_moderate(&msg, &rules, &repo, &mod_repo)
+        .await
+        .unwrap();
     assert!(result.is_some());
     let m = result.unwrap();
     assert_eq!(
-        m.action,
+        m.action(),
         ModerationAction::KickAuthor {
             delete_messages: DeleteAuthorMessages::None,
         }
@@ -209,7 +211,7 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
 }
 
 #[tokio::test]
-async fn test_rules_applied_in_order_first_match_wins() {
+async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
     let rules = vec![
         ModerationRule {
             action: ModerationAction::ModerateMessage,
@@ -234,24 +236,48 @@ async fn test_rules_applied_in_order_first_match_wins() {
     let repo = InMemoryUserActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
 
-    // Both keywords present; first rule must win
-    let result = should_moderate(&msg, &rules, &repo, &mod_repo).await.unwrap();
+    // When ModerateMessage is first, KickAuthor is stronger (covers ModerateMessage),
+    // so it checks the second rule and upgrades to KickAuthor { TriggeredMessage }.
+    let result = should_moderate(&msg, &rules, &repo, &mod_repo)
+        .await
+        .unwrap();
     assert!(result.is_some());
     let m = result.unwrap();
-    assert_eq!(m.action, ModerationAction::ModerateMessage);
-    assert_eq!(m.reason, "blacklisted word: 'first'");
-
-    // Reversed rules list: now KickAuthor must win
-    let reversed_rules = vec![rules[1].clone(), rules[0].clone()];
-    let reversed_result = should_moderate(&msg, &reversed_rules, &repo, &mod_repo).await.unwrap();
-    assert!(reversed_result.is_some());
-    let rm = reversed_result.unwrap();
     assert_eq!(
-        rm.action,
+        m.action(),
         ModerationAction::KickAuthor {
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         }
     );
+    assert_eq!(
+        m.actions,
+        vec![
+            PlannedAction::DeleteTriggeredMessage,
+            PlannedAction::KickAuthor {
+                delete_all_messages: false
+            }
+        ]
+    );
+    assert_eq!(
+        m.reason,
+        "blacklisted word: 'first', blacklisted word: 'second'"
+    );
+
+    // Reversed rules list: KickAuthor is evaluated first.
+    // ModerateMessage is a subset of KickAuthor { TriggeredMessage }, so its condition is skipped!
+    let reversed_rules = vec![rules[1].clone(), rules[0].clone()];
+    let reversed_result = should_moderate(&msg, &reversed_rules, &repo, &mod_repo)
+        .await
+        .unwrap();
+    assert!(reversed_result.is_some());
+    let rm = reversed_result.unwrap();
+    assert_eq!(
+        rm.action(),
+        ModerationAction::KickAuthor {
+            delete_messages: DeleteAuthorMessages::TriggeredMessage,
+        }
+    );
+    // Reason only contains 'second' because the subset rule was skipped!
     assert_eq!(rm.reason, "blacklisted word: 'second'");
 }
 
@@ -271,7 +297,12 @@ async fn test_no_rules_match_returns_none() {
     let repo = InMemoryUserActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
 
-    assert!(should_moderate(&msg, &rules, &repo, &mod_repo).await.unwrap().is_none());
+    assert!(
+        should_moderate(&msg, &rules, &repo, &mod_repo)
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
@@ -448,12 +479,15 @@ async fn test_should_moderate_with_rate_limit() {
     assert!(res.is_some());
     let m = res.unwrap();
     assert_eq!(
-        m.action,
+        m.action(),
         ModerationAction::KickAuthor {
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         }
     );
-    assert_eq!(m.reason, "user exceeds messages rate limit: 5 messages in 1 min");
+    assert_eq!(
+        m.reason,
+        "user exceeds messages rate limit: 5 messages in 1 min"
+    );
 }
 
 #[tokio::test]
@@ -493,11 +527,210 @@ async fn test_should_moderate_with_moderation_rate_limit() {
     assert!(res.is_some());
     let m = res.unwrap();
     assert_eq!(
-        m.action,
+        m.action(),
         ModerationAction::KickAuthor {
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         }
     );
-    assert_eq!(m.reason, "user exceeds moderation rate limit: 3 moderated messages in 60 min");
+    assert_eq!(
+        m.reason,
+        "user exceeds moderation rate limit: 3 moderated messages in 60 min"
+    );
 }
 
+#[tokio::test]
+async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_message_disappears() {
+    let rules = vec![
+        ModerationRule {
+            action: ModerationAction::ModerateMessage,
+            condition: RuleCondition::ContainsBannedWords {
+                keywords: vec!["spam".to_string()],
+            },
+        },
+        ModerationRule {
+            action: ModerationAction::KickAuthor {
+                delete_messages: DeleteAuthorMessages::AllMessages,
+            },
+            condition: RuleCondition::ContainsBannedWords {
+                keywords: vec!["malware".to_string()],
+            },
+        },
+    ];
+
+    let msg = GroupMessage {
+        text: "spam and malware in same message".to_string(),
+        ..Default::default()
+    };
+    let repo = InMemoryUserActivityRepository::new();
+    let mod_repo = InMemoryUserModerationActivityRepository::new();
+
+    let res = should_moderate(&msg, &rules, &repo, &mod_repo)
+        .await
+        .unwrap();
+    assert!(res.is_some());
+    let m = res.unwrap();
+    // ModerateMessage is completely covered by KickAuthor { AllMessages }
+    assert_eq!(
+        m.action(),
+        ModerationAction::KickAuthor {
+            delete_messages: DeleteAuthorMessages::AllMessages,
+        }
+    );
+    // DeleteTriggeredMessage disappeared! Only KickAuthor { delete_all_messages: true } remains.
+    assert_eq!(
+        m.actions,
+        vec![PlannedAction::KickAuthor {
+            delete_all_messages: true
+        }]
+    );
+}
+
+#[tokio::test]
+async fn test_independent_rules_combine_and_order_deletion_before_kick() {
+    let rules = vec![
+        ModerationRule {
+            action: ModerationAction::ModerateMessage,
+            condition: RuleCondition::ContainsBannedWords {
+                keywords: vec!["spam".to_string()],
+            },
+        },
+        ModerationRule {
+            action: ModerationAction::KickAuthor {
+                delete_messages: DeleteAuthorMessages::None,
+            },
+            condition: RuleCondition::ContainsBannedWords {
+                keywords: vec!["kickme".to_string()],
+            },
+        },
+    ];
+
+    let msg = GroupMessage {
+        text: "spam and kickme in same message".to_string(),
+        ..Default::default()
+    };
+    let repo = InMemoryUserActivityRepository::new();
+    let mod_repo = InMemoryUserModerationActivityRepository::new();
+
+    let res = should_moderate(&msg, &rules, &repo, &mod_repo)
+        .await
+        .unwrap();
+    assert!(res.is_some());
+    let m = res.unwrap();
+    // Combined action: KickAuthor with TriggeredMessage
+    assert_eq!(
+        m.action(),
+        ModerationAction::KickAuthor {
+            delete_messages: DeleteAuthorMessages::TriggeredMessage,
+        }
+    );
+    // Deletion MUST come before kicking:
+    assert_eq!(
+        m.actions,
+        vec![
+            PlannedAction::DeleteTriggeredMessage,
+            PlannedAction::KickAuthor {
+                delete_all_messages: false
+            }
+        ]
+    );
+}
+
+#[tokio::test]
+async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
+    // User has 2 previous moderated messages in DB, limit is 3 in 60 min.
+    // Rule 1: ModerateMessage on "badword"
+    // Rule 2: KickAuthor on UserExceedsModerationRateLimit (limit: 3)
+    let rules = vec![
+        ModerationRule {
+            action: ModerationAction::ModerateMessage,
+            condition: RuleCondition::ContainsBannedWords {
+                keywords: vec!["badword".to_string()],
+            },
+        },
+        ModerationRule {
+            action: ModerationAction::KickAuthor {
+                delete_messages: DeleteAuthorMessages::TriggeredMessage,
+            },
+            condition: RuleCondition::UserExceedsModerationRateLimit {
+                message_count: 3,
+                time_window_minutes: 60,
+            },
+        },
+    ];
+
+    let msg = GroupMessage {
+        group: MessengerGroup {
+            id: 1,
+            name: "Test Group".to_string(),
+        },
+        message_id: 10,
+        author_id: 2,
+        text: "this has badword".to_string(),
+        timestamp: Utc::now(),
+    };
+
+    let activity_repo = InMemoryUserActivityRepository::new();
+    // 2 moderated messages in DB: alone, Rule 2 would NOT trigger (2 < 3).
+    // But since Rule 1 matches ("badword"), effective count becomes 2 + 1 = 3 >= 3!
+    let mod_repo = MockActivityRepoForFilter { count: 2 };
+    let res = should_moderate(&msg, &rules, &activity_repo, &mod_repo)
+        .await
+        .unwrap();
+    assert!(res.is_some());
+    let m = res.unwrap();
+    assert_eq!(
+        m.action(),
+        ModerationAction::KickAuthor {
+            delete_messages: DeleteAuthorMessages::TriggeredMessage,
+        }
+    );
+}
+
+#[tokio::test]
+async fn test_moderation_rate_limit_is_order_independent() {
+    // The ordinary moderation rule comes after the moderation rate-limit rule.
+    // The current message must still count toward the rate limit.
+    let rules = vec![
+        ModerationRule {
+            action: ModerationAction::KickAuthor {
+                delete_messages: DeleteAuthorMessages::TriggeredMessage,
+            },
+            condition: RuleCondition::UserExceedsModerationRateLimit {
+                message_count: 3,
+                time_window_minutes: 60,
+            },
+        },
+        ModerationRule {
+            action: ModerationAction::ModerateMessage,
+            condition: RuleCondition::ContainsBannedWords {
+                keywords: vec!["badword".to_string()],
+            },
+        },
+    ];
+
+    let msg = GroupMessage {
+        group: MessengerGroup {
+            id: 1,
+            name: "Test Group".to_string(),
+        },
+        author_id: 2,
+        text: "this has badword".to_string(),
+        timestamp: Utc::now(),
+        ..Default::default()
+    };
+
+    let activity_repo = InMemoryUserActivityRepository::new();
+    let moderation_activity_repo = MockActivityRepoForFilter { count: 2 };
+    let result = should_moderate(&msg, &rules, &activity_repo, &moderation_activity_repo)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        result.action(),
+        ModerationAction::KickAuthor {
+            delete_messages: DeleteAuthorMessages::TriggeredMessage,
+        }
+    );
+    assert!(result.reason.contains("user exceeds moderation rate limit"));
+}

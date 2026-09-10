@@ -116,7 +116,10 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
             let count: i64 = guard
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
                 .unwrap();
-            assert_eq!(count, 0, "Table {table} should be empty after delete_group_data");
+            assert_eq!(
+                count, 0,
+                "Table {table} should be empty after delete_group_data"
+            );
         }
     }
 }
@@ -160,4 +163,3 @@ async fn test_save_and_load_rate_limit_rules() {
     assert_eq!(loaded[0].rule, rules[0]);
     assert_eq!(loaded[1].rule, rules[1]);
 }
-

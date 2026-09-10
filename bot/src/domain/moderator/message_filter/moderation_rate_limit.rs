@@ -1,14 +1,10 @@
-use chrono::{DateTime, Duration, Utc};
 use crate::domain::moderator::ports::{
     Err, MessengerGroupId, UserId, UserModerationActivityRepository,
 };
+use chrono::{DateTime, Duration, Utc};
 
 /// Evaluates if the user exceeds the moderation rate limit (number of moderated messages in time window).
-pub fn should_moderate(
-    count: u32,
-    message_count: u32,
-    time_window_minutes: u32,
-) -> Option<String> {
+pub fn should_moderate(count: u32, message_count: u32, time_window_minutes: u32) -> Option<String> {
     if message_count > 0 && time_window_minutes > 0 && count >= message_count {
         Some(format!(
             "user exceeds moderation rate limit: {count} moderated messages in {time_window_minutes} min"

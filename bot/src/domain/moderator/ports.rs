@@ -1,6 +1,6 @@
 pub use super::message_filter::{
     DeleteAuthorMessages, DeleteObserverMessages, ModerationAction, ModerationMatch,
-    ModerationRule, RuleCondition,
+    ModerationRule, PlannedAction, RuleCondition,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -217,4 +217,3 @@ pub trait UserModerationActivityRepository: Send + Sync {
         now: DateTime<Utc>,
     ) -> Result<u32, Err>;
 }
-
