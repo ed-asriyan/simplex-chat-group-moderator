@@ -1,10 +1,14 @@
 use icu_properties::CodePointSetData;
 use icu_properties::CodePointSetDataBorrowed;
-use icu_properties::props::DefaultIgnorableCodePoint;
+use icu_properties::props::{DefaultIgnorableCodePoint, Emoji};
 use std::sync::LazyLock;
 
 static DEFAULT_IGNORABLE: LazyLock<CodePointSetDataBorrowed<'static>> =
     LazyLock::new(|| CodePointSetData::new::<DefaultIgnorableCodePoint>());
+static EMOJI: LazyLock<CodePointSetDataBorrowed<'static>> =
+    LazyLock::new(|| CodePointSetData::new::<Emoji>());
+
+const ZERO_WIDTH_JOINER: char = '\u{200D}';
 
 /// Characters that render as blank/invisible or formatting-only but are not
 /// classified as whitespace by Rust's `char::is_whitespace`. Users can pad an
@@ -38,6 +42,23 @@ pub fn is_invisible(c: char) -> bool {
 
 fn is_blank(c: char) -> bool {
     c.is_whitespace() || is_invisible(c)
+}
+
+// A ZERO WIDTH JOINER sandwiched between two emoji is a legitimate emoji ZWJ
+// sequence (e.g. "family" = man + ZWJ + woman + ZWJ + girl), not an attempt to
+// hide content, so it is exempt from the invisible-character check.
+fn contains_disallowed_invisible(message: &str) -> bool {
+    let chars: Vec<char> = message.chars().collect();
+    chars.iter().enumerate().any(|(i, &c)| {
+        if c == ZERO_WIDTH_JOINER {
+            let prev_is_emoji = i > 0 && EMOJI.contains(chars[i - 1]);
+            let next_is_emoji = chars.get(i + 1).is_some_and(|&n| EMOJI.contains(n));
+            if prev_is_emoji && next_is_emoji {
+                return false;
+            }
+        }
+        is_invisible(c)
+    })
 }
 
 // Split text by any standard Unicode newline sequence (LF, CRLF, CR, VT, FF, NEL, LS, PS).
@@ -116,7 +137,7 @@ pub fn should_moderate(
     }
 
     // 2. Disallow any invisible / zero-width characters in the message
-    if disallow_invisible_chars && message.chars().any(is_invisible) {
+    if disallow_invisible_chars && contains_disallowed_invisible(message) {
         return Some("invisible characters".to_string());
     }
 

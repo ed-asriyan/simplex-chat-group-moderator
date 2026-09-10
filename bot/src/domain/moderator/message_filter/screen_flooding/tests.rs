@@ -427,6 +427,45 @@ fn test_disallow_invisible_chars() {
 }
 
 #[test]
+fn test_disallow_invisible_chars_false_positives() {
+    // Accented Latin text using combining diacritics (NFD) is normal text, not invisible
+    assert!(should_moderate("cafe\u{0301}", 0, 0, 0, 0, true, true).is_none()); // café
+    assert!(should_moderate("nie\u{0300}m", 0, 0, 0, 0, true, true).is_none());
+
+    // Vietnamese with stacked combining marks
+    assert!(should_moderate("ti\u{1EBF}ng Vi\u{1EC7}t", 0, 0, 0, 0, true, true).is_none());
+
+    // Non-Latin scripts (Cyrillic, CJK, Arabic, Hebrew, Greek) are normal visible text
+    assert!(should_moderate("Привет, как дела?", 0, 0, 0, 0, true, true).is_none());
+    assert!(should_moderate("こんにちは世界", 0, 0, 0, 0, true, true).is_none());
+    assert!(should_moderate("你好，世界", 0, 0, 0, 0, true, true).is_none());
+    assert!(should_moderate("مرحبا بالعالم", 0, 0, 0, 0, true, true).is_none());
+    assert!(should_moderate("שלום עולם", 0, 0, 0, 0, true, true).is_none());
+    assert!(should_moderate("Γειά σου Κόσμε", 0, 0, 0, 0, true, true).is_none());
+
+    // Plain emoji, flag emoji (regional indicator pairs) and skin-tone modifiers are
+    // visible characters, not default-ignorable
+    assert!(should_moderate("🦀🎉", 0, 0, 0, 0, true, true).is_none());
+    assert!(should_moderate("🇺🇸🇩🇪", 0, 0, 0, 0, true, true).is_none());
+    assert!(should_moderate("👍🏽", 0, 0, 0, 0, true, true).is_none());
+
+    // Multi-person / profession+gender emoji are built from a ZWJ (U+200D) sequence,
+    // e.g. "family" = man + ZWJ + woman + ZWJ + girl + ZWJ + boy. A ZWJ sandwiched
+    // between two emoji is a legitimate joiner, not hidden content, so it is exempt.
+    assert!(should_moderate("👨\u{200D}👩\u{200D}👧\u{200D}👦", 0, 0, 0, 0, true, true).is_none());
+
+    // A ZWJ that is NOT joining two emoji (e.g. hidden inside plain text) is still caught
+    assert_eq!(
+        should_moderate("hello\u{200D}world", 0, 0, 0, 0, true, true),
+        Some("invisible characters".to_string())
+    );
+    assert_eq!(
+        should_moderate("👨\u{200D}hello", 0, 0, 0, 0, true, true),
+        Some("invisible characters".to_string())
+    );
+}
+
+#[test]
 fn test_leading_and_trailing_flood_edge_cases() {
     // Dot at start, 500 newlines, dot at end
     let flood_both = format!(".{}.", "\n".repeat(500));
