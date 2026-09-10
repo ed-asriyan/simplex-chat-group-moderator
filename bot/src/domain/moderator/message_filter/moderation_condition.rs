@@ -139,9 +139,10 @@ const MAX_KEYWORD_LENGTH: usize = 100;
 /// Maximum length (in characters) of a single blacklisted exact message.
 const MAX_MESSAGE_LENGTH: usize = 1000;
 
-/// Maximum number of regex patterns in a single condition. Far lower than the
-/// other lists because every pattern is compiled anew for each incoming message
-/// (~70 µs each), so the ceiling here bounds per-message work, not storage.
+/// Maximum number of regex patterns in a single condition. Far lower than the other
+/// lists because compiled patterns are memoized in a fixed-size process-wide cache
+/// (see `regex_match`): this bounds how much of that shared cache one rule can claim,
+/// keeping the cache useful for every other group.
 const MAX_REGEX_PATTERNS: usize = 100;
 
 /// Maximum length (in characters) of a single regex pattern.

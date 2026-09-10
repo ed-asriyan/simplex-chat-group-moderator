@@ -50,3 +50,30 @@ fn test_invalid_pattern_is_skipped_not_panicking() {
 fn test_no_patterns_never_matches() {
     assert!(should_moderate("anything", &[]).is_none());
 }
+
+#[test]
+fn test_repeated_calls_are_consistent() {
+    // The compiled-pattern cache must not change what a repeated call answers.
+    let patterns = vec![r"\d{3}".to_string()];
+    for _ in 0..3 {
+        assert_eq!(
+            should_moderate("code 123", &patterns),
+            Some(r"\d{3}".to_string())
+        );
+        assert!(should_moderate("no digits", &patterns).is_none());
+    }
+}
+
+#[test]
+fn test_many_distinct_patterns() {
+    // Cached patterns stay correct even when many distinct ones are loaded.
+    // (Overflow at 10k limit is rare and handled via clear(), not tested here.)
+    let patterns: Vec<String> = (0..1000).map(|i| format!("^unique{i}$")).collect();
+    for pattern in &patterns {
+        assert!(should_moderate(&pattern[1..pattern.len() - 1], &[pattern.clone()]).is_some());
+    }
+    assert_eq!(
+        should_moderate("unique42", &patterns),
+        Some("^unique42$".to_string())
+    );
+}
