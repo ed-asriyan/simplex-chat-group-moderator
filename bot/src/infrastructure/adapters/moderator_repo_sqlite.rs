@@ -101,23 +101,23 @@ fn insert_condition(
         ModerationCondition::All { .. } => "All",
         ModerationCondition::Any { .. } => "Any",
         ModerationCondition::Not { .. } => "Not",
-        ModerationCondition::ContainsBannedWords { .. } => "ContainsBannedWords",
+        ModerationCondition::ContainsWords { .. } => "ContainsWords",
         ModerationCondition::MatchesExactMessage { .. } => "MatchesExactMessage",
         ModerationCondition::MatchesRegex { .. } => "MatchesRegex",
         ModerationCondition::ContainsRepeatedSequence { .. } => "ContainsRepeatedSequence",
-        ModerationCondition::ContainsLinksToForbiddenWebsites { .. } => {
-            "ContainsLinksToForbiddenWebsites"
-        }
-        ModerationCondition::ContainsLinksOutsideAllowedList { .. } => {
-            "ContainsLinksOutsideAllowedList"
-        }
+        ModerationCondition::ContainsLinksInList { .. } => "ContainsLinksInList",
+        ModerationCondition::ContainsLinksOutsideList { .. } => "ContainsLinksOutsideList",
         ModerationCondition::ContainsLinksOutsideTop100 { .. } => "ContainsLinksOutsideTop100",
-        ModerationCondition::FloodsChatOrExceedsLimits { .. } => "FloodsChatOrExceedsLimits",
-        ModerationCondition::UserExceedsMessagesRateLimit { .. } => "UserExceedsMessagesRateLimit",
-        ModerationCondition::UserExceedsModerationRateLimit { .. } => {
-            "UserExceedsModerationRateLimit"
+        ModerationCondition::IsBlank => "IsBlank",
+        ModerationCondition::ContainsInvisibleCharacters => "ContainsInvisibleCharacters",
+        ModerationCondition::ExceedsMaxCharacters { .. } => "ExceedsMaxCharacters",
+        ModerationCondition::ExceedsMaxWords { .. } => "ExceedsMaxWords",
+        ModerationCondition::ExceedsMaxLines { .. } => "ExceedsMaxLines",
+        ModerationCondition::AuthorHitsMessageRateLimit { .. } => "AuthorHitsMessageRateLimit",
+        ModerationCondition::AuthorHitsModerationRateLimit { .. } => {
+            "AuthorHitsModerationRateLimit"
         }
-        ModerationCondition::UserJoinedRecently { .. } => "UserJoinedRecently",
+        ModerationCondition::AuthorJoinedRecently { .. } => "AuthorJoinedRecently",
     };
     tx.execute(
         "INSERT INTO moderation_conditions (rule_id, parent_id, rank, type) VALUES (?1, ?2, ?3, ?4)",
@@ -135,9 +135,9 @@ fn insert_condition(
         ModerationCondition::Not { condition } => {
             insert_condition(tx, rule_id, Some(condition_id), 0, condition)?;
         }
-        ModerationCondition::ContainsBannedWords { keywords } => insert_condition_list(
+        ModerationCondition::ContainsWords { keywords } => insert_condition_list(
             tx,
-            "moderation_condition__contains_banned_words__keywords",
+            "moderation_condition__contains_words__keywords",
             "keyword",
             condition_id,
             keywords,
@@ -176,74 +176,78 @@ fn insert_condition(
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::ContainsLinksToForbiddenWebsites { blocked } => insert_condition_list(
+        ModerationCondition::ContainsLinksInList { domains } => insert_condition_list(
             tx,
-            "moderation_condition__contains_links_to_forbidden_websites__domains",
+            "moderation_condition__contains_links_in_list__domains",
             "domain",
             condition_id,
-            blocked,
+            domains,
         )?,
-        ModerationCondition::ContainsLinksOutsideAllowedList { allowed } => insert_condition_list(
+        ModerationCondition::ContainsLinksOutsideList { domains } => insert_condition_list(
             tx,
-            "moderation_condition__contains_links_outside_allowed_list__domains",
+            "moderation_condition__contains_links_outside_list__domains",
             "domain",
             condition_id,
-            allowed,
+            domains,
         )?,
-        ModerationCondition::ContainsLinksOutsideTop100 { allowed } => insert_condition_list(
+        ModerationCondition::ContainsLinksOutsideTop100 { domains } => insert_condition_list(
             tx,
-            "moderation_condition__contains_links_outside_top100__allowed",
+            "moderation_condition__contains_links_outside_top100__domains",
             "domain",
             condition_id,
-            allowed,
+            domains,
         )?,
-        ModerationCondition::FloodsChatOrExceedsLimits {
-            max_characters,
-            max_words,
+        // No parameters, so nothing beyond the registry row.
+        ModerationCondition::IsBlank | ModerationCondition::ContainsInvisibleCharacters => {}
+        ModerationCondition::ExceedsMaxCharacters { max_characters } => {
+            tx.execute(
+                "INSERT INTO moderation_condition__exceeds_max_characters (condition_id, max_characters) VALUES (?1, ?2)",
+                params![condition_id, max_characters],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
+        }
+        ModerationCondition::ExceedsMaxWords { max_words } => {
+            tx.execute(
+                "INSERT INTO moderation_condition__exceeds_max_words (condition_id, max_words) VALUES (?1, ?2)",
+                params![condition_id, max_words],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
+        }
+        ModerationCondition::ExceedsMaxLines {
             max_lines,
             chars_per_line,
-            disallow_invisible_chars,
-            disallow_empty_messages,
         } => {
             tx.execute(
-                "INSERT INTO moderation_condition__floods_chat_or_exceeds_limits (condition_id, max_characters, max_words, max_lines, chars_per_line, disallow_invisible_chars, disallow_empty_messages) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![
-                    condition_id,
-                    max_characters,
-                    max_words,
-                    max_lines,
-                    chars_per_line,
-                    disallow_invisible_chars,
-                    disallow_empty_messages
-                ],
+                "INSERT INTO moderation_condition__exceeds_max_lines (condition_id, max_lines, chars_per_line) VALUES (?1, ?2, ?3)",
+                params![condition_id, max_lines, chars_per_line],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::UserExceedsMessagesRateLimit {
+        ModerationCondition::AuthorHitsMessageRateLimit {
             message_count,
             time_window_minutes,
         } => {
             tx.execute(
-                "INSERT INTO moderation_condition__user_exceeds_messages_rate_limit (condition_id, message_count, time_window_minutes) VALUES (?1, ?2, ?3)",
+                "INSERT INTO moderation_condition__author_hits_message_rate_limit (condition_id, message_count, time_window_minutes) VALUES (?1, ?2, ?3)",
                 params![condition_id, message_count, time_window_minutes],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::UserExceedsModerationRateLimit {
+        ModerationCondition::AuthorHitsModerationRateLimit {
             message_count,
             time_window_minutes,
         } => {
             tx.execute(
-                "INSERT INTO moderation_condition__user_exceeds_moderation_rate_limit (condition_id, message_count, time_window_minutes) VALUES (?1, ?2, ?3)",
+                "INSERT INTO moderation_condition__author_hits_moderation_rate_limit (condition_id, message_count, time_window_minutes) VALUES (?1, ?2, ?3)",
                 params![condition_id, message_count, time_window_minutes],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::UserJoinedRecently {
+        ModerationCondition::AuthorJoinedRecently {
             time_window_minutes,
         } => {
             tx.execute(
-                "INSERT INTO moderation_condition__user_joined_recently (condition_id, time_window_minutes) VALUES (?1, ?2)",
+                "INSERT INTO moderation_condition__author_joined_recently (condition_id, time_window_minutes) VALUES (?1, ?2)",
                 params![condition_id, time_window_minutes],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;

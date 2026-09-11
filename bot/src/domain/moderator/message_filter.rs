@@ -28,18 +28,18 @@
 //!    the planner emitted them (see `action_planner`'s ordering guarantees, e.g. delete
 //!    before kick).
 //!
-//! # The moderation-rate-limit special case (why there is a pre-pass)
-//! `UserExceedsModerationRateLimit` triggers based on how many of the author's *recent*
+//! # The `AuthorHitsModerationRateLimit` special case (why there is a pre-pass)
+//! `AuthorHitsModerationRateLimit` triggers based on how many of the author's *recent*
 //! messages were moderated. The current message must count toward that total **iff it is
 //! itself moderated by some other (independent) rule** — otherwise a single clean message
 //! could never trip the limit, and a moderated one should. Whether the message is moderated
-//! by another rule cannot depend on where the rate-limit condition happens to sit (that would
+//! by another rule cannot depend on where that condition happens to sit (that would
 //! make behaviour order-dependent, which we explicitly avoid).
 //!
 //! Since a condition is a tree, that condition can sit at any depth inside any rule, so
 //! "every *other* rule" is no longer a well-defined set. The generalisation: **only when some
 //! rule's tree contains one**, we make a pre-pass that evaluates every rule with all
-//! `UserExceedsModerationRateLimit` nodes pinned to "no match", and take the disjunction. When
+//! `AuthorHitsModerationRateLimit` nodes pinned to "no match", and take the disjunction. When
 //! the condition sits at the root of its own rule — the only shape expressible before trees —
 //! this reduces exactly to the previous behaviour. `normalize_and_validate` forbids the
 //! condition under a `Not`, which is what keeps the pinning from feeding back into itself.
@@ -51,7 +51,7 @@
 //! One module per entity, each owning the type and every submodule that only serves it:
 //! - `moderation_condition` — [`ModerationCondition`]: its parameters, the checks applied when
 //!   an owner saves them, and how one is evaluated against a message. The per-kind matching
-//!   algorithms are its children (`keywords`, `links`, `regex_match`, `screen_flooding`, ...).
+//!   algorithms are its children (`keywords`, `links`, `regex_match`, `message_length`, ...).
 //! - `moderation_action` — [`ModerationAction`]: what a matched rule does. A plain file, not a
 //!   directory: unlike a condition, an action carries no per-kind logic of its own.
 //! - `moderation_rule` — [`ModerationRule`]: the pairing of the two.
@@ -70,7 +70,7 @@
 //!   here. This module must not learn that "one rule is stronger than another"; it only asks
 //!   the planner.
 //! - Keep rule evaluation order-independent in outcome. If you need cross-rule context (like
-//!   the rate-limit flag), compute it up front rather than relying on list position.
+//!   the pre-pass flag), compute it up front rather than relying on list position.
 //! - Every condition should be evaluated at most once per message.
 
 mod action_planner;
@@ -111,8 +111,8 @@ pub async fn should_moderate(
 ) -> Result<Option<ModerationMatch>, Err> {
     let mut ctx = ConditionContext::new(group_message, activity_repo, moderation_activity_repo);
 
-    // Only pay for the pre-pass when some rule actually asks about the
-    // moderation rate limit.
+    // Only pay for the pre-pass when some rule actually asks how many of the
+    // author's messages were moderated.
     if rules
         .iter()
         .any(|rule| rule.condition.contains_moderation_rate_limit())

@@ -81,7 +81,7 @@ mod tests {
         let version: i64 = guard
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 24);
+        assert_eq!(version, 25);
     }
 
     /// 0022 rebuilds every rule as a `moderation_rules` row plus a condition
@@ -145,7 +145,7 @@ mod tests {
             vec![
                 ModerationRule {
                     action: ModerationAction::ModerateMessage,
-                    condition: ModerationCondition::ContainsBannedWords {
+                    condition: ModerationCondition::ContainsWords {
                         keywords: vec!["alpha".to_string(), "beta".to_string()],
                     },
                 },
@@ -160,7 +160,7 @@ mod tests {
                 },
                 ModerationRule {
                     action: ModerationAction::ModerateMessage,
-                    condition: ModerationCondition::UserExceedsMessagesRateLimit {
+                    condition: ModerationCondition::AuthorHitsMessageRateLimit {
                         message_count: 5,
                         time_window_minutes: 3,
                     },
@@ -192,6 +192,200 @@ mod tests {
         );
     }
 
+    /// 0025 renames most condition types and their tables, and splits
+    /// `FloodsChatOrExceedsLimits` into one condition per check. Seed the
+    /// schema it replaces with one rule per case and check every rule reads
+    /// back as the condition it now is, in order, with its settings.
+    #[tokio::test]
+    async fn test_0025_renames_conditions_and_splits_floods() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        apply_through(&mut conn, 24).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name)
+                  VALUES (9, 900, 90, 'Renamed Group');
+
+             INSERT INTO moderation_rules (id, group_id, rank) VALUES
+                 (1, 9, 0), (2, 9, 1), (3, 9, 2), (4, 9, 3), (5, 9, 4), (6, 9, 5),
+                 (7, 9, 6), (8, 9, 7), (9, 9, 8), (10, 9, 9), (11, 9, 10), (12, 9, 11);
+
+             -- Plain renames, each with its settings or list rows.
+             INSERT INTO moderation_conditions (id, rule_id, parent_id, rank, type) VALUES
+                 (1, 1, NULL, 0, 'ContainsBannedWords'),
+                 (2, 2, NULL, 0, 'ContainsLinksToForbiddenWebsites'),
+                 (3, 3, NULL, 0, 'ContainsLinksOutsideAllowedList'),
+                 (4, 4, NULL, 0, 'ContainsLinksOutsideTop100'),
+                 (5, 5, NULL, 0, 'UserExceedsMessagesRateLimit'),
+                 (6, 6, NULL, 0, 'UserExceedsModerationRateLimit'),
+                 (7, 7, NULL, 0, 'UserJoinedRecently');
+             INSERT INTO moderation_condition__contains_banned_words__keywords
+                  VALUES (1, 'alpha'), (1, 'beta');
+             INSERT INTO moderation_condition__contains_links_to_forbidden_websites__domains
+                  VALUES (2, 'spam.com');
+             INSERT INTO moderation_condition__contains_links_outside_allowed_list__domains
+                  VALUES (3, 'ok.com');
+             INSERT INTO moderation_condition__contains_links_outside_top100__allowed
+                  VALUES (4, 'extra.com');
+             INSERT INTO moderation_condition__user_exceeds_messages_rate_limit VALUES (5, 5, 2);
+             INSERT INTO moderation_condition__user_exceeds_moderation_rate_limit VALUES (6, 3, 60);
+             INSERT INTO moderation_condition__user_joined_recently VALUES (7, 30);
+
+             -- Floods with every check on: becomes an Any of all five, in order.
+             INSERT INTO moderation_conditions (id, rule_id, parent_id, rank, type)
+                  VALUES (8, 8, NULL, 0, 'FloodsChatOrExceedsLimits');
+             INSERT INTO moderation_condition__floods_chat_or_exceeds_limits
+                  (condition_id, max_characters, max_words, max_lines, chars_per_line,
+                   disallow_invisible_chars, disallow_empty_messages)
+                  VALUES (8, 100, 20, 5, 35, 1, 1);
+
+             -- Floods with a single check: replaced in place by that check,
+             -- keeping its position inside the surrounding tree.
+             INSERT INTO moderation_conditions (id, rule_id, parent_id, rank, type) VALUES
+                 (9, 9, NULL, 0, 'All'),
+                 (10, 9, 9, 0, 'ContainsBannedWords'),
+                 (11, 9, 9, 1, 'FloodsChatOrExceedsLimits');
+             INSERT INTO moderation_condition__contains_banned_words__keywords VALUES (10, 'gamma');
+             INSERT INTO moderation_condition__floods_chat_or_exceeds_limits
+                  (condition_id, max_characters, max_words, max_lines, chars_per_line,
+                   disallow_invisible_chars, disallow_empty_messages)
+                  VALUES (11, 0, 0, 3, 0, 0, 0);
+
+             -- Floods with two checks under a Not: the Not keeps a single
+             -- child, which is now an Any.
+             INSERT INTO moderation_conditions (id, rule_id, parent_id, rank, type) VALUES
+                 (12, 10, NULL, 0, 'Not'),
+                 (13, 10, 12, 0, 'FloodsChatOrExceedsLimits');
+             INSERT INTO moderation_condition__floods_chat_or_exceeds_limits
+                  (condition_id, max_characters, max_words, max_lines, chars_per_line,
+                   disallow_invisible_chars, disallow_empty_messages)
+                  VALUES (13, 0, 7, 0, 40, 1, 0);
+
+             -- Floods with every check off: never matched, and still doesn't.
+             INSERT INTO moderation_conditions (id, rule_id, parent_id, rank, type)
+                  VALUES (14, 11, NULL, 0, 'FloodsChatOrExceedsLimits');
+             INSERT INTO moderation_condition__floods_chat_or_exceeds_limits
+                  (condition_id, max_characters, max_words, max_lines, chars_per_line,
+                   disallow_invisible_chars, disallow_empty_messages)
+                  VALUES (14, 0, 0, 0, 40, 0, 0);
+
+             -- Floods without its settings row: the defaults the reader used to
+             -- fall back to matched blank messages only.
+             INSERT INTO moderation_conditions (id, rule_id, parent_id, rank, type)
+                  VALUES (15, 12, NULL, 0, 'FloodsChatOrExceedsLimits');",
+        )
+        .unwrap();
+
+        apply(&mut conn).unwrap();
+
+        use crate::domain::moderator::ports::{ModerationCondition as C, ModerationRepository};
+        let conn = Arc::new(Mutex::new(conn));
+        let repo =
+            crate::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository::new(
+                conn.clone(),
+            );
+        let loaded: Vec<C> = repo
+            .get_group_rules(&9)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|owned| owned.rule.condition)
+            .collect();
+
+        let strings = |values: &[&str]| values.iter().map(|v| v.to_string()).collect();
+        assert_eq!(
+            loaded,
+            vec![
+                C::ContainsWords {
+                    keywords: strings(&["alpha", "beta"]),
+                },
+                C::ContainsLinksInList {
+                    domains: strings(&["spam.com"]),
+                },
+                C::ContainsLinksOutsideList {
+                    domains: strings(&["ok.com"]),
+                },
+                C::ContainsLinksOutsideTop100 {
+                    domains: strings(&["extra.com"]),
+                },
+                C::AuthorHitsMessageRateLimit {
+                    message_count: 5,
+                    time_window_minutes: 2,
+                },
+                C::AuthorHitsModerationRateLimit {
+                    message_count: 3,
+                    time_window_minutes: 60,
+                },
+                C::AuthorJoinedRecently {
+                    time_window_minutes: 30,
+                },
+                C::Any {
+                    conditions: vec![
+                        C::IsBlank,
+                        C::ContainsInvisibleCharacters,
+                        C::ExceedsMaxCharacters {
+                            max_characters: 100,
+                        },
+                        C::ExceedsMaxWords { max_words: 20 },
+                        C::ExceedsMaxLines {
+                            max_lines: 5,
+                            chars_per_line: 35,
+                        },
+                    ],
+                },
+                C::All {
+                    conditions: vec![
+                        C::ContainsWords {
+                            keywords: strings(&["gamma"]),
+                        },
+                        C::ExceedsMaxLines {
+                            max_lines: 3,
+                            chars_per_line: 0,
+                        },
+                    ],
+                },
+                C::Not {
+                    condition: Box::new(C::Any {
+                        conditions: vec![
+                            C::ContainsInvisibleCharacters,
+                            C::ExceedsMaxWords { max_words: 7 },
+                        ],
+                    }),
+                },
+                C::Any { conditions: vec![] },
+                C::IsBlank,
+            ]
+        );
+
+        let guard = conn.lock().unwrap();
+        let leftovers: i64 = guard
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                  WHERE type = 'table'
+                    AND name IN (
+                        'moderation_condition__contains_banned_words__keywords',
+                        'moderation_condition__contains_links_to_forbidden_websites__domains',
+                        'moderation_condition__contains_links_outside_allowed_list__domains',
+                        'moderation_condition__contains_links_outside_top100__allowed',
+                        'moderation_condition__floods_chat_or_exceeds_limits',
+                        'moderation_condition__user_exceeds_messages_rate_limit',
+                        'moderation_condition__user_exceeds_moderation_rate_limit',
+                        'moderation_condition__user_joined_recently'
+                    )",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(leftovers, 0, "every old table should be renamed or dropped");
+        let temp_tables: i64 = guard
+            .query_row("SELECT COUNT(*) FROM sqlite_temp_master", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            temp_tables, 0,
+            "the migration's scratch tables should be gone"
+        );
+    }
+
     /// The invariant the schema is shaped around: the group is the root, so one
     /// delete empties everything, with no manual sweeping anywhere.
     #[tokio::test]
@@ -213,7 +407,7 @@ mod tests {
                 action: ModerationAction::ModerateMessage,
                 condition: ModerationCondition::All {
                     conditions: vec![
-                        ModerationCondition::ContainsBannedWords {
+                        ModerationCondition::ContainsWords {
                             keywords: vec!["alpha".to_string()],
                         },
                         ModerationCondition::Not {
@@ -225,7 +419,7 @@ mod tests {
                             min_repeats: 5,
                             min_length: 1,
                         },
-                        ModerationCondition::UserJoinedRecently {
+                        ModerationCondition::AuthorJoinedRecently {
                             time_window_minutes: 10,
                         },
                     ],

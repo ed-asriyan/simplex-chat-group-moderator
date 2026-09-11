@@ -1,16 +1,13 @@
 use super::filter::{
-    check_blacklist, check_whitelist, find_domains, should_moderate_blacklist,
-    should_moderate_whitelist,
+    find_domains, find_in_list, find_outside_list, should_moderate_in_list,
+    should_moderate_outside_list,
 };
 
 /// Mock domain list returned by `find_domains` (pre-extracted, lowercase).
 fn found(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| s.to_string()).collect()
 }
-fn blocked(items: &[&str]) -> Vec<String> {
-    items.iter().map(|s| s.to_string()).collect()
-}
-fn allowed(items: &[&str]) -> Vec<String> {
+fn list(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| s.to_string()).collect()
 }
 
@@ -127,12 +124,12 @@ fn find_domains_deduplication() {
 }
 
 // ===========================================================================
-// check_blacklist — decision logic (mock domain input)
+// find_in_list — decision logic (mock domain input)
 // ===========================================================================
 
 #[test]
-fn blacklist_decision_table() {
-    // (detected_domains, blocked_patterns, expected_result)
+fn in_list_decision_table() {
+    // (detected_domains, listed_patterns, expected_result)
     // Domains are already normalised/lowercased (as find_domains returns them).
     let cases: &[(&[&str], &[&str], Option<&str>)] = &[
         (&["evil.com"], &["evil.com"], Some("evil.com")),
@@ -142,80 +139,79 @@ fn blacklist_decision_table() {
         (&["notevil.com"], &["evil.com"], None), // not a suffix match
         (&["evil.com"], &["EVIL.COM"], Some("evil.com")), // case-insensitive pattern
         (&[], &["evil.com"], None),              // no domains found
-        (&["evil.com"], &[], None),              // empty blocklist
+        (&["evil.com"], &[], None),              // empty list
         (&["good.com", "evil.com"], &["evil.com"], Some("evil.com")),
         (&["evil.com", "bad.org"], &["bad.org"], Some("bad.org")),
-        (&["bad.com"], &["sub.bad.com"], None), // subdomain not blocked if only parent is listed
+        (&["bad.com"], &["sub.bad.com"], None), // subdomain not matched if only parent is listed
     ];
 
     for &(detected, patterns, expected) in cases {
-        let result = check_blacklist(&found(detected), &blocked(patterns));
+        let result = find_in_list(&found(detected), &list(patterns));
         assert_eq!(
             result.as_deref(),
             expected,
-            "domains={detected:?} blocked={patterns:?}",
+            "domains={detected:?} list={patterns:?}",
         );
     }
 }
 
-/// Smoke test: verifies `find_domains` + `check_blacklist` compose correctly.
+/// Smoke test: verifies `find_domains` + `find_in_list` compose correctly.
 /// Obfuscation edge-cases are covered by `find_domains_table`.
 #[test]
-fn blacklist_pipeline_smoke() {
-    assert!(should_moderate_blacklist("https://evil.com", &blocked(&["evil.com"])).is_some());
-    assert!(should_moderate_blacklist("just plain text", &blocked(&["evil.com"])).is_none());
+fn in_list_pipeline_smoke() {
+    assert!(should_moderate_in_list("https://evil.com", &list(&["evil.com"])).is_some());
+    assert!(should_moderate_in_list("just plain text", &list(&["evil.com"])).is_none());
 }
 
 /// Integration test: full pipeline with obfuscated input.
 #[test]
-fn blacklist_spaced_chars_is_moderated() {
+fn in_list_spaced_chars_is_moderated() {
     assert!(
-        should_moderate_blacklist("H t t p:// a s r tiyan . ru", &blocked(&["asrtiyan.ru"]))
-            .is_some()
+        should_moderate_in_list("H t t p:// a s r tiyan . ru", &list(&["asrtiyan.ru"])).is_some()
     );
 }
 
 // ===========================================================================
-// check_whitelist — decision logic (mock domain input)
+// find_outside_list — decision logic (mock domain input)
 // ===========================================================================
 
 #[test]
-fn whitelist_decision_table() {
-    // (detected_domains, allowed_patterns, expected_result)
+fn outside_list_decision_table() {
+    // (detected_domains, listed_patterns, expected_result)
     let cases: &[(&[&str], &[&str], Option<&str>)] = &[
         (&["good.com"], &["good.com"], None),
         (&["evil.com"], &["good.com"], Some("evil.com")),
-        (&["docs.good.com"], &["good.com"], None), // subdomain of allowed
+        (&["docs.good.com"], &["good.com"], None), // subdomain of listed
         (&[], &["good.com"], None),                // no domains found
-        (&["anything.com"], &[], Some("anything.com")), // empty allowlist
+        (&["anything.com"], &[], Some("anything.com")), // empty list: every link is outside it
         (&["good.com"], &["GOOD.COM"], None),      // case-insensitive pattern
         (&["good.com", "evil.com"], &["good.com"], Some("evil.com")),
         (&["good.com", "docs.good.com"], &["good.com"], None), // all covered
-        (&["good.com"], &["sub.good.com"], Some("good.com")),  // subdomain allowed, but not parent
+        (&["good.com"], &["sub.good.com"], Some("good.com")),  // subdomain listed, but not parent
     ];
 
     for &(detected, patterns, expected) in cases {
-        let result = check_whitelist(&found(detected), &allowed(patterns));
+        let result = find_outside_list(&found(detected), &list(patterns));
         assert_eq!(
             result.as_deref(),
             expected,
-            "domains={detected:?} allowed={patterns:?}",
+            "domains={detected:?} list={patterns:?}",
         );
     }
 }
 
-/// Smoke test: verifies `find_domains` + `check_whitelist` compose correctly.
+/// Smoke test: verifies `find_domains` + `find_outside_list` compose correctly.
 #[test]
-fn whitelist_pipeline_smoke() {
-    assert!(should_moderate_whitelist("https://good.com", &allowed(&["good.com"])).is_none());
-    assert!(should_moderate_whitelist("https://evil.com", &allowed(&["good.com"])).is_some());
+fn outside_list_pipeline_smoke() {
+    assert!(should_moderate_outside_list("https://good.com", &list(&["good.com"])).is_none());
+    assert!(should_moderate_outside_list("https://evil.com", &list(&["good.com"])).is_some());
 }
 
 /// Integration test: full pipeline with obfuscated input.
 #[test]
-fn whitelist_spaced_chars_non_allowed_is_moderated() {
+fn outside_list_spaced_chars_unlisted_is_moderated() {
     assert!(
-        should_moderate_whitelist("H t t p:// a s r tiyan . ru", &blocked(&["github.com"]))
+        should_moderate_outside_list("H t t p:// a s r tiyan . ru", &list(&["github.com"]))
             .is_some()
     );
 }

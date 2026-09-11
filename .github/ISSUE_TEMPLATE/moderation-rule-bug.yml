@@ -28,17 +28,21 @@ body:
     attributes:
       label: Which rule type is misbehaving?
       options:
-        - Message Contains Banned Words
-        - Message Matches Exact Text
-        - Message Matches Regex Patterns
+        - Message Contains Any of These Words
+        - Message Exactly Matches Any of These Texts
+        - Message Matches Any of These Regex Patterns
         - Message Contains Repeated Sequence
-        - Message Contains Links to Forbidden Websites
-        - Message Contains Links Outside Approved Websites
-        - Message Contains Links Outside Top 100 Safe Websites
-        - Message Floods Chat or Exceeds Limits
-        - User Exceeds Messages Rate Limit
-        - User Exceeds Moderation Rate Limit
-        - User Joined Recently
+        - Message Contains a Link to Any of These Websites
+        - Message Contains a Link to a Website Outside This List
+        - Message Contains a Link Outside Top 100 Websites
+        - Message Is Empty or Blank
+        - Message Contains Invisible Characters
+        - Message Exceeds Max Characters
+        - Message Exceeds Max Words
+        - Message Exceeds Max Lines
+        - Author Hits Message Rate Limit
+        - Author Hits Moderation Rate Limit
+        - Author Joined Recently
         - All of These Conditions Match (AND)
         - Any of These Conditions Match (OR)
         - This Condition Does Not Match (NOT)

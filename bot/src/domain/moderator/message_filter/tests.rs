@@ -13,17 +13,17 @@ fn test_deserialize_rule_with_moderate_message_action() {
             "type": "ModerateMessage"
         },
         "condition": {
-            "type": "ContainsBannedWords",
+            "type": "ContainsWords",
             "keywords": ["spam", "ad"]
         }
     }"#;
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
     assert_eq!(rule.action, ModerationAction::ModerateMessage);
     match rule.condition {
-        ModerationCondition::ContainsBannedWords { keywords } => {
+        ModerationCondition::ContainsWords { keywords } => {
             assert_eq!(keywords, vec!["spam".to_string(), "ad".to_string()]);
         }
-        _ => panic!("Expected ContainsBannedWords condition"),
+        _ => panic!("Expected ContainsWords condition"),
     }
 }
 
@@ -35,7 +35,7 @@ fn test_deserialize_rule_with_kick_author_action() {
             "delete_messages": "TriggeredMessage"
         },
         "condition": {
-            "type": "ContainsBannedWords",
+            "type": "ContainsWords",
             "keywords": ["malware"]
         }
     }"#;
@@ -54,7 +54,7 @@ fn test_deserialize_rule_with_kick_author_action() {
             "delete_messages": "None"
         },
         "condition": {
-            "type": "ContainsBannedWords",
+            "type": "ContainsWords",
             "keywords": ["malware"]
         }
     }"#;
@@ -73,7 +73,7 @@ fn test_deserialize_rule_with_kick_author_action() {
             "delete_messages": "AllMessages"
         },
         "condition": {
-            "type": "ContainsBannedWords",
+            "type": "ContainsWords",
             "keywords": ["malware"]
         }
     }"#;
@@ -91,7 +91,7 @@ fn test_deserialize_rule_with_kick_author_action() {
             "type": "KickAuthor"
         },
         "condition": {
-            "type": "ContainsBannedWords",
+            "type": "ContainsWords",
             "keywords": ["malware"]
         }
     }"#;
@@ -112,7 +112,7 @@ fn test_deserialize_rule_with_set_author_observer_action() {
             "delete_message": "TriggeredMessage"
         },
         "condition": {
-            "type": "ContainsBannedWords",
+            "type": "ContainsWords",
             "keywords": ["malware"]
         }
     }"#;
@@ -131,7 +131,7 @@ fn test_deserialize_rule_with_set_author_observer_action() {
             "delete_message": "None"
         },
         "condition": {
-            "type": "ContainsBannedWords",
+            "type": "ContainsWords",
             "keywords": ["malware"]
         }
     }"#;
@@ -149,7 +149,7 @@ fn test_deserialize_rule_with_set_author_observer_action() {
             "type": "SetAuthorObserver"
         },
         "condition": {
-            "type": "ContainsBannedWords",
+            "type": "ContainsWords",
             "keywords": ["malware"]
         }
     }"#;
@@ -185,7 +185,7 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
         action: ModerationAction::KickAuthor {
             delete_messages: DeleteAuthorMessages::None,
         },
-        condition: ModerationCondition::ContainsBannedWords {
+        condition: ModerationCondition::ContainsWords {
             keywords: vec!["danger".to_string()],
         },
     }];
@@ -207,7 +207,7 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
             delete_messages: DeleteAuthorMessages::None,
         }
     );
-    assert_eq!(m.reason, "blacklisted word: 'danger'");
+    assert_eq!(m.reason, "contains word: 'danger'");
 }
 
 #[tokio::test]
@@ -215,7 +215,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
     let rules = vec![
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: ModerationCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsWords {
                 keywords: vec!["first".to_string()],
             },
         },
@@ -223,7 +223,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: ModerationCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsWords {
                 keywords: vec!["second".to_string()],
             },
         },
@@ -258,10 +258,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
             }
         ]
     );
-    assert_eq!(
-        m.reason,
-        "blacklisted word: 'first', blacklisted word: 'second'"
-    );
+    assert_eq!(m.reason, "contains word: 'first', contains word: 'second'");
 
     // Reversed rules list: KickAuthor is evaluated first.
     // ModerateMessage is a subset of KickAuthor { TriggeredMessage }, so its condition is skipped!
@@ -278,14 +275,14 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
         }
     );
     // Reason only contains 'second' because the subset rule was skipped!
-    assert_eq!(rm.reason, "blacklisted word: 'second'");
+    assert_eq!(rm.reason, "contains word: 'second'");
 }
 
 #[tokio::test]
 async fn test_no_rules_match_returns_none() {
     let rules = vec![ModerationRule {
         action: ModerationAction::ModerateMessage,
-        condition: ModerationCondition::ContainsBannedWords {
+        condition: ModerationCondition::ContainsWords {
             keywords: vec!["banned".to_string()],
         },
     }];
@@ -306,14 +303,14 @@ async fn test_no_rules_match_returns_none() {
 }
 
 #[test]
-fn test_deserialize_rate_limit_rule() {
+fn test_deserialize_message_rate_limit_rule() {
     let json = r#"{
         "action": {
             "type": "KickAuthor",
             "delete_messages": "AllMessages"
         },
         "condition": {
-            "type": "UserExceedsMessagesRateLimit",
+            "type": "AuthorHitsMessageRateLimit",
             "message_count": 5,
             "time_window_minutes": 10
         }
@@ -327,7 +324,7 @@ fn test_deserialize_rate_limit_rule() {
     );
     assert_eq!(
         rule.condition,
-        ModerationCondition::UserExceedsMessagesRateLimit {
+        ModerationCondition::AuthorHitsMessageRateLimit {
             message_count: 5,
             time_window_minutes: 10,
         }
@@ -335,54 +332,10 @@ fn test_deserialize_rate_limit_rule() {
 }
 
 #[test]
-fn test_deserialize_rate_limit_rule_aliases() {
-    let json = r#"{
-        "action": {
-            "type": "ModerateMessage"
-        },
-        "condition": {
-            "type": "RateLimit",
-            "count": 3,
-            "minutes": 2
-        }
-    }"#;
-    let rule: ModerationRule = serde_json::from_str(json).unwrap();
-    assert_eq!(
-        rule.condition,
-        ModerationCondition::UserExceedsMessagesRateLimit {
-            message_count: 3,
-            time_window_minutes: 2,
-        }
-    );
-}
-
-#[test]
-fn test_deserialize_moderation_rate_limit_rule_aliases() {
-    let json = r#"{
-        "action": {
-            "type": "KickAuthor"
-        },
-        "condition": {
-            "type": "UserExceededModerationRateLimit",
-            "moderated_count": 4,
-            "window_minutes": 30
-        }
-    }"#;
-    let rule: ModerationRule = serde_json::from_str(json).unwrap();
-    assert_eq!(
-        rule.condition,
-        ModerationCondition::UserExceedsModerationRateLimit {
-            message_count: 4,
-            time_window_minutes: 30,
-        }
-    );
-}
-
-#[test]
-fn test_rate_limit_serialization_roundtrip() {
+fn test_message_rate_limit_serialization_roundtrip() {
     let rule = ModerationRule {
         action: ModerationAction::ModerateMessage,
-        condition: ModerationCondition::UserExceedsMessagesRateLimit {
+        condition: ModerationCondition::AuthorHitsMessageRateLimit {
             message_count: 10,
             time_window_minutes: 5,
         },
@@ -443,12 +396,12 @@ impl UserModerationActivityRepository for MockActivityRepoForFilter {
 }
 
 #[tokio::test]
-async fn test_should_moderate_with_rate_limit() {
+async fn test_should_moderate_with_message_rate_limit() {
     let rules = vec![ModerationRule {
         action: ModerationAction::KickAuthor {
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         },
-        condition: ModerationCondition::UserExceedsMessagesRateLimit {
+        condition: ModerationCondition::AuthorHitsMessageRateLimit {
             message_count: 5,
             time_window_minutes: 1,
         },
@@ -485,10 +438,7 @@ async fn test_should_moderate_with_rate_limit() {
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         }
     );
-    assert_eq!(
-        m.reason,
-        "user exceeds messages rate limit: 5 messages in 1 min"
-    );
+    assert_eq!(m.reason, "author sent 5 messages in 1 min");
 }
 
 #[tokio::test]
@@ -497,7 +447,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
         action: ModerationAction::KickAuthor {
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         },
-        condition: ModerationCondition::UserExceedsModerationRateLimit {
+        condition: ModerationCondition::AuthorHitsModerationRateLimit {
             message_count: 3,
             time_window_minutes: 60,
         },
@@ -534,10 +484,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         }
     );
-    assert_eq!(
-        m.reason,
-        "user exceeds moderation rate limit: 3 moderated messages in 60 min"
-    );
+    assert_eq!(m.reason, "author had 3 messages moderated in 60 min");
 }
 
 #[tokio::test]
@@ -545,7 +492,7 @@ async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_mess
     let rules = vec![
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: ModerationCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsWords {
                 keywords: vec!["spam".to_string()],
             },
         },
@@ -553,7 +500,7 @@ async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_mess
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::AllMessages,
             },
-            condition: ModerationCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsWords {
                 keywords: vec!["malware".to_string()],
             },
         },
@@ -592,7 +539,7 @@ async fn test_independent_rules_combine_and_order_deletion_before_kick() {
     let rules = vec![
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: ModerationCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsWords {
                 keywords: vec!["spam".to_string()],
             },
         },
@@ -600,7 +547,7 @@ async fn test_independent_rules_combine_and_order_deletion_before_kick() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::None,
             },
-            condition: ModerationCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsWords {
                 keywords: vec!["kickme".to_string()],
             },
         },
@@ -641,11 +588,11 @@ async fn test_independent_rules_combine_and_order_deletion_before_kick() {
 async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
     // User has 2 previous moderated messages in DB, limit is 3 in 60 min.
     // Rule 1: ModerateMessage on "badword"
-    // Rule 2: KickAuthor on UserExceedsModerationRateLimit (limit: 3)
+    // Rule 2: KickAuthor on AuthorHitsModerationRateLimit (limit: 3)
     let rules = vec![
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: ModerationCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsWords {
                 keywords: vec!["badword".to_string()],
             },
         },
@@ -653,7 +600,7 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: ModerationCondition::UserExceedsModerationRateLimit {
+            condition: ModerationCondition::AuthorHitsModerationRateLimit {
                 message_count: 3,
                 time_window_minutes: 60,
             },
@@ -698,14 +645,14 @@ async fn test_moderation_rate_limit_is_order_independent() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: ModerationCondition::UserExceedsModerationRateLimit {
+            condition: ModerationCondition::AuthorHitsModerationRateLimit {
                 message_count: 3,
                 time_window_minutes: 60,
             },
         },
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: ModerationCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsWords {
                 keywords: vec!["badword".to_string()],
             },
         },
@@ -735,15 +682,15 @@ async fn test_moderation_rate_limit_is_order_independent() {
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         }
     );
-    assert!(result.reason.contains("user exceeds moderation rate limit"));
+    assert!(result.reason.contains("messages moderated in"));
 }
 
 // ---------------------------------------------------------------------------
 // Composite conditions
 // ---------------------------------------------------------------------------
 
-fn banned(keyword: &str) -> ModerationCondition {
-    ModerationCondition::ContainsBannedWords {
+fn words(keyword: &str) -> ModerationCondition {
+    ModerationCondition::ContainsWords {
         keywords: vec![keyword.to_string()],
     }
 }
@@ -770,7 +717,7 @@ async fn matched(text: &str, condition: ModerationCondition) -> Option<Moderatio
 #[tokio::test]
 async fn test_all_matches_only_when_every_child_matches() {
     let condition = ModerationCondition::All {
-        conditions: vec![banned("alpha"), banned("beta")],
+        conditions: vec![words("alpha"), words("beta")],
     };
     assert!(matched("alpha only", condition.clone()).await.is_none());
     assert!(matched("beta only", condition.clone()).await.is_none());
@@ -779,25 +726,25 @@ async fn test_all_matches_only_when_every_child_matches() {
     // Every child contributes its own reason, so the owner sees what combined.
     assert_eq!(
         both.reason,
-        "blacklisted word: 'alpha' and blacklisted word: 'beta'"
+        "contains word: 'alpha' and contains word: 'beta'"
     );
 }
 
 #[tokio::test]
 async fn test_any_matches_when_one_child_matches() {
     let condition = ModerationCondition::Any {
-        conditions: vec![banned("alpha"), banned("beta")],
+        conditions: vec![words("alpha"), words("beta")],
     };
     assert!(matched("nothing here", condition.clone()).await.is_none());
 
     let hit = matched("only beta", condition).await.unwrap();
-    assert_eq!(hit.reason, "blacklisted word: 'beta'");
+    assert_eq!(hit.reason, "contains word: 'beta'");
 }
 
 #[tokio::test]
 async fn test_not_inverts_its_child() {
     let condition = ModerationCondition::Not {
-        condition: Box::new(banned("allowed")),
+        condition: Box::new(words("allowed")),
     };
     assert!(
         matched("this is allowed", condition.clone())
@@ -807,7 +754,10 @@ async fn test_not_inverts_its_child() {
 
     let hit = matched("anything else", condition).await.unwrap();
     // The child did not match, so it produced no reason of its own.
-    assert_eq!(hit.reason, "does not match: contains a blacklisted word");
+    assert_eq!(
+        hit.reason,
+        "does not match: contains one of the listed words"
+    );
 }
 
 #[tokio::test]
@@ -816,10 +766,10 @@ async fn test_nested_tree_combines_all_three_operators() {
     let condition = ModerationCondition::All {
         conditions: vec![
             ModerationCondition::Any {
-                conditions: vec![banned("alpha"), banned("beta")],
+                conditions: vec![words("alpha"), words("beta")],
             },
             ModerationCondition::Not {
-                condition: Box::new(banned("exempt")),
+                condition: Box::new(words("exempt")),
             },
         ],
     };
@@ -849,7 +799,7 @@ async fn test_empty_composites_never_match() {
 
 #[tokio::test]
 async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tree() {
-    // The pre-pass has to see through the composites: the banned word sits
+    // The pre-pass has to see through the composites: the word condition sits
     // inside an `Any`, and the rate limit inside an `All`. Before condition
     // trees this was a flat "every other rule" scan.
     let rules = vec![
@@ -859,12 +809,12 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
             },
             condition: ModerationCondition::All {
                 conditions: vec![
-                    ModerationCondition::UserExceedsModerationRateLimit {
+                    ModerationCondition::AuthorHitsModerationRateLimit {
                         message_count: 3,
                         time_window_minutes: 60,
                     },
                     ModerationCondition::Not {
-                        condition: Box::new(banned("exempt")),
+                        condition: Box::new(words("exempt")),
                     },
                 ],
             },
@@ -872,7 +822,7 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
         ModerationRule {
             action: ModerationAction::ModerateMessage,
             condition: ModerationCondition::Any {
-                conditions: vec![banned("badword"), banned("otherword")],
+                conditions: vec![words("badword"), words("otherword")],
             },
         },
     ];
@@ -902,23 +852,23 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         }
     );
-    assert!(result.reason.contains("user exceeds moderation rate limit"));
+    assert!(result.reason.contains("messages moderated in"));
 }
 
 #[tokio::test]
 async fn test_moderation_rate_limit_in_a_tree_ignores_its_own_rule() {
-    // The only other condition in this rule is the banned word, and it does not
+    // The only other condition in this rule is the word condition, and it does not
     // match. With nothing else moderating the message, the current message must
     // not be counted, so two prior strikes stay under the limit of three.
     let rules = vec![ModerationRule {
         action: ModerationAction::ModerateMessage,
         condition: ModerationCondition::Any {
             conditions: vec![
-                ModerationCondition::UserExceedsModerationRateLimit {
+                ModerationCondition::AuthorHitsModerationRateLimit {
                     message_count: 3,
                     time_window_minutes: 60,
                 },
-                banned("absent"),
+                words("absent"),
             ],
         },
     }];
@@ -955,13 +905,13 @@ fn test_composite_wire_format_matches_the_editor_schema() {
                 {
                     "type": "Any",
                     "conditions": [
-                        { "type": "ContainsBannedWords", "keywords": ["spam"] },
+                        { "type": "ContainsWords", "keywords": ["spam"] },
                         { "type": "MatchesRegex", "patterns": ["\\d{4,}"] }
                     ]
                 },
                 {
                     "type": "Not",
-                    "condition": { "type": "ContainsBannedWords", "keywords": ["exempt"] }
+                    "condition": { "type": "ContainsWords", "keywords": ["exempt"] }
                 }
             ]
         }
@@ -974,14 +924,14 @@ fn test_composite_wire_format_matches_the_editor_schema() {
             conditions: vec![
                 ModerationCondition::Any {
                     conditions: vec![
-                        banned("spam"),
+                        words("spam"),
                         ModerationCondition::MatchesRegex {
                             patterns: vec![r"\d{4,}".to_string()],
                         },
                     ],
                 },
                 ModerationCondition::Not {
-                    condition: Box::new(banned("exempt")),
+                    condition: Box::new(words("exempt")),
                 },
             ],
         },
@@ -1000,10 +950,10 @@ fn test_a_flat_condition_still_deserializes_unchanged() {
     // tree of one node.
     let json = r#"{
         "action": { "type": "ModerateMessage" },
-        "condition": { "type": "ContainsBannedWords", "keywords": ["spam"] }
+        "condition": { "type": "ContainsWords", "keywords": ["spam"] }
     }"#;
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
-    assert_eq!(rule.condition, banned("spam"));
+    assert_eq!(rule.condition, words("spam"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1017,25 +967,26 @@ fn test_a_flat_condition_still_deserializes_unchanged() {
 //
 // The hash decompresses to the JSON below: one rule whose condition is
 //   All[ words("test"), Any[ words("message"), words("mac") ], words() ]
-// where that last child is a banned-words condition the owner added and left
-// empty. What follows pins down what the bot does with it.
+// where that last child is a words condition the owner added and left empty.
+// What follows pins down what the bot does with it.
 // ---------------------------------------------------------------------------
 
-/// The decoded contents of the link's `rules` parameter, verbatim.
+/// The decoded contents of the link's `rules` parameter, with the condition
+/// type renamed to its current name (`ContainsBannedWords` at the time).
 const EDITOR_LINK_RULES_JSON: &str = r#"[{
     "action": { "type": "ModerateMessage" },
     "condition": {
         "type": "All",
         "conditions": [
-            { "type": "ContainsBannedWords", "keywords": ["test"] },
+            { "type": "ContainsWords", "keywords": ["test"] },
             {
                 "type": "Any",
                 "conditions": [
-                    { "type": "ContainsBannedWords", "keywords": ["message"] },
-                    { "type": "ContainsBannedWords", "keywords": ["mac"] }
+                    { "type": "ContainsWords", "keywords": ["message"] },
+                    { "type": "ContainsWords", "keywords": ["mac"] }
                 ]
             },
-            { "type": "ContainsBannedWords", "keywords": [] }
+            { "type": "ContainsWords", "keywords": [] }
         ]
     }
 }]"#;
@@ -1071,17 +1022,17 @@ fn test_editor_link_rules_survive_saving_unchanged() {
 
     // Nothing about this tree is redundant in the structural sense, so
     // normalization leaves it exactly as the editor sent it. In particular the
-    // empty banned-words condition is *kept*: an empty keyword list is a valid
+    // empty words condition is *kept*: an empty keyword list is a valid
     // list, unlike an empty `All`, which collapses.
     assert_eq!(
         rules[0].condition,
         ModerationCondition::All {
             conditions: vec![
-                banned("test"),
+                words("test"),
                 ModerationCondition::Any {
-                    conditions: vec![banned("message"), banned("mac")],
+                    conditions: vec![words("message"), words("mac")],
                 },
-                ModerationCondition::ContainsBannedWords { keywords: vec![] },
+                ModerationCondition::ContainsWords { keywords: vec![] },
             ],
         }
     );
@@ -1090,7 +1041,7 @@ fn test_editor_link_rules_survive_saving_unchanged() {
 #[tokio::test]
 async fn test_editor_link_rule_never_moderates_anything() {
     // The owner wrote "test AND (message OR mac)" and left a third, empty
-    // condition behind. A banned-words condition with no words matches nothing,
+    // condition behind. A words condition with no words matches nothing,
     // and inside an `All` that one failing child is enough to sink every
     // message — including the ones the rule was plainly built to catch.
     let rules = saved(EDITOR_LINK_RULES_JSON);
@@ -1115,12 +1066,12 @@ async fn test_the_same_rule_without_the_empty_condition_works_as_intended() {
         "condition": {
             "type": "All",
             "conditions": [
-                { "type": "ContainsBannedWords", "keywords": ["test"] },
+                { "type": "ContainsWords", "keywords": ["test"] },
                 {
                     "type": "Any",
                     "conditions": [
-                        { "type": "ContainsBannedWords", "keywords": ["message"] },
-                        { "type": "ContainsBannedWords", "keywords": ["mac"] }
+                        { "type": "ContainsWords", "keywords": ["message"] },
+                        { "type": "ContainsWords", "keywords": ["mac"] }
                     ]
                 }
             ]
@@ -1140,18 +1091,18 @@ async fn test_the_same_rule_without_the_empty_condition_works_as_intended() {
 }
 
 #[tokio::test]
-async fn test_an_empty_banned_words_condition_matches_nothing_on_its_own() {
+async fn test_an_empty_words_condition_matches_nothing_on_its_own() {
     // The root cause, isolated: this is why the `All` above can never pass.
     let rules = saved(
         r#"[{ "action": { "type": "ModerateMessage" },
-              "condition": { "type": "ContainsBannedWords", "keywords": [] } }]"#,
+              "condition": { "type": "ContainsWords", "keywords": [] } }]"#,
     );
     assert!(!moderates(&rules, "anything at all").await);
     assert!(!moderates(&rules, "").await);
 }
 
 #[tokio::test]
-async fn test_an_empty_banned_words_condition_is_harmless_inside_any() {
+async fn test_an_empty_words_condition_is_harmless_inside_any() {
     // Same empty condition, other composite: `Any` ignores a child that never
     // matches, so only `All` turns it into a rule-killer.
     let rules = saved(
@@ -1160,8 +1111,8 @@ async fn test_an_empty_banned_words_condition_is_harmless_inside_any() {
             "condition": {
                 "type": "Any",
                 "conditions": [
-                    { "type": "ContainsBannedWords", "keywords": ["spam"] },
-                    { "type": "ContainsBannedWords", "keywords": [] }
+                    { "type": "ContainsWords", "keywords": ["spam"] },
+                    { "type": "ContainsWords", "keywords": [] }
                 ]
             }
         }]"#,
@@ -1197,7 +1148,7 @@ async fn matched_from(
 }
 
 fn joined_recently(time_window_minutes: u32) -> ModerationCondition {
-    ModerationCondition::UserJoinedRecently {
+    ModerationCondition::AuthorJoinedRecently {
         time_window_minutes,
     }
 }
@@ -1206,7 +1157,7 @@ fn joined_recently(time_window_minutes: u32) -> ModerationCondition {
 fn test_joined_recently_wire_format_matches_the_editor_schema() {
     let json = r#"{
         "action": { "type": "ModerateMessage" },
-        "condition": { "type": "UserJoinedRecently", "time_window_minutes": 10 }
+        "condition": { "type": "AuthorJoinedRecently", "time_window_minutes": 10 }
     }"#;
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
     assert_eq!(rule.condition, joined_recently(10));
@@ -1238,14 +1189,14 @@ async fn test_joined_recently_matches_only_newcomers() {
 async fn test_joined_recently_narrows_another_condition_inside_all() {
     // The intended use: "newcomers may not post links", everyone else may.
     let condition = ModerationCondition::All {
-        conditions: vec![joined_recently(60), banned("http")],
+        conditions: vec![joined_recently(60), words("http")],
     };
     let hit = matched_from(Some(5), "see http://x", condition.clone())
         .await
         .unwrap();
     assert_eq!(
         hit.reason,
-        "author joined 5 min ago (less than 60 min) and blacklisted word: 'http'"
+        "author joined 5 min ago (less than 60 min) and contains word: 'http'"
     );
 
     assert!(

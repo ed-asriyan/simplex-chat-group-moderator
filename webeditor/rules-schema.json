@@ -123,8 +123,8 @@
             "oneOf": [
                 {
                     "type": "object",
-                    "title": "🚫 Message Contains Banned Words",
-                    "description": "Matches when the message contains specified banned words or phrases. It automatically catches different capitalizations and common tricks used to obfuscate words (like writing `b@dw0rd` instead of `badword`). _List of ready-to-use bad words: [🔞 List of Dirty, Naughty, Obscene Words](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words), [☕ Google Profanity Words](https://github.com/coffee-and-fun/google-profanity-words/tree/main/data), [💬 Comment Blocklist](https://github.com/splorp/wordpress-comment-blocklist)_",
+                    "title": "💬 Message Contains Any of These Words",
+                    "description": "Matches when the message contains any of the listed words or phrases. It automatically catches different capitalizations and common tricks used to obfuscate words (like writing `b@dw0rd` instead of `badword`). _Ready-to-use lists of profanity: [🔞 List of Dirty, Naughty, Obscene Words](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words), [☕ Google Profanity Words](https://github.com/coffee-and-fun/google-profanity-words/tree/main/data), [💬 Comment Blocklist](https://github.com/splorp/wordpress-comment-blocklist)_",
                     "required": [
                         "type",
                         "keywords"
@@ -133,15 +133,15 @@
                     "properties": {
                         "type": {
                             "type": "string",
-                            "const": "ContainsBannedWords",
-                            "default": "ContainsBannedWords",
+                            "const": "ContainsWords",
+                            "default": "ContainsWords",
                             "options": {
                                 "hidden": true
                             }
                         },
                         "keywords": {
                             "type": "array",
-                            "title": "Banned Words / Phrases",
+                            "title": "Words / Phrases",
                             "options": {
                                 "disable_collapse": true
                             },
@@ -156,8 +156,8 @@
                 },
                 {
                     "type": "object",
-                    "title": "🚫 Message Matches Exact Text",
-                    "description": "Matches when the message text exactly matches one of the specified messages.",
+                    "title": "💬 Message Exactly Matches Any of These Texts",
+                    "description": "Matches when the whole message text is exactly one of the listed texts (leading and trailing spaces are ignored).",
                     "required": [
                         "type",
                         "messages",
@@ -181,13 +181,13 @@
                         },
                         "messages": {
                             "type": "array",
-                            "title": "Forbidden Exact Messages",
+                            "title": "Texts",
                             "options": {
                                 "disable_collapse": true
                             },
                             "items": {
                                 "type": "string",
-                                "title": "Message",
+                                "title": "Text",
                                 "maxLength": 1000
                             },
                             "maxItems": 10000
@@ -196,8 +196,8 @@
                 },
                 {
                     "type": "object",
-                    "title": "🚫 Message Matches Regex Patterns",
-                    "description": "Matches when the message matches any of the given regular expressions (Rust `regex` crate syntax — no lookaheads/lookbehinds/backreferences). Runs against the raw, unmodified message text — unlike `Message Contains Banned Words`, it does **not** see through leet-speak, look-alike characters, or other obfuscation. Use it for structural patterns (e.g. \"`\\d{4,}`\" for runs of 4+ digits, \"` {5,}`\" for 5+ consecutive spaces) rather than for banned words. _Build and test your patterns at [\ud83e\uddea regex101](https://regex101.com/) — pick **Rust** in the flavor list on the left, so it behaves exactly like this bot._",
+                    "title": "💬 Message Matches Any of These Regex Patterns",
+                    "description": "Matches when the message matches any of the given regular expressions (Rust `regex` crate syntax — no lookaheads/lookbehinds/backreferences). Runs against the raw, unmodified message text — unlike `Message Contains Any of These Words`, it does **not** see through leet-speak, look-alike characters, or other obfuscation. Use it for structural patterns (e.g. \"`\\d{4,}`\" for runs of 4+ digits, \"` {5,}`\" for 5+ consecutive spaces) rather than for words. _Build and test your patterns at [\ud83e\uddea regex101](https://regex101.com/) — pick **Rust** in the flavor list on the left, so it behaves exactly like this bot._",
                     "required": [
                         "type",
                         "patterns"
@@ -229,8 +229,8 @@
                 },
                 {
                     "type": "object",
-                    "title": "🚫 Message Contains Repeated Sequence",
-                    "description": "Matches when some sequence of characters is repeated back-to-back too many times — e.g. `aaaaa`, `!!!!!`, `hahahahaha`, `buy now buy now buy now`. Sequences can be up to 50 characters long; letter case is ignored, and spaces, line breaks and emoji count as characters. Note that numbers like `1000000` and dots like `.....` count too.",
+                    "title": "💬 Message Contains Repeated Sequence",
+                    "description": "Matches when some sequence of characters is repeated back-to-back at least the given number of times — e.g. `aaaaa`, `!!!!!`, `hahahahaha`, `buy now buy now buy now`. Sequences can be up to 50 characters long; letter case is ignored, and spaces, line breaks and emoji count as characters. Note that numbers like `1000000` and dots like `.....` count too.",
                     "required": [
                         "type",
                         "min_repeats",
@@ -265,26 +265,26 @@
                 },
                 {
                     "type": "object",
-                    "title": "🚫 Message Contains Links to Forbidden Websites",
-                    "description": "Matches when the message contains links to specified forbidden websites or domains (including obfuscated links like `spam [dot] com` or `hxxp://`).",
+                    "title": "🔗 Message Contains a Link to Any of These Websites",
+                    "description": "Matches when the message contains a link to one of the listed websites or domains (including obfuscated links like `spam [dot] com` or `hxxp://`).",
                     "required": [
                         "type",
-                        "blocked"
+                        "domains"
                     ],
                     "additionalProperties": false,
                     "properties": {
                         "type": {
                             "type": "string",
-                            "const": "ContainsLinksToForbiddenWebsites",
-                            "default": "ContainsLinksToForbiddenWebsites",
+                            "const": "ContainsLinksInList",
+                            "default": "ContainsLinksInList",
                             "options": {
                                 "hidden": true
                             }
                         },
-                        "blocked": {
+                        "domains": {
                             "type": "array",
-                            "title": "Forbidden Websites",
-                            "description": "Specific websites or domains to match (e.g., `spam.com`). You can specify entire domains (e.g., `example.com` will match `sub.example.com`) or only specific subdomains (e.g., `sub.example.com` will match `sub.example.com` but not `example.com`). Do not include `http://` or `https://`, just type the domain name.",
+                            "title": "Websites",
+                            "description": "Websites or domains to match (e.g., `spam.com`). You can list an entire domain (e.g., `example.com` also matches `sub.example.com`) or only a specific subdomain (e.g., `sub.example.com` matches `sub.example.com` but not `example.com`). Do not include `http://` or `https://`, just type the domain name.",
                             "options": {
                                 "disable_collapse": true
                             },
@@ -299,26 +299,26 @@
                 },
                 {
                     "type": "object",
-                    "title": "✅ Message Contains Links Outside Approved Websites",
-                    "description": "Matches when the message contains links to websites that are NOT on the approved list (including obfuscated links like `spam [dot] com` or `hxxp://`). Leave the list empty to match ALL links.",
+                    "title": "🔗 Message Contains a Link to a Website Outside This List",
+                    "description": "Matches when the message contains a link to a website that is NOT in the list (including obfuscated links like `spam [dot] com` or `hxxp://`). Leave the list empty to match ALL links.",
                     "required": [
                         "type",
-                        "allowed"
+                        "domains"
                     ],
                     "additionalProperties": false,
                     "properties": {
                         "type": {
                             "type": "string",
-                            "const": "ContainsLinksOutsideAllowedList",
-                            "default": "ContainsLinksOutsideAllowedList",
+                            "const": "ContainsLinksOutsideList",
+                            "default": "ContainsLinksOutsideList",
                             "options": {
                                 "hidden": true
                             }
                         },
-                        "allowed": {
+                        "domains": {
                             "type": "array",
-                            "title": "Approved Websites",
-                            "description": "Domains permitted in messages (e.g., `simplex.chat`). You can allow an entire domain (e.g., `example.com` will allow `sub.example.com` and `example.com`) or allow only a specific subdomain (e.g., `sub.example.com` will allow `sub.example.com` but not `example.com`). Do not include `http://` or `https://`, just type the domain name. Leave the list empty to match ALL links.",
+                            "title": "Websites",
+                            "description": "Websites that do not trigger this condition (e.g., `simplex.chat`). You can list an entire domain (e.g., `example.com` covers `sub.example.com` and `example.com`) or only a specific subdomain (e.g., `sub.example.com` covers `sub.example.com` but not `example.com`). Do not include `http://` or `https://`, just type the domain name. Leave the list empty to match ALL links.",
                             "options": {
                                 "disable_collapse": true
                             },
@@ -331,11 +331,11 @@
                 },
                 {
                     "type": "object",
-                    "title": "✅ Message Contains Links Outside Top 100 Safe Websites",
-                    "description": "Matches when the message contains links to websites other than the built-in top 100 well-known safe sites (**Google**, **GitHub**, **Wikipedia**, **YouTube**, **Reddit**, etc.) and any additional approved websites (even obfuscated links like `spam [dot] com` or `hxxp://`).",
+                    "title": "🔗 Message Contains a Link Outside Top 100 Websites",
+                    "description": "Matches when the message contains a link to a website that is neither in the built-in list of the top 100 websites (**Google**, **GitHub**, **Wikipedia**, **YouTube**, **Reddit**, etc.) nor in your extra list (including obfuscated links like `spam [dot] com` or `hxxp://`).",
                     "required": [
                         "type",
-                        "allowed"
+                        "domains"
                     ],
                     "additionalProperties": false,
                     "properties": {
@@ -347,10 +347,10 @@
                                 "hidden": true
                             }
                         },
-                        "allowed": {
+                        "domains": {
                             "type": "array",
-                            "title": "Additional Approved Websites",
-                            "description": "Add any additional permitted domains. Do not include `http://` or `https://`, just type the domain name.",
+                            "title": "Extra Websites Added to Top 100",
+                            "description": "Websites treated as if they were in the top 100 list. Do not include `http://` or `https://`, just type the domain name.",
                             "options": {
                                 "disable_collapse": true
                             },
@@ -363,23 +363,56 @@
                 },
                 {
                     "type": "object",
-                    "title": "🚫 Message Floods Chat or Exceeds Limits",
-                    "description": "Matches when the message is blank, excessively long, contains invisible characters, or floods the chat with too many lines or words. By default, it matches all empty/invisible messages. You can optionally limit the maximum characters, words, or lines (with custom characters-per-line soft wrapping), or strictly forbid any hidden/invisible characters.",
+                    "title": "📏 Message Is Empty or Blank",
+                    "description": "Matches when the message consists only of whitespace, line breaks, or invisible/special characters.",
                     "required": [
-                        "type",
-                        "max_characters",
-                        "max_words",
-                        "max_lines",
-                        "chars_per_line",
-                        "disallow_empty_messages",
-                        "disallow_invisible_chars"
+                        "type"
                     ],
                     "additionalProperties": false,
                     "properties": {
                         "type": {
                             "type": "string",
-                            "const": "FloodsChatOrExceedsLimits",
-                            "default": "FloodsChatOrExceedsLimits",
+                            "const": "IsBlank",
+                            "default": "IsBlank",
+                            "options": {
+                                "hidden": true
+                            }
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "title": "📏 Message Contains Invisible Characters",
+                    "description": "Matches any message that contains even a single invisible or formatting character (e.g. zero-width spaces, Braille blank pattern, bidi overrides, variation selectors), even if the message also has regular text. Emoji that are joined into one (like 👨‍👩‍👧) do not count.",
+                    "required": [
+                        "type"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "ContainsInvisibleCharacters",
+                            "default": "ContainsInvisibleCharacters",
+                            "options": {
+                                "hidden": true
+                            }
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "title": "📏 Message Exceeds Max Characters",
+                    "description": "Matches when the message is longer than the given number of characters.",
+                    "required": [
+                        "type",
+                        "max_characters"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "ExceedsMaxCharacters",
+                            "default": "ExceedsMaxCharacters",
                             "options": {
                                 "hidden": true
                             }
@@ -387,51 +420,78 @@
                         "max_characters": {
                             "type": "integer",
                             "title": "Max Characters",
-                            "description": "Matches if the message exceeds this number of characters (0 to disable).",
-                            "minimum": 0,
-                            "default": 0
-                        },
-                        "max_words": {
-                            "type": "integer",
-                            "title": "Max Words",
-                            "description": "Matches if the message exceeds this number of words (0 to disable).",
-                            "minimum": 0,
-                            "default": 0
-                        },
-                        "max_lines": {
-                            "type": "integer",
-                            "title": "Max Lines",
-                            "description": "Matches if the message exceeds this number of lines (0 to disable). Line wrapping is calculated using 'Characters per Line' below.",
-                            "minimum": 0,
-                            "default": 0
-                        },
-                        "chars_per_line": {
-                            "type": "integer",
-                            "title": "Characters per Line (Screen Wrap)",
-                            "description": "Number of characters that fit into one line on mobile screens (default: 40, 0 to disable wrapping). A long line of text without newlines will be counted as multiple lines according to this width.",
-                            "minimum": 0,
-                            "default": 40
-                        },
-                        "disallow_empty_messages": {
-                            "type": "boolean",
-                            "format": "checkbox",
-                            "title": "Message is Empty or Blank",
-                            "description": "If enabled, matches messages that consist only of whitespace, line breaks, or invisible/special characters.",
-                            "default": true
-                        },
-                        "disallow_invisible_chars": {
-                            "type": "boolean",
-                            "format": "checkbox",
-                            "title": "Message Contains Invisible Characters",
-                            "description": "If enabled, matches any message that contains even a single invisible or formatting character (e.g. zero-width spaces, Braille blank pattern, bidi overrides, variation selectors), even if the message also has regular text.",
-                            "default": false
+                            "description": "Matches if the message has more than this number of characters. Spaces and line breaks count too.",
+                            "minimum": 1,
+                            "default": 1000
                         }
                     }
                 },
                 {
                     "type": "object",
-                    "title": "🚫 User Exceeds Messages Rate Limit",
-                    "description": "Matches when a user sends a specified number of messages within a given time window (in minutes).",
+                    "title": "📏 Message Exceeds Max Words",
+                    "description": "Matches when the message has more than the given number of words.",
+                    "required": [
+                        "type",
+                        "max_words"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "ExceedsMaxWords",
+                            "default": "ExceedsMaxWords",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "max_words": {
+                            "type": "integer",
+                            "title": "Max Words",
+                            "description": "Matches if the message has more than this number of words (separated by spaces or line breaks).",
+                            "minimum": 1,
+                            "default": 150
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "title": "📏 Message Exceeds Max Lines",
+                    "description": "Matches when the message takes more than the given number of lines on screen — for example a message flooding the chat with line breaks.",
+                    "required": [
+                        "type",
+                        "max_lines",
+                        "chars_per_line"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "ExceedsMaxLines",
+                            "default": "ExceedsMaxLines",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "max_lines": {
+                            "type": "integer",
+                            "title": "Max Lines",
+                            "description": "Matches if the message takes more than this number of lines. See 'Characters per Line' below for how long lines are counted.",
+                            "minimum": 1,
+                            "default": 10
+                        },
+                        "chars_per_line": {
+                            "type": "integer",
+                            "title": "Characters per Line (Screen Wrap)",
+                            "description": "If not 0, every line longer than this number of characters counts as several lines, the way it wraps on a phone screen: with 40, a single line of 100 characters counts as 3 lines. With 0, only actual line breaks count. About 40 characters fit on one line on a mobile screen.",
+                            "minimum": 0,
+                            "default": 40
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "title": "👤 Author Hits Message Rate Limit",
+                    "description": "Matches when the author sends at least the given number of messages within the time window, this one included.",
                     "required": [
                         "type",
                         "message_count",
@@ -441,8 +501,8 @@
                     "properties": {
                         "type": {
                             "type": "string",
-                            "const": "UserExceedsMessagesRateLimit",
-                            "default": "UserExceedsMessagesRateLimit",
+                            "const": "AuthorHitsMessageRateLimit",
+                            "default": "AuthorHitsMessageRateLimit",
                             "options": {
                                 "hidden": true
                             }
@@ -450,7 +510,7 @@
                         "message_count": {
                             "type": "integer",
                             "title": "Number of Messages",
-                            "description": "Matches when the user reaches or exceeds this number of messages in the time window.",
+                            "description": "Matches when the author's messages in the time window, this one included, reach this number.",
                             "minimum": 1,
                             "default": 5
                         },
@@ -466,8 +526,8 @@
                 },
                 {
                     "type": "object",
-                    "title": "🚫 User Exceeds Moderation Rate Limit",
-                    "description": "Matches when a user has had a specified number of messages moderated by the bot within a given time window (in minutes).",
+                    "title": "👤 Author Hits Moderation Rate Limit",
+                    "description": "Matches when at least the given number of the author's messages were moderated by the bot within the time window. The current message counts too if another rule moderates it.",
                     "required": [
                         "type",
                         "message_count",
@@ -477,8 +537,8 @@
                     "properties": {
                         "type": {
                             "type": "string",
-                            "const": "UserExceedsModerationRateLimit",
-                            "default": "UserExceedsModerationRateLimit",
+                            "const": "AuthorHitsModerationRateLimit",
+                            "default": "AuthorHitsModerationRateLimit",
                             "options": {
                                 "hidden": true
                             }
@@ -486,7 +546,7 @@
                         "message_count": {
                             "type": "integer",
                             "title": "Number of Moderated Messages",
-                            "description": "Matches when the number of messages from this user that were moderated by the bot reaches or exceeds this count.",
+                            "description": "Matches when the number of the author's messages moderated by the bot in the time window reaches this number.",
                             "minimum": 1,
                             "default": 3
                         },
@@ -502,7 +562,7 @@
                 },
                 {
                     "type": "object",
-                    "title": "🚫 User Joined Recently",
+                    "title": "👤 Author Joined Recently",
                     "description": "Matches when the author joined the group less than the given number of minutes ago. On its own it moderates every message from newcomers; combine it with another condition inside **All of These Conditions Match (AND)** to only restrict what newcomers post, e.g. links. Only members who joined **after the bot** was added have a known join time — members who were already in the group before that never match.",
                     "required": [
                         "type",
@@ -512,8 +572,8 @@
                     "properties": {
                         "type": {
                             "type": "string",
-                            "const": "UserJoinedRecently",
-                            "default": "UserJoinedRecently",
+                            "const": "AuthorJoinedRecently",
+                            "default": "AuthorJoinedRecently",
                             "options": {
                                 "hidden": true
                             }
@@ -530,7 +590,7 @@
                 {
                     "type": "object",
                     "title": "🧩 All of These Conditions Match (AND)",
-                    "description": "Matches only when **every** condition inside it matches. Use it to narrow a broad condition down, for example a banned word **and** an author who just joined. An empty list is not a valid condition — add at least one condition inside, or remove this one.",
+                    "description": "Matches only when **every** condition inside it matches. Use it to narrow a broad condition down, for example a listed word **and** an author who just joined. An empty list is not a valid condition — add at least one condition inside, or remove this one.",
                     "required": [
                         "type",
                         "conditions"
@@ -592,7 +652,7 @@
                 {
                     "type": "object",
                     "title": "✖️ This Condition Does Not Match (NOT)",
-                    "description": "Matches when the condition inside it does **not** match. Careful with conditions that are already phrased negatively (anything starting with ✅), because the result is a double negative that is hard to read. `User Exceeds Moderation Rate Limit` cannot be used inside this one.",
+                    "description": "Matches when the condition inside it does **not** match. Careful with conditions that already contain a negation (`… Outside This List`, `… Outside Top 100 Websites`), because the result is a double negative that is hard to read. `Author Hits Moderation Rate Limit` cannot be used inside this one.",
                     "required": [
                         "type",
                         "condition"

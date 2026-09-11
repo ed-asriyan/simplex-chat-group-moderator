@@ -20,17 +20,17 @@ pub(in crate::domain::moderator::message_filter) struct ConditionContext<'a> {
     pub moderation_activity_repo: &'a dyn UserModerationActivityRepository,
 
     /// Whether this message is moderated by a rule that does not itself depend
-    /// on the moderation rate limit. Computed by the pre-pass and read by
-    /// `UserExceedsModerationRateLimit` so it can count the current message.
+    /// on `AuthorHitsModerationRateLimit`. Computed by the pre-pass and read by
+    /// `AuthorHitsModerationRateLimit` so it can count the current message.
     pub message_is_moderated: bool,
 
-    /// While set, every `UserExceedsModerationRateLimit` evaluates to "no
+    /// While set, every `AuthorHitsModerationRateLimit` evaluates to "no
     /// match". The pre-pass uses this to answer "is this message moderated by
-    /// anything else" without asking the rate limit about itself.
+    /// anything else" without asking the condition about itself.
     pub moderation_rate_limit_pinned: bool,
 
     /// Results of conditions already evaluated for this message. Only subtrees
-    /// free of `UserExceedsModerationRateLimit` are stored, since those are the
+    /// free of `AuthorHitsModerationRateLimit` are stored, since those are the
     /// only ones whose result does not depend on `moderation_rate_limit_pinned`.
     pub memo: HashMap<ModerationCondition, Option<String>>,
 }

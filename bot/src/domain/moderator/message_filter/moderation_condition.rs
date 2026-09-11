@@ -6,7 +6,7 @@
 //! table. Everything a condition does lives here — its parameters, how they are
 //! normalized and checked when an owner saves them, and how one is evaluated
 //! against a message. The per-condition matching algorithms themselves live in
-//! the sibling modules (`keywords`, `links`, `regex_match`, ...).
+//! the sibling modules (`keywords`, `links`, `message_length`, ...).
 //!
 //! # Conditions are a tree, not a list
 //! Besides the leaf conditions that inspect a message, there are three composite
@@ -27,15 +27,16 @@
 #[cfg(test)]
 mod tests;
 
+mod exact_message;
+mod invisible_chars;
 mod joined_recently;
 mod keywords;
 mod links;
-mod messages_blacklist;
+mod message_length;
+mod message_rate_limit;
 mod moderation_rate_limit;
-mod rate_limit;
 mod regex_match;
 mod repeated_sequence;
-mod screen_flooding;
 
 use crate::domain::moderator::ports::Err;
 use futures::future::BoxFuture;
@@ -46,14 +47,6 @@ pub(super) use context::ConditionContext;
 
 mod context;
 
-fn default_true() -> bool {
-    true
-}
-
-fn default_chars_per_line() -> u32 {
-    40
-}
-
 fn deserialize_u32_default_zero<'de, D>(deserializer: D) -> Result<u32, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -62,15 +55,11 @@ where
     Ok(opt.unwrap_or(0))
 }
 
-fn deserialize_chars_per_line<'de, D>(deserializer: D) -> Result<u32, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let opt = Option::<u32>::deserialize(deserializer)?;
-    Ok(opt.unwrap_or(40))
-}
-
 /// Condition/filter criteria for moderation.
+///
+/// Names describe what the message *is*, never what the owner thinks of it
+/// ("contains words", not "contains banned words"): the same condition can sit
+/// under a `Not`, where a judgement baked into the name would read backwards.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ModerationCondition {
@@ -86,9 +75,11 @@ pub enum ModerationCondition {
     Not {
         condition: Box<ModerationCondition>,
     },
-    ContainsBannedWords {
+    /// The message contains any of `keywords`, seen through obfuscation.
+    ContainsWords {
         keywords: Vec<String>,
     },
+    /// The whole message equals one of `messages`.
     MatchesExactMessage {
         messages: Vec<String>,
         case_sensitive: bool,
@@ -102,71 +93,58 @@ pub enum ModerationCondition {
         min_repeats: u32,
         min_length: u32,
     },
-    ContainsLinksToForbiddenWebsites {
-        blocked: Vec<String>,
+    /// The message links to a domain covered by `domains`.
+    ContainsLinksInList {
+        domains: Vec<String>,
     },
-    ContainsLinksOutsideAllowedList {
-        allowed: Vec<String>,
+    /// The message links to a domain not covered by `domains`. An empty list
+    /// makes every link match.
+    ContainsLinksOutsideList {
+        domains: Vec<String>,
     },
+    /// The message links to a domain covered neither by the built-in top-100
+    /// list nor by `domains`.
     ContainsLinksOutsideTop100 {
-        allowed: Vec<String>,
+        domains: Vec<String>,
     },
-    FloodsChatOrExceedsLimits {
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
+    /// The message consists only of whitespace, line breaks and invisible
+    /// characters, or has no characters at all.
+    IsBlank,
+    /// The message contains at least one invisible character.
+    ContainsInvisibleCharacters,
+    ExceedsMaxCharacters {
         max_characters: u32,
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
-        max_words: u32,
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
-        max_lines: u32,
-        #[serde(
-            default = "default_chars_per_line",
-            deserialize_with = "deserialize_chars_per_line"
-        )]
-        chars_per_line: u32,
-        #[serde(default = "default_true")]
-        disallow_empty_messages: bool,
-        #[serde(default)]
-        disallow_invisible_chars: bool,
     },
-    #[serde(alias = "RateLimit")]
-    UserExceedsMessagesRateLimit {
-        #[serde(
-            default,
-            deserialize_with = "deserialize_u32_default_zero",
-            alias = "count",
-            alias = "messages"
-        )]
+    ExceedsMaxWords {
+        max_words: u32,
+    },
+    /// The message takes more than `max_lines` lines, with every line longer
+    /// than `chars_per_line` characters counted as several (0: no wrapping).
+    ExceedsMaxLines {
+        max_lines: u32,
+        chars_per_line: u32,
+    },
+    /// The author sent at least `message_count` messages in the last
+    /// `time_window_minutes`, this one included. 0 in either disables it.
+    AuthorHitsMessageRateLimit {
+        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
         message_count: u32,
-        #[serde(
-            default,
-            deserialize_with = "deserialize_u32_default_zero",
-            alias = "minutes",
-            alias = "window_minutes"
-        )]
+        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
         time_window_minutes: u32,
     },
-    #[serde(alias = "UserExceededModerationRateLimit")]
-    UserExceedsModerationRateLimit {
-        #[serde(
-            default,
-            deserialize_with = "deserialize_u32_default_zero",
-            alias = "count",
-            alias = "moderated_count",
-            alias = "messages"
-        )]
+    /// At least `message_count` of the author's messages were moderated in the
+    /// last `time_window_minutes`, this one included if another rule moderates
+    /// it. 0 in either disables it.
+    AuthorHitsModerationRateLimit {
+        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
         message_count: u32,
-        #[serde(
-            default,
-            deserialize_with = "deserialize_u32_default_zero",
-            alias = "minutes",
-            alias = "window_minutes"
-        )]
+        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
         time_window_minutes: u32,
     },
     /// The author joined the group less than `time_window_minutes` ago. Never
     /// matches members who were already in the group when the bot joined,
     /// since their join time is unknown.
-    UserJoinedRecently {
+    AuthorJoinedRecently {
         time_window_minutes: u32,
     },
 }
@@ -194,14 +172,14 @@ impl ModerationCondition {
         }
     }
 
-    /// Whether a [`Self::UserExceedsModerationRateLimit`] sits anywhere in this
+    /// Whether a [`Self::AuthorHitsModerationRateLimit`] sits anywhere in this
     /// tree. That condition is the one whose result depends on whether the
     /// message is moderated by *other* rules, so both the evaluation pre-pass
     /// and the memo have to treat any subtree containing it specially.
     pub fn contains_moderation_rate_limit(&self) -> bool {
         let mut found = false;
         self.walk(&mut |condition| {
-            if matches!(condition, Self::UserExceedsModerationRateLimit { .. }) {
+            if matches!(condition, Self::AuthorHitsModerationRateLimit { .. }) {
                 found = true;
             }
         });
@@ -209,11 +187,11 @@ impl ModerationCondition {
     }
 
     /// Longest non-zero `time_window_minutes` over every
-    /// [`Self::UserExceedsMessagesRateLimit`] in this tree.
-    pub fn max_messages_rate_limit_window(&self) -> Option<u32> {
+    /// [`Self::AuthorHitsMessageRateLimit`] in this tree.
+    pub fn max_message_rate_limit_window(&self) -> Option<u32> {
         let mut max: Option<u32> = None;
         self.walk(&mut |condition| {
-            if let Self::UserExceedsMessagesRateLimit {
+            if let Self::AuthorHitsMessageRateLimit {
                 time_window_minutes,
                 ..
             } = condition
@@ -226,11 +204,11 @@ impl ModerationCondition {
     }
 
     /// Longest non-zero `time_window_minutes` over every
-    /// [`Self::UserExceedsModerationRateLimit`] in this tree.
+    /// [`Self::AuthorHitsModerationRateLimit`] in this tree.
     pub fn max_moderation_rate_limit_window(&self) -> Option<u32> {
         let mut max: Option<u32> = None;
         self.walk(&mut |condition| {
-            if let Self::UserExceedsModerationRateLimit {
+            if let Self::AuthorHitsModerationRateLimit {
                 time_window_minutes,
                 ..
             } = condition
@@ -266,27 +244,37 @@ impl ModerationCondition {
                     .join("; ")
             ),
             Self::Not { condition } => format!("not ({})", condition.describe()),
-            Self::ContainsBannedWords { .. } => "contains a blacklisted word".into(),
-            Self::MatchesExactMessage { .. } => "matches a blacklisted message".into(),
+            Self::ContainsWords { .. } => "contains one of the listed words".into(),
+            Self::MatchesExactMessage { .. } => "exactly matches one of the listed texts".into(),
             Self::MatchesRegex { .. } => "matches a regex pattern".into(),
             Self::ContainsRepeatedSequence { .. } => "contains a repeated sequence".into(),
-            Self::ContainsLinksToForbiddenWebsites { .. } => {
-                "contains a link to a forbidden website".into()
-            }
-            Self::ContainsLinksOutsideAllowedList { .. } => {
-                "contains a link outside the allowed list".into()
+            Self::ContainsLinksInList { .. } => "contains a link to a listed website".into(),
+            Self::ContainsLinksOutsideList { .. } => {
+                "contains a link to a website outside the list".into()
             }
             Self::ContainsLinksOutsideTop100 { .. } => {
-                "contains a link outside the top 100 safe websites".into()
+                "contains a link outside the top 100 websites".into()
             }
-            Self::FloodsChatOrExceedsLimits { .. } => "floods the chat or exceeds limits".into(),
-            Self::UserExceedsMessagesRateLimit { .. } => {
-                "author exceeds the messages rate limit".into()
+            Self::IsBlank => "is empty or blank".into(),
+            Self::ContainsInvisibleCharacters => "contains invisible characters".into(),
+            Self::ExceedsMaxCharacters { max_characters } => {
+                format!("has more than {max_characters} characters")
             }
-            Self::UserExceedsModerationRateLimit { .. } => {
-                "author exceeds the moderation rate limit".into()
-            }
-            Self::UserJoinedRecently {
+            Self::ExceedsMaxWords { max_words } => format!("has more than {max_words} words"),
+            Self::ExceedsMaxLines { max_lines, .. } => format!("has more than {max_lines} lines"),
+            Self::AuthorHitsMessageRateLimit {
+                message_count,
+                time_window_minutes,
+            } => format!(
+                "author sent at least {message_count} messages in {time_window_minutes} min"
+            ),
+            Self::AuthorHitsModerationRateLimit {
+                message_count,
+                time_window_minutes,
+            } => format!(
+                "author had at least {message_count} messages moderated in {time_window_minutes} min"
+            ),
+            Self::AuthorJoinedRecently {
                 time_window_minutes,
             } => format!("author joined less than {time_window_minutes} min ago"),
         }
@@ -303,7 +291,7 @@ const MAX_LIST_ENTRIES: usize = 10_000;
 /// Maximum length (in characters) of a single keyword or domain.
 const MAX_KEYWORD_LENGTH: usize = 100;
 
-/// Maximum length (in characters) of a single blacklisted exact message.
+/// Maximum length (in characters) of a single exact message.
 const MAX_MESSAGE_LENGTH: usize = 1000;
 
 /// Maximum number of regex patterns in a single condition. Far lower than the other
@@ -350,10 +338,19 @@ fn check_list(values: &[String], max_length: usize, noun: &str, entry: &str) -> 
     Ok(())
 }
 
+/// Reject a zero where the condition could otherwise never match. The error
+/// names the condition as the editor titles it, so the owner can find it.
+fn check_nonzero(value: u32, error: &str) -> Result<(), Err> {
+    if value == 0 {
+        return Err(error.into());
+    }
+    Ok(())
+}
+
 /// Bring a leaf condition's parameters into canonical form and check them.
 fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<(), Err> {
     match condition {
-        ModerationCondition::ContainsBannedWords { keywords } => {
+        ModerationCondition::ContainsWords { keywords } => {
             normalize_list(keywords);
             check_list(keywords, MAX_KEYWORD_LENGTH, "keywords", "Keyword")
         }
@@ -407,31 +404,37 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
             }
             Ok(())
         }
-        ModerationCondition::ContainsLinksToForbiddenWebsites { blocked } => {
-            normalize_list(blocked);
-            check_list(blocked, MAX_KEYWORD_LENGTH, "domains", "Domain")
+        ModerationCondition::ContainsLinksInList { domains }
+        | ModerationCondition::ContainsLinksOutsideList { domains }
+        | ModerationCondition::ContainsLinksOutsideTop100 { domains } => {
+            normalize_list(domains);
+            check_list(domains, MAX_KEYWORD_LENGTH, "domains", "Domain")
         }
-        ModerationCondition::ContainsLinksOutsideAllowedList { allowed }
-        | ModerationCondition::ContainsLinksOutsideTop100 { allowed } => {
-            normalize_list(allowed);
-            check_list(allowed, MAX_KEYWORD_LENGTH, "domains", "Domain")
-        }
-        ModerationCondition::UserJoinedRecently {
+        // Unlike `AuthorHitsMessageRateLimit`, where 0 means "disabled", a zero
+        // here would store a rule that can never match while the owner believes
+        // it protects the group.
+        ModerationCondition::ExceedsMaxCharacters { max_characters } => check_nonzero(
+            *max_characters,
+            "'Message Exceeds Max Characters' needs a maximum of at least 1 character",
+        ),
+        ModerationCondition::ExceedsMaxWords { max_words } => check_nonzero(
+            *max_words,
+            "'Message Exceeds Max Words' needs a maximum of at least 1 word",
+        ),
+        ModerationCondition::ExceedsMaxLines { max_lines, .. } => check_nonzero(
+            *max_lines,
+            "'Message Exceeds Max Lines' needs a maximum of at least 1 line",
+        ),
+        ModerationCondition::AuthorJoinedRecently {
             time_window_minutes,
-        } => {
-            // Unlike the rate limits, where 0 means "disabled", a zero window
-            // would store a rule that can never match while the owner believes
-            // it protects the group.
-            if *time_window_minutes == 0 {
-                return Err(
-                    "'User Joined Recently' needs a time window of at least 1 minute".into(),
-                );
-            }
-            Ok(())
-        }
-        ModerationCondition::FloodsChatOrExceedsLimits { .. }
-        | ModerationCondition::UserExceedsMessagesRateLimit { .. }
-        | ModerationCondition::UserExceedsModerationRateLimit { .. } => Ok(()),
+        } => check_nonzero(
+            *time_window_minutes,
+            "'Author Joined Recently' needs a time window of at least 1 minute",
+        ),
+        ModerationCondition::IsBlank
+        | ModerationCondition::ContainsInvisibleCharacters
+        | ModerationCondition::AuthorHitsMessageRateLimit { .. }
+        | ModerationCondition::AuthorHitsModerationRateLimit { .. } => Ok(()),
         ModerationCondition::All { .. }
         | ModerationCondition::Any { .. }
         | ModerationCondition::Not { .. } => {
@@ -530,33 +533,33 @@ fn depth_of(condition: &ModerationCondition) -> usize {
     }
 }
 
-/// Reject a `UserExceedsModerationRateLimit` nested under a `Not`.
+/// Reject an `AuthorHitsModerationRateLimit` nested under a `Not`.
 ///
 /// That condition asks "is this message moderated by some other rule", and the
 /// pre-pass in `message_filter` answers it by evaluating every rule with these
 /// nodes pinned to "no match". Under a negation, pinning a node to "no match"
 /// can *cause* the enclosing rule to fire, so the answer would depend on itself.
 /// The check is deliberately blind to negation parity: nothing useful is
-/// expressed by a doubly negated rate limit, so forbidding any `Not` ancestor
+/// expressed by a doubly negated one, so forbidding any `Not` ancestor
 /// keeps both the rule and its explanation simple.
-fn check_no_moderation_rate_under_not(
+fn check_no_moderation_rate_limit_under_not(
     condition: &ModerationCondition,
     under_not: bool,
 ) -> Result<(), Err> {
     match condition {
-        ModerationCondition::UserExceedsModerationRateLimit { .. } if under_not => Err(
-            "'User Exceeds Moderation Rate Limit' cannot be placed under a 'Not' condition, \
-             because it already depends on what the other rules do with this message."
+        ModerationCondition::AuthorHitsModerationRateLimit { .. } if under_not => Err(
+            "'Author Hits Moderation Rate Limit' cannot be placed under a 'Not' \
+             condition, because it already depends on what the other rules do with this message."
                 .into(),
         ),
         ModerationCondition::All { conditions } | ModerationCondition::Any { conditions } => {
             for child in conditions {
-                check_no_moderation_rate_under_not(child, under_not)?;
+                check_no_moderation_rate_limit_under_not(child, under_not)?;
             }
             Ok(())
         }
         ModerationCondition::Not { condition } => {
-            check_no_moderation_rate_under_not(condition, true)
+            check_no_moderation_rate_limit_under_not(condition, true)
         }
         _ => Ok(()),
     }
@@ -606,7 +609,7 @@ impl ModerationCondition {
             )
             .into());
         }
-        check_no_moderation_rate_under_not(&normalized, false)?;
+        check_no_moderation_rate_limit_under_not(&normalized, false)?;
 
         *self = normalized;
         Ok(())
@@ -619,14 +622,14 @@ impl ModerationCondition {
 
 fn should_moderate_by_condition(message: &str, condition: &ModerationCondition) -> Option<String> {
     match condition {
-        ModerationCondition::ContainsBannedWords { keywords, .. } => {
+        ModerationCondition::ContainsWords { keywords } => {
             keywords::should_moderate(message.trim(), keywords)
-                .map(|keyword| format!("blacklisted word: '{keyword}'"))
+                .map(|keyword| format!("contains word: '{keyword}'"))
         }
         ModerationCondition::MatchesExactMessage {
-            messages: blocked,
+            messages,
             case_sensitive,
-        } => messages_blacklist::should_moderate(message.trim(), blocked, *case_sensitive),
+        } => exact_message::should_moderate(message.trim(), messages, *case_sensitive),
         ModerationCondition::MatchesRegex { patterns } => {
             regex_match::should_moderate(message, patterns)
                 .map(|pattern| format!("matches regex pattern: '{pattern}'"))
@@ -635,36 +638,36 @@ fn should_moderate_by_condition(message: &str, condition: &ModerationCondition) 
             min_repeats,
             min_length,
         } => repeated_sequence::should_moderate(message, *min_repeats, *min_length),
-        ModerationCondition::ContainsLinksToForbiddenWebsites { blocked } => {
-            links::should_moderate_blacklist(message.trim(), blocked)
+        ModerationCondition::ContainsLinksInList { domains } => {
+            links::should_moderate_in_list(message.trim(), domains)
         }
-        ModerationCondition::ContainsLinksOutsideAllowedList { allowed } => {
-            links::should_moderate_whitelist(message.trim(), allowed)
+        ModerationCondition::ContainsLinksOutsideList { domains } => {
+            links::should_moderate_outside_list(message.trim(), domains)
         }
-        ModerationCondition::ContainsLinksOutsideTop100 { allowed } => {
-            links::should_moderate_whitelist_top100(message.trim(), allowed)
+        ModerationCondition::ContainsLinksOutsideTop100 { domains } => {
+            links::should_moderate_outside_top100(message.trim(), domains)
         }
-        ModerationCondition::FloodsChatOrExceedsLimits {
-            max_characters,
-            max_words,
+        // The shape conditions see the raw message: leading and trailing
+        // whitespace is exactly what they are measuring.
+        ModerationCondition::IsBlank => invisible_chars::should_moderate_blank(message),
+        ModerationCondition::ContainsInvisibleCharacters => {
+            invisible_chars::should_moderate_invisible(message)
+        }
+        ModerationCondition::ExceedsMaxCharacters { max_characters } => {
+            message_length::should_moderate_characters(message, *max_characters)
+        }
+        ModerationCondition::ExceedsMaxWords { max_words } => {
+            message_length::should_moderate_words(message, *max_words)
+        }
+        ModerationCondition::ExceedsMaxLines {
             max_lines,
             chars_per_line,
-            disallow_invisible_chars,
-            disallow_empty_messages,
-        } => screen_flooding::should_moderate(
-            message,
-            *max_characters,
-            *max_words,
-            *max_lines,
-            *chars_per_line,
-            *disallow_invisible_chars,
-            *disallow_empty_messages,
-        ),
+        } => message_length::should_moderate_lines(message, *max_lines, *chars_per_line),
         // Repository-backed, author-based and composite conditions never reach
         // here; they are handled by `evaluate` because they need the context.
-        ModerationCondition::UserExceedsMessagesRateLimit { .. }
-        | ModerationCondition::UserExceedsModerationRateLimit { .. }
-        | ModerationCondition::UserJoinedRecently { .. }
+        ModerationCondition::AuthorHitsMessageRateLimit { .. }
+        | ModerationCondition::AuthorHitsModerationRateLimit { .. }
+        | ModerationCondition::AuthorJoinedRecently { .. }
         | ModerationCondition::All { .. }
         | ModerationCondition::Any { .. }
         | ModerationCondition::Not { .. } => None,
@@ -685,8 +688,8 @@ pub(super) fn check_condition<'a>(
         if let Some(cached) = ctx.memo.get(condition) {
             return Ok(cached.clone());
         }
-        // A subtree containing `UserExceedsModerationRateLimit` evaluates
-        // differently depending on whether the rate-limit nodes are pinned, so
+        // A subtree containing `AuthorHitsModerationRateLimit` evaluates
+        // differently depending on whether those nodes are pinned, so
         // its result is not safe to carry between the two passes. Everything
         // else is pure with respect to the pass and is memoized once.
         let memoizable = !condition.contains_moderation_rate_limit();
@@ -738,11 +741,11 @@ async fn evaluate(
                 Ok(Some(format!("does not match: {}", inner.describe())))
             }
         }
-        ModerationCondition::UserExceedsMessagesRateLimit {
+        ModerationCondition::AuthorHitsMessageRateLimit {
             message_count,
             time_window_minutes,
         } => {
-            rate_limit::check_rate_limit(
+            message_rate_limit::check(
                 ctx.activity_repo,
                 &ctx.group_message.group.id,
                 &ctx.group_message.author_id,
@@ -752,12 +755,12 @@ async fn evaluate(
             )
             .await
         }
-        ModerationCondition::UserExceedsModerationRateLimit { .. }
+        ModerationCondition::AuthorHitsModerationRateLimit { .. }
             if ctx.moderation_rate_limit_pinned =>
         {
             Ok(None)
         }
-        ModerationCondition::UserExceedsModerationRateLimit {
+        ModerationCondition::AuthorHitsModerationRateLimit {
             message_count,
             time_window_minutes,
         } if ctx.message_is_moderated => {
@@ -783,11 +786,11 @@ async fn evaluate(
                 ))
             }
         }
-        ModerationCondition::UserExceedsModerationRateLimit {
+        ModerationCondition::AuthorHitsModerationRateLimit {
             message_count,
             time_window_minutes,
         } => {
-            moderation_rate_limit::check_moderation_rate_limit(
+            moderation_rate_limit::check(
                 ctx.moderation_activity_repo,
                 &ctx.group_message.group.id,
                 &ctx.group_message.author_id,
@@ -797,7 +800,7 @@ async fn evaluate(
             )
             .await
         }
-        ModerationCondition::UserJoinedRecently {
+        ModerationCondition::AuthorJoinedRecently {
             time_window_minutes,
         } => Ok(joined_recently::should_moderate(
             ctx.group_message.author_joined_at,

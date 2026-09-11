@@ -47,7 +47,7 @@ fn should_moderate_table() {
         "look at the titties over there",
     ];
     // Ordinary, legitimate messages that must never be moderated even though a
-    // blocked keyword is a substring of an innocent longer word.
+    // keyword is a substring of an innocent longer word.
     check_cases(&[
         // --- trivial / sanity ---
         (&[""], &["spam"], None),                           // empty text

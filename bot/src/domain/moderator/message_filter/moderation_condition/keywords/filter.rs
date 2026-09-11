@@ -1,7 +1,7 @@
 //! Single-purpose message filter for the moderator bounded context.
 //!
-//! Given an incoming message text and a list of blocked keywords, decides
-//! whether the message should be moderated (deleted).
+//! Given an incoming message text and a list of keywords, decides whether the
+//! message contains any of them.
 //!
 //! The filter is intentionally bypass-resistant. It transparently sees through:
 //!
@@ -36,17 +36,17 @@
 //! **not** match inside `"classic"` (no separators/look-alikes are present
 //! so the merging heuristic is not applied to that token).
 
-/// Returns the first matched keyword iff `text` should be moderated (deleted)
-/// given the list of `blocked_keywords`, or `None` if no keyword matches.
+/// Returns the first keyword found in `text`, given the list of `keywords`,
+/// or `None` if no keyword matches.
 /// Empty / whitespace-only keywords are ignored.
-pub fn should_moderate(text: &str, blocked_keywords: &[String]) -> Option<String> {
+pub fn should_moderate(text: &str, keywords: &[String]) -> Option<String> {
     let tokens = normalize_and_tokenize(text);
     if tokens.is_empty() {
         return None;
     }
     let merged = merge_short_runs(&tokens);
 
-    blocked_keywords.iter().find_map(|kw| {
+    keywords.iter().find_map(|kw| {
         let needle = normalize_and_tokenize(kw);
         if needle.is_empty() {
             return None;

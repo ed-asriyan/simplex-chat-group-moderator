@@ -120,16 +120,18 @@ where
 
 /// Settings loaded for every condition node of one group, keyed by condition id.
 struct ConditionData {
-    banned_words: HashMap<i64, Vec<String>>,
+    words: HashMap<i64, Vec<String>>,
     exact_messages: HashMap<i64, Vec<String>>,
     exact_message_settings: HashMap<i64, bool>,
     regex_patterns: HashMap<i64, Vec<String>>,
     repeated_sequence: HashMap<i64, (u32, u32)>,
-    forbidden_domains: HashMap<i64, Vec<String>>,
-    allowed_domains: HashMap<i64, Vec<String>>,
-    top100_allowed: HashMap<i64, Vec<String>>,
-    flooding: HashMap<i64, (u32, u32, u32, u32, bool, bool)>,
-    messages_rate_limit: HashMap<i64, (u32, u32)>,
+    links_in_list: HashMap<i64, Vec<String>>,
+    links_outside_list: HashMap<i64, Vec<String>>,
+    links_outside_top100: HashMap<i64, Vec<String>>,
+    max_characters: HashMap<i64, u32>,
+    max_words: HashMap<i64, u32>,
+    max_lines: HashMap<i64, (u32, u32)>,
+    message_rate_limit: HashMap<i64, (u32, u32)>,
     moderation_rate_limit: HashMap<i64, (u32, u32)>,
     joined_recently: HashMap<i64, u32>,
 }
@@ -137,9 +139,9 @@ struct ConditionData {
 impl ConditionData {
     fn load(guard: &rusqlite::Connection, gid: i64) -> Result<Self, Err> {
         Ok(Self {
-            banned_words: load_condition_lists(
+            words: load_condition_lists(
                 guard,
-                "moderation_condition__contains_banned_words__keywords",
+                "moderation_condition__contains_words__keywords",
                 "keyword",
                 gid,
             )?,
@@ -169,59 +171,63 @@ impl ConditionData {
                 gid,
                 |row| Ok((row.get::<_, i64>(1)? as u32, row.get::<_, i64>(2)? as u32)),
             )?,
-            forbidden_domains: load_condition_lists(
+            links_in_list: load_condition_lists(
                 guard,
-                "moderation_condition__contains_links_to_forbidden_websites__domains",
+                "moderation_condition__contains_links_in_list__domains",
                 "domain",
                 gid,
             )?,
-            allowed_domains: load_condition_lists(
+            links_outside_list: load_condition_lists(
                 guard,
-                "moderation_condition__contains_links_outside_allowed_list__domains",
+                "moderation_condition__contains_links_outside_list__domains",
                 "domain",
                 gid,
             )?,
-            top100_allowed: load_condition_lists(
+            links_outside_top100: load_condition_lists(
                 guard,
-                "moderation_condition__contains_links_outside_top100__allowed",
+                "moderation_condition__contains_links_outside_top100__domains",
                 "domain",
                 gid,
             )?,
-            flooding: load_condition_settings(
+            max_characters: load_condition_settings(
                 guard,
-                "s.max_characters, s.max_words, s.max_lines, s.chars_per_line, \
-                 s.disallow_invisible_chars, s.disallow_empty_messages",
-                "moderation_condition__floods_chat_or_exceeds_limits",
+                "s.max_characters",
+                "moderation_condition__exceeds_max_characters",
                 gid,
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(1)? as u32,
-                        row.get::<_, i64>(2)? as u32,
-                        row.get::<_, i64>(3)? as u32,
-                        row.get::<_, i64>(4)? as u32,
-                        row.get::<_, bool>(5)?,
-                        row.get::<_, bool>(6)?,
-                    ))
-                },
+                |row| Ok(row.get::<_, i64>(1)? as u32),
             )?,
-            messages_rate_limit: load_condition_settings(
+            max_words: load_condition_settings(
+                guard,
+                "s.max_words",
+                "moderation_condition__exceeds_max_words",
+                gid,
+                |row| Ok(row.get::<_, i64>(1)? as u32),
+            )?,
+            max_lines: load_condition_settings(
+                guard,
+                "s.max_lines, s.chars_per_line",
+                "moderation_condition__exceeds_max_lines",
+                gid,
+                |row| Ok((row.get::<_, i64>(1)? as u32, row.get::<_, i64>(2)? as u32)),
+            )?,
+            message_rate_limit: load_condition_settings(
                 guard,
                 "s.message_count, s.time_window_minutes",
-                "moderation_condition__user_exceeds_messages_rate_limit",
+                "moderation_condition__author_hits_message_rate_limit",
                 gid,
                 |row| Ok((row.get::<_, i64>(1)? as u32, row.get::<_, i64>(2)? as u32)),
             )?,
             moderation_rate_limit: load_condition_settings(
                 guard,
                 "s.message_count, s.time_window_minutes",
-                "moderation_condition__user_exceeds_moderation_rate_limit",
+                "moderation_condition__author_hits_moderation_rate_limit",
                 gid,
                 |row| Ok((row.get::<_, i64>(1)? as u32, row.get::<_, i64>(2)? as u32)),
             )?,
             joined_recently: load_condition_settings(
                 guard,
                 "s.time_window_minutes",
-                "moderation_condition__user_joined_recently",
+                "moderation_condition__author_joined_recently",
                 gid,
                 |row| Ok(row.get::<_, i64>(1)? as u32),
             )?,
@@ -271,8 +277,8 @@ fn build_condition(
                 condition: Box::new(built.remove(0)),
             })
         }
-        "ContainsBannedWords" => Ok(ModerationCondition::ContainsBannedWords {
-            keywords: data.banned_words.get(&id).cloned().unwrap_or_default(),
+        "ContainsWords" => Ok(ModerationCondition::ContainsWords {
+            keywords: data.words.get(&id).cloned().unwrap_or_default(),
         }),
         "MatchesExactMessage" => Ok(ModerationCondition::MatchesExactMessage {
             messages: data.exact_messages.get(&id).cloned().unwrap_or_default(),
@@ -293,61 +299,58 @@ fn build_condition(
                 min_length,
             })
         }
-        "ContainsLinksToForbiddenWebsites" => {
-            Ok(ModerationCondition::ContainsLinksToForbiddenWebsites {
-                blocked: data.forbidden_domains.get(&id).cloned().unwrap_or_default(),
-            })
-        }
-        "ContainsLinksOutsideAllowedList" => {
-            Ok(ModerationCondition::ContainsLinksOutsideAllowedList {
-                allowed: data.allowed_domains.get(&id).cloned().unwrap_or_default(),
-            })
-        }
-        "ContainsLinksOutsideTop100" => Ok(ModerationCondition::ContainsLinksOutsideTop100 {
-            allowed: data.top100_allowed.get(&id).cloned().unwrap_or_default(),
+        "ContainsLinksInList" => Ok(ModerationCondition::ContainsLinksInList {
+            domains: data.links_in_list.get(&id).cloned().unwrap_or_default(),
         }),
-        "FloodsChatOrExceedsLimits" => {
-            let (
-                max_characters,
-                max_words,
-                max_lines,
-                chars_per_line,
-                disallow_invisible_chars,
-                disallow_empty_messages,
-            ) = data
-                .flooding
+        "ContainsLinksOutsideList" => Ok(ModerationCondition::ContainsLinksOutsideList {
+            domains: data
+                .links_outside_list
                 .get(&id)
-                .copied()
-                .unwrap_or((0, 0, 0, 40, false, true));
-            Ok(ModerationCondition::FloodsChatOrExceedsLimits {
-                max_characters,
-                max_words,
+                .cloned()
+                .unwrap_or_default(),
+        }),
+        "ContainsLinksOutsideTop100" => Ok(ModerationCondition::ContainsLinksOutsideTop100 {
+            domains: data
+                .links_outside_top100
+                .get(&id)
+                .cloned()
+                .unwrap_or_default(),
+        }),
+        "IsBlank" => Ok(ModerationCondition::IsBlank),
+        "ContainsInvisibleCharacters" => Ok(ModerationCondition::ContainsInvisibleCharacters),
+        "ExceedsMaxCharacters" => Ok(ModerationCondition::ExceedsMaxCharacters {
+            max_characters: data.max_characters.get(&id).copied().unwrap_or(0),
+        }),
+        "ExceedsMaxWords" => Ok(ModerationCondition::ExceedsMaxWords {
+            max_words: data.max_words.get(&id).copied().unwrap_or(0),
+        }),
+        "ExceedsMaxLines" => {
+            let (max_lines, chars_per_line) = data.max_lines.get(&id).copied().unwrap_or((0, 40));
+            Ok(ModerationCondition::ExceedsMaxLines {
                 max_lines,
                 chars_per_line,
-                disallow_invisible_chars,
-                disallow_empty_messages,
             })
         }
-        "UserExceedsMessagesRateLimit" => {
+        "AuthorHitsMessageRateLimit" => {
             let (message_count, time_window_minutes) =
-                data.messages_rate_limit.get(&id).copied().unwrap_or((0, 0));
-            Ok(ModerationCondition::UserExceedsMessagesRateLimit {
+                data.message_rate_limit.get(&id).copied().unwrap_or((0, 0));
+            Ok(ModerationCondition::AuthorHitsMessageRateLimit {
                 message_count,
                 time_window_minutes,
             })
         }
-        "UserExceedsModerationRateLimit" => {
+        "AuthorHitsModerationRateLimit" => {
             let (message_count, time_window_minutes) = data
                 .moderation_rate_limit
                 .get(&id)
                 .copied()
                 .unwrap_or((0, 0));
-            Ok(ModerationCondition::UserExceedsModerationRateLimit {
+            Ok(ModerationCondition::AuthorHitsModerationRateLimit {
                 message_count,
                 time_window_minutes,
             })
         }
-        "UserJoinedRecently" => Ok(ModerationCondition::UserJoinedRecently {
+        "AuthorJoinedRecently" => Ok(ModerationCondition::AuthorJoinedRecently {
             time_window_minutes: data.joined_recently.get(&id).copied().unwrap_or(0),
         }),
         other => Err(format!("unknown condition type '{other}' on condition {id}").into()),

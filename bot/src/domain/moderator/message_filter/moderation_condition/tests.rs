@@ -9,7 +9,7 @@ fn err_of(condition: &mut ModerationCondition) -> String {
 
 #[test]
 fn test_rejects_too_many_keywords() {
-    let mut condition = ModerationCondition::ContainsBannedWords {
+    let mut condition = ModerationCondition::ContainsWords {
         keywords: (0..10_001).map(|i| format!("kw{i}")).collect(),
     };
     assert!(err_of(&mut condition).contains("Too many keywords"));
@@ -17,7 +17,7 @@ fn test_rejects_too_many_keywords() {
 
 #[test]
 fn test_rejects_too_long_keyword() {
-    let mut condition = ModerationCondition::ContainsBannedWords {
+    let mut condition = ModerationCondition::ContainsWords {
         keywords: vec!["a".repeat(101)],
     };
     assert!(err_of(&mut condition).contains("Keyword too long"));
@@ -26,7 +26,7 @@ fn test_rejects_too_long_keyword() {
 #[test]
 fn test_keyword_length_is_counted_in_characters_not_bytes() {
     // 100 Cyrillic characters are 200 bytes but must still be accepted.
-    let mut condition = ModerationCondition::ContainsBannedWords {
+    let mut condition = ModerationCondition::ContainsWords {
         keywords: vec!["я".repeat(100)],
     };
     condition.normalize_and_validate().unwrap();
@@ -35,7 +35,7 @@ fn test_keyword_length_is_counted_in_characters_not_bytes() {
 #[test]
 fn test_duplicate_keywords_are_collapsed_before_the_limit_applies() {
     // Well over the limit, but they collapse to a single distinct keyword.
-    let mut condition = ModerationCondition::ContainsBannedWords {
+    let mut condition = ModerationCondition::ContainsWords {
         keywords: std::iter::repeat_n("spam".to_string(), 10_001).collect(),
     };
 
@@ -43,7 +43,7 @@ fn test_duplicate_keywords_are_collapsed_before_the_limit_applies() {
 
     assert_eq!(
         condition,
-        ModerationCondition::ContainsBannedWords {
+        ModerationCondition::ContainsWords {
             keywords: vec!["spam".to_string()]
         }
     );
@@ -51,7 +51,7 @@ fn test_duplicate_keywords_are_collapsed_before_the_limit_applies() {
 
 #[test]
 fn test_keywords_are_sorted_and_empty_entries_dropped() {
-    let mut condition = ModerationCondition::ContainsBannedWords {
+    let mut condition = ModerationCondition::ContainsWords {
         keywords: vec![
             "beta".to_string(),
             String::new(),
@@ -64,7 +64,7 @@ fn test_keywords_are_sorted_and_empty_entries_dropped() {
 
     assert_eq!(
         condition,
-        ModerationCondition::ContainsBannedWords {
+        ModerationCondition::ContainsWords {
             keywords: vec!["alpha".to_string(), "beta".to_string()]
         }
     );
@@ -107,17 +107,17 @@ fn test_message_case_sensitivity_flag_is_preserved() {
 }
 
 #[test]
-fn test_rejects_too_long_blocked_domain() {
-    let mut condition = ModerationCondition::ContainsLinksToForbiddenWebsites {
-        blocked: vec![format!("{}.com", "a".repeat(100))],
+fn test_rejects_too_long_listed_domain() {
+    let mut condition = ModerationCondition::ContainsLinksInList {
+        domains: vec![format!("{}.com", "a".repeat(100))],
     };
     assert!(err_of(&mut condition).contains("Domain too long"));
 }
 
 #[test]
-fn test_rejects_too_many_allowed_domains() {
-    let mut condition = ModerationCondition::ContainsLinksOutsideAllowedList {
-        allowed: (0..10_001).map(|i| format!("site{i}.com")).collect(),
+fn test_rejects_too_many_domains() {
+    let mut condition = ModerationCondition::ContainsLinksOutsideList {
+        domains: (0..10_001).map(|i| format!("site{i}.com")).collect(),
     };
     assert!(err_of(&mut condition).contains("Too many domains"));
 }
@@ -134,57 +134,78 @@ fn test_every_domain_list_is_normalized() {
     };
     let tidy = || vec!["a.com".to_string(), "b.com".to_string()];
 
-    let mut blocked = ModerationCondition::ContainsLinksToForbiddenWebsites { blocked: messy() };
-    blocked.normalize_and_validate().unwrap();
+    let mut in_list = ModerationCondition::ContainsLinksInList { domains: messy() };
+    in_list.normalize_and_validate().unwrap();
     assert_eq!(
-        blocked,
-        ModerationCondition::ContainsLinksToForbiddenWebsites { blocked: tidy() }
+        in_list,
+        ModerationCondition::ContainsLinksInList { domains: tidy() }
     );
 
-    let mut allowed = ModerationCondition::ContainsLinksOutsideAllowedList { allowed: messy() };
-    allowed.normalize_and_validate().unwrap();
+    let mut outside_list = ModerationCondition::ContainsLinksOutsideList { domains: messy() };
+    outside_list.normalize_and_validate().unwrap();
     assert_eq!(
-        allowed,
-        ModerationCondition::ContainsLinksOutsideAllowedList { allowed: tidy() }
+        outside_list,
+        ModerationCondition::ContainsLinksOutsideList { domains: tidy() }
     );
 
-    let mut top100 = ModerationCondition::ContainsLinksOutsideTop100 { allowed: messy() };
+    let mut top100 = ModerationCondition::ContainsLinksOutsideTop100 { domains: messy() };
     top100.normalize_and_validate().unwrap();
     assert_eq!(
         top100,
-        ModerationCondition::ContainsLinksOutsideTop100 { allowed: tidy() }
+        ModerationCondition::ContainsLinksOutsideTop100 { domains: tidy() }
     );
 }
 
 #[test]
 fn test_conditions_without_list_parameters_are_left_alone() {
-    let mut flooding = ModerationCondition::FloodsChatOrExceedsLimits {
-        max_characters: 0,
-        max_words: 0,
-        max_lines: 0,
-        chars_per_line: 40,
-        disallow_empty_messages: true,
-        disallow_invisible_chars: false,
-    };
-    let unchanged = flooding.clone();
-    flooding.normalize_and_validate().unwrap();
-    assert_eq!(flooding, unchanged);
+    for mut condition in [
+        ModerationCondition::IsBlank,
+        ModerationCondition::ContainsInvisibleCharacters,
+        ModerationCondition::ExceedsMaxCharacters { max_characters: 1 },
+        ModerationCondition::ExceedsMaxWords { max_words: 10 },
+        ModerationCondition::ExceedsMaxLines {
+            max_lines: 5,
+            chars_per_line: 0,
+        },
+        ModerationCondition::AuthorHitsMessageRateLimit {
+            message_count: 5,
+            time_window_minutes: 2,
+        },
+        // 0 disables these two rather than being rejected.
+        ModerationCondition::AuthorHitsMessageRateLimit {
+            message_count: 0,
+            time_window_minutes: 0,
+        },
+        ModerationCondition::AuthorHitsModerationRateLimit {
+            message_count: 3,
+            time_window_minutes: 10,
+        },
+    ] {
+        let unchanged = condition.clone();
+        condition.normalize_and_validate().unwrap();
+        assert_eq!(condition, unchanged);
+    }
+}
 
-    let mut rate_limit = ModerationCondition::UserExceedsMessagesRateLimit {
-        message_count: 5,
-        time_window_minutes: 2,
-    };
-    let unchanged = rate_limit.clone();
-    rate_limit.normalize_and_validate().unwrap();
-    assert_eq!(rate_limit, unchanged);
-
-    let mut moderation_rate_limit = ModerationCondition::UserExceedsModerationRateLimit {
-        message_count: 3,
-        time_window_minutes: 10,
-    };
-    let unchanged = moderation_rate_limit.clone();
-    moderation_rate_limit.normalize_and_validate().unwrap();
-    assert_eq!(moderation_rate_limit, unchanged);
+#[test]
+fn test_rejects_length_conditions_with_zero_maximum() {
+    // 0 used to mean "this check is off" inside the old combined condition;
+    // on its own it would store a rule that can never match.
+    assert!(
+        err_of(&mut ModerationCondition::ExceedsMaxCharacters { max_characters: 0 })
+            .contains("'Message Exceeds Max Characters' needs a maximum of at least 1")
+    );
+    assert!(
+        err_of(&mut ModerationCondition::ExceedsMaxWords { max_words: 0 })
+            .contains("'Message Exceeds Max Words' needs a maximum of at least 1")
+    );
+    assert!(
+        err_of(&mut ModerationCondition::ExceedsMaxLines {
+            max_lines: 0,
+            chars_per_line: 40,
+        })
+        .contains("'Message Exceeds Max Lines' needs a maximum of at least 1")
+    );
 }
 
 #[test]
@@ -281,16 +302,19 @@ fn test_accepts_valid_repeated_sequence_settings() {
 
 #[test]
 fn test_rejects_joined_recently_with_zero_window() {
-    let mut condition = ModerationCondition::UserJoinedRecently {
+    let mut condition = ModerationCondition::AuthorJoinedRecently {
         time_window_minutes: 0,
     };
-    assert!(err_of(&mut condition).contains("at least 1 minute"));
+    assert!(
+        err_of(&mut condition)
+            .contains("'Author Joined Recently' needs a time window of at least 1 minute")
+    );
 }
 
 #[test]
 fn test_accepts_joined_recently_with_positive_window() {
     for time_window_minutes in [1, 60, u32::MAX] {
-        let mut condition = ModerationCondition::UserJoinedRecently {
+        let mut condition = ModerationCondition::AuthorJoinedRecently {
             time_window_minutes,
         };
         let unchanged = condition.clone();
@@ -308,7 +332,7 @@ fn test_accepts_joined_recently_with_positive_window() {
 // ---------------------------------------------------------------------------
 
 fn words(keyword: &str) -> ModerationCondition {
-    ModerationCondition::ContainsBannedWords {
+    ModerationCondition::ContainsWords {
         keywords: vec![keyword.to_string()],
     }
 }
@@ -446,7 +470,7 @@ fn test_normalizes_the_leaves_inside_a_composite() {
     // when the condition is the whole rule.
     let condition = normalized(ModerationCondition::All {
         conditions: vec![
-            ModerationCondition::ContainsBannedWords {
+            ModerationCondition::ContainsWords {
                 keywords: vec!["b".into(), String::new(), "a".into(), "a".into()],
             },
             words("z"),
@@ -456,7 +480,7 @@ fn test_normalizes_the_leaves_inside_a_composite() {
         condition,
         ModerationCondition::All {
             conditions: vec![
-                ModerationCondition::ContainsBannedWords {
+                ModerationCondition::ContainsWords {
                     keywords: vec!["a".into(), "b".into()],
                 },
                 words("z"),
@@ -516,14 +540,16 @@ fn test_rejects_moderation_rate_limit_under_a_negation() {
         conditions: vec![
             words("a"),
             ModerationCondition::Not {
-                condition: Box::new(ModerationCondition::UserExceedsModerationRateLimit {
+                condition: Box::new(ModerationCondition::AuthorHitsModerationRateLimit {
                     message_count: 2,
                     time_window_minutes: 5,
                 }),
             },
         ],
     };
-    assert!(err_of(&mut condition).contains("cannot be placed under a 'Not' condition"));
+    let err = err_of(&mut condition);
+    assert!(err.contains("'Author Hits Moderation Rate Limit' cannot be placed"));
+    assert!(err.contains("under a 'Not'"));
 }
 
 #[test]
@@ -531,7 +557,7 @@ fn test_allows_moderation_rate_limit_outside_a_negation() {
     normalized(ModerationCondition::All {
         conditions: vec![
             words("a"),
-            ModerationCondition::UserExceedsModerationRateLimit {
+            ModerationCondition::AuthorHitsModerationRateLimit {
                 message_count: 2,
                 time_window_minutes: 5,
             },
@@ -544,18 +570,18 @@ fn test_allows_moderation_rate_limit_outside_a_negation() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_rate_limit_windows_are_found_at_any_depth() {
+fn test_activity_windows_are_found_at_any_depth() {
     let condition = ModerationCondition::All {
         conditions: vec![
             words("a"),
             ModerationCondition::Any {
                 conditions: vec![
-                    ModerationCondition::UserExceedsMessagesRateLimit {
+                    ModerationCondition::AuthorHitsMessageRateLimit {
                         message_count: 3,
                         time_window_minutes: 7,
                     },
                     ModerationCondition::Not {
-                        condition: Box::new(ModerationCondition::UserExceedsMessagesRateLimit {
+                        condition: Box::new(ModerationCondition::AuthorHitsMessageRateLimit {
                             message_count: 9,
                             time_window_minutes: 30,
                         }),
@@ -564,7 +590,7 @@ fn test_rate_limit_windows_are_found_at_any_depth() {
             },
         ],
     };
-    assert_eq!(condition.max_messages_rate_limit_window(), Some(30));
+    assert_eq!(condition.max_message_rate_limit_window(), Some(30));
     assert_eq!(condition.max_moderation_rate_limit_window(), None);
     assert!(!condition.contains_moderation_rate_limit());
 }
@@ -572,10 +598,98 @@ fn test_rate_limit_windows_are_found_at_any_depth() {
 #[test]
 fn test_zero_windows_are_ignored() {
     let condition = ModerationCondition::Not {
-        condition: Box::new(ModerationCondition::UserExceedsMessagesRateLimit {
+        condition: Box::new(ModerationCondition::AuthorHitsMessageRateLimit {
             message_count: 3,
             time_window_minutes: 0,
         }),
     };
-    assert_eq!(condition.max_messages_rate_limit_window(), None);
+    assert_eq!(condition.max_message_rate_limit_window(), None);
+}
+
+// ---------------------------------------------------------------------------
+// Describing a condition (what a `Not` reports when it matches)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_descriptions_state_what_is_detected_without_judging_it() {
+    let described = [
+        words("a"),
+        ModerationCondition::MatchesExactMessage {
+            messages: vec![],
+            case_sensitive: false,
+        },
+        ModerationCondition::ContainsLinksInList { domains: vec![] },
+        ModerationCondition::ContainsLinksOutsideList { domains: vec![] },
+        ModerationCondition::ContainsLinksOutsideTop100 { domains: vec![] },
+        ModerationCondition::IsBlank,
+        ModerationCondition::ContainsInvisibleCharacters,
+        ModerationCondition::ExceedsMaxCharacters { max_characters: 10 },
+        ModerationCondition::ExceedsMaxWords { max_words: 10 },
+        ModerationCondition::ExceedsMaxLines {
+            max_lines: 10,
+            chars_per_line: 40,
+        },
+    ]
+    .map(|condition| condition.describe());
+    for description in described {
+        for judgement in [
+            "banned",
+            "forbidden",
+            "blacklist",
+            "allowed",
+            "approved",
+            "safe",
+        ] {
+            assert!(
+                !description.contains(judgement),
+                "'{description}' contains '{judgement}'"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_descriptions_carry_the_thresholds() {
+    assert_eq!(
+        ModerationCondition::ExceedsMaxLines {
+            max_lines: 5,
+            chars_per_line: 40,
+        }
+        .describe(),
+        "has more than 5 lines"
+    );
+    assert_eq!(
+        ModerationCondition::AuthorHitsMessageRateLimit {
+            message_count: 5,
+            time_window_minutes: 2,
+        }
+        .describe(),
+        "author sent at least 5 messages in 2 min"
+    );
+    assert_eq!(
+        ModerationCondition::AuthorHitsModerationRateLimit {
+            message_count: 3,
+            time_window_minutes: 60,
+        }
+        .describe(),
+        "author had at least 3 messages moderated in 60 min"
+    );
+}
+
+#[test]
+fn test_parameterless_conditions_round_trip_through_json() {
+    // They carry nothing but their tag, which is exactly what the editor sends.
+    for (condition, json) in [
+        (ModerationCondition::IsBlank, r#"{"type":"IsBlank"}"#),
+        (
+            ModerationCondition::ContainsInvisibleCharacters,
+            r#"{"type":"ContainsInvisibleCharacters"}"#,
+        ),
+    ] {
+        assert_eq!(serde_json::to_string(&condition).unwrap(), json);
+        assert_eq!(
+            serde_json::from_str::<ModerationCondition>(json).unwrap(),
+            condition
+        );
+    }
 }

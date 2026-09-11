@@ -17,7 +17,7 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
     let rules = vec![
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: ModerationCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsWords {
                 keywords: vec!["word1".to_string()],
             },
         },
@@ -40,14 +40,14 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::None,
             },
-            condition: ModerationCondition::ContainsLinksToForbiddenWebsites {
-                blocked: vec!["spam.com".to_string()],
+            condition: ModerationCondition::ContainsLinksInList {
+                domains: vec!["spam.com".to_string()],
             },
         },
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: ModerationCondition::ContainsLinksOutsideAllowedList {
-                allowed: vec!["ok.com".to_string()],
+            condition: ModerationCondition::ContainsLinksOutsideList {
+                domains: vec!["ok.com".to_string()],
             },
         },
         ModerationRule {
@@ -55,27 +55,33 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
                 delete_messages: DeleteAuthorMessages::AllMessages,
             },
             condition: ModerationCondition::ContainsLinksOutsideTop100 {
-                allowed: vec!["extra.com".to_string()],
+                domains: vec!["extra.com".to_string()],
             },
         },
         ModerationRule {
             action: ModerationAction::SetAuthorObserver {
                 delete_message: DeleteObserverMessages::TriggeredMessage,
             },
-            condition: ModerationCondition::FloodsChatOrExceedsLimits {
-                max_characters: 100,
-                max_words: 20,
-                max_lines: 5,
-                chars_per_line: 40,
-                disallow_empty_messages: true,
-                disallow_invisible_chars: true,
+            condition: ModerationCondition::Any {
+                conditions: vec![
+                    ModerationCondition::IsBlank,
+                    ModerationCondition::ContainsInvisibleCharacters,
+                    ModerationCondition::ExceedsMaxCharacters {
+                        max_characters: 100,
+                    },
+                    ModerationCondition::ExceedsMaxWords { max_words: 20 },
+                    ModerationCondition::ExceedsMaxLines {
+                        max_lines: 5,
+                        chars_per_line: 40,
+                    },
+                ],
             },
         },
         ModerationRule {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::AllMessages,
             },
-            condition: ModerationCondition::UserExceedsMessagesRateLimit {
+            condition: ModerationCondition::AuthorHitsMessageRateLimit {
                 message_count: 5,
                 time_window_minutes: 2,
             },
@@ -147,7 +153,7 @@ async fn test_save_and_load_rate_limit_rules() {
     let rules = vec![
         ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: ModerationCondition::UserExceedsMessagesRateLimit {
+            condition: ModerationCondition::AuthorHitsMessageRateLimit {
                 message_count: 3,
                 time_window_minutes: 1,
             },
@@ -156,7 +162,7 @@ async fn test_save_and_load_rate_limit_rules() {
             action: ModerationAction::KickAuthor {
                 delete_messages: DeleteAuthorMessages::TriggeredMessage,
             },
-            condition: ModerationCondition::UserExceedsMessagesRateLimit {
+            condition: ModerationCondition::AuthorHitsMessageRateLimit {
                 message_count: 10,
                 time_window_minutes: 60,
             },
@@ -208,7 +214,7 @@ async fn assert_round_trips(messenger_group_id: i64, condition: ModerationCondit
 async fn test_round_trips_condition_with_a_child_table() {
     assert_round_trips(
         2001,
-        ModerationCondition::ContainsBannedWords {
+        ModerationCondition::ContainsWords {
             keywords: vec!["alpha".to_string(), "beta".to_string()],
         },
     )
@@ -219,13 +225,74 @@ async fn test_round_trips_condition_with_a_child_table() {
 async fn test_round_trips_condition_with_settings_columns() {
     assert_round_trips(
         2002,
-        ModerationCondition::FloodsChatOrExceedsLimits {
-            max_characters: 0,
-            max_words: 0,
-            max_lines: 0,
-            chars_per_line: 40,
-            disallow_empty_messages: true,
-            disallow_invisible_chars: false,
+        ModerationCondition::ExceedsMaxLines {
+            max_lines: 5,
+            chars_per_line: 35,
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_round_trips_every_message_shape_condition() {
+    // Two of them have no parameters and so no table of their own: the type
+    // tag in the registry has to be enough to bring them back.
+    assert_round_trips(
+        2008,
+        ModerationCondition::Any {
+            conditions: vec![
+                ModerationCondition::IsBlank,
+                ModerationCondition::ContainsInvisibleCharacters,
+                ModerationCondition::ExceedsMaxCharacters {
+                    max_characters: 100,
+                },
+                ModerationCondition::ExceedsMaxWords { max_words: 20 },
+                ModerationCondition::ExceedsMaxLines {
+                    max_lines: 5,
+                    chars_per_line: 0,
+                },
+            ],
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_round_trips_every_link_condition() {
+    assert_round_trips(
+        2009,
+        ModerationCondition::Any {
+            conditions: vec![
+                ModerationCondition::ContainsLinksInList {
+                    domains: vec!["spam.com".to_string()],
+                },
+                ModerationCondition::ContainsLinksOutsideList {
+                    domains: vec!["ok.com".to_string()],
+                },
+                ModerationCondition::ContainsLinksOutsideTop100 {
+                    domains: vec!["extra.com".to_string()],
+                },
+            ],
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_round_trips_author_activity_conditions() {
+    assert_round_trips(
+        2010,
+        ModerationCondition::All {
+            conditions: vec![
+                ModerationCondition::AuthorHitsMessageRateLimit {
+                    message_count: 5,
+                    time_window_minutes: 2,
+                },
+                ModerationCondition::AuthorHitsModerationRateLimit {
+                    message_count: 3,
+                    time_window_minutes: 60,
+                },
+            ],
         },
     )
     .await;
@@ -255,10 +322,10 @@ async fn test_round_trips_repeated_sequence_settings() {
 }
 
 #[tokio::test]
-async fn test_round_trips_user_joined_recently_settings() {
+async fn test_round_trips_author_joined_recently_settings() {
     assert_round_trips(
         2007,
-        ModerationCondition::UserJoinedRecently {
+        ModerationCondition::AuthorJoinedRecently {
             time_window_minutes: 45,
         },
     )
@@ -273,7 +340,7 @@ async fn test_round_trips_a_nested_condition_tree() {
             conditions: vec![
                 ModerationCondition::Any {
                     conditions: vec![
-                        ModerationCondition::ContainsBannedWords {
+                        ModerationCondition::ContainsWords {
                             keywords: vec!["alpha".to_string()],
                         },
                         ModerationCondition::MatchesRegex {
@@ -282,11 +349,11 @@ async fn test_round_trips_a_nested_condition_tree() {
                     ],
                 },
                 ModerationCondition::Not {
-                    condition: Box::new(ModerationCondition::ContainsLinksOutsideAllowedList {
-                        allowed: vec!["ok.com".to_string()],
+                    condition: Box::new(ModerationCondition::ContainsLinksOutsideList {
+                        domains: vec!["ok.com".to_string()],
                     }),
                 },
-                ModerationCondition::UserExceedsMessagesRateLimit {
+                ModerationCondition::AuthorHitsMessageRateLimit {
                     message_count: 5,
                     time_window_minutes: 2,
                 },
@@ -308,7 +375,7 @@ async fn test_preserves_sibling_order_within_a_composite() {
                 ModerationCondition::MatchesRegex {
                     patterns: vec!["z".to_string()],
                 },
-                ModerationCondition::ContainsBannedWords {
+                ModerationCondition::ContainsWords {
                     keywords: vec!["a".to_string()],
                 },
                 ModerationCondition::MatchesExactMessage {
@@ -328,7 +395,7 @@ async fn test_preserves_rule_order() {
         .iter()
         .map(|keyword| ModerationRule {
             action: ModerationAction::ModerateMessage,
-            condition: ModerationCondition::ContainsBannedWords {
+            condition: ModerationCondition::ContainsWords {
                 keywords: vec![(*keyword).to_string()],
             },
         })
@@ -348,7 +415,7 @@ async fn test_replacing_rules_leaves_no_orphan_actions() {
         action: ModerationAction::KickAuthor {
             delete_messages: DeleteAuthorMessages::AllMessages,
         },
-        condition: ModerationCondition::ContainsBannedWords {
+        condition: ModerationCondition::ContainsWords {
             keywords: vec!["alpha".to_string()],
         },
     }];

@@ -1,10 +1,10 @@
-/// Built-in preset allowlist of widely-used, legitimate domains.
-/// Used by the `ContainsLinksOutsideTop100` rule — no configuration needed.
+/// Built-in list of the 100 most widely-used domains.
+/// Used by the `ContainsLinksOutsideTop100` condition — no configuration needed.
 ///
-/// Subdomains are automatically covered: allowing `github.com` also allows
+/// Subdomains are automatically covered: listing `github.com` also covers
 /// `gist.github.com`, `docs.github.com`, etc.
 ///
-/// To extend or override this list use `ContainsLinksOutsideAllowedList` instead.
+/// To replace this list with your own use `ContainsLinksOutsideList` instead.
 pub static DOMAINS: &[&str] = &[
     // Search & portals
     "google.com",

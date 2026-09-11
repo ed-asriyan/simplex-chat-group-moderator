@@ -1,19 +1,19 @@
 use crate::domain::moderator::ports::{Err, MessengerGroupId, UserActivityRepository, UserId};
 use chrono::{DateTime, Duration, Utc};
 
-/// Evaluates if the user exceeds the messages rate limit.
+/// Evaluates if the author sent at least `message_count` messages in the window.
 pub fn should_moderate(count: u32, message_count: u32, time_window_minutes: u32) -> Option<String> {
     if message_count > 0 && time_window_minutes > 0 && count >= message_count {
         Some(format!(
-            "user exceeds messages rate limit: {count} messages in {time_window_minutes} min"
+            "author sent {count} messages in {time_window_minutes} min"
         ))
     } else {
         None
     }
 }
 
-/// Helper that queries the `UserActivityRepository` and evaluates the rate limit.
-pub async fn check_rate_limit(
+/// Helper that queries the `UserActivityRepository` and evaluates the condition.
+pub async fn check(
     activity_repo: &dyn UserActivityRepository,
     group_id: &MessengerGroupId,
     user_id: &UserId,

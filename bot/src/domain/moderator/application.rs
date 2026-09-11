@@ -45,13 +45,13 @@ impl ModeratorApplication {
     ) -> Result<(), Err> {
         // The condition can sit at any depth inside a rule's tree, so this asks
         // the tree rather than matching on the rule's root condition.
-        let max_rate_limit_window = rules
+        let max_message_rate_limit_window = rules
             .iter()
-            .filter_map(|r| r.condition.max_messages_rate_limit_window())
+            .filter_map(|r| r.condition.max_message_rate_limit_window())
             .map(|window| window.min(60))
             .max();
 
-        if let Some(max_window_minutes) = max_rate_limit_window {
+        if let Some(max_window_minutes) = max_message_rate_limit_window {
             let ttl = Duration::from_secs(max_window_minutes as u64 * 60);
             self.activity_repository
                 .record_user_message(

@@ -371,12 +371,12 @@ fn domain_matches(domain: &str, pattern: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Core decision: given pre-extracted `domains`, return the first one that
-/// matches a pattern in `blocked`.  `pub(crate)` so tests can inject a mock
+/// matches a pattern in `list`.  `pub(super)` so tests can inject a mock
 /// domain list without re-exercising obfuscation normalisation.
-pub(super) fn check_blacklist(domains: &[String], blocked: &[String]) -> Option<String> {
+pub(super) fn find_in_list(domains: &[String], list: &[String]) -> Option<String> {
     for domain in domains {
-        for b in blocked {
-            if domain_matches(domain, b) {
+        for pattern in list {
+            if domain_matches(domain, pattern) {
                 return Some(domain.clone());
             }
         }
@@ -385,41 +385,42 @@ pub(super) fn check_blacklist(domains: &[String], blocked: &[String]) -> Option<
 }
 
 /// Core decision: given pre-extracted `domains`, return the first one that is
-/// **not** covered by `allowed`, or `None` if every domain is permitted.
-pub(super) fn check_whitelist(domains: &[String], allowed: &[String]) -> Option<String> {
+/// **not** covered by `list`, or `None` if every domain is covered.
+pub(super) fn find_outside_list(domains: &[String], list: &[String]) -> Option<String> {
     for domain in domains {
-        let is_allowed = allowed.iter().any(|a| domain_matches(domain, a));
-        if !is_allowed {
+        let is_listed = list.iter().any(|pattern| domain_matches(domain, pattern));
+        if !is_listed {
             return Some(domain.clone());
         }
     }
     None
 }
 
-/// Returns `Some(domain)` if `text` contains a link whose domain is on the
-/// blacklist, or `None` if all links are allowed (or there are no links).
-pub fn should_moderate_blacklist(text: &str, blocked: &[String]) -> Option<String> {
-    check_blacklist(&find_domains(text), blocked)
+/// Returns `Some(domain)` if `text` contains a link whose domain is in `list`,
+/// or `None` if no link is (or there are no links).
+pub fn should_moderate_in_list(text: &str, list: &[String]) -> Option<String> {
+    find_in_list(&find_domains(text), list)
 }
 
 /// Returns `Some(domain)` if `text` contains a link whose domain is **not**
-/// covered by the allowlist, or `None` if every link is allowed (or there are
-/// no links at all).
-pub fn should_moderate_whitelist(text: &str, allowed: &[String]) -> Option<String> {
-    check_whitelist(&find_domains(text), allowed)
+/// covered by `list`, or `None` if every link is (or there are no links at all).
+pub fn should_moderate_outside_list(text: &str, list: &[String]) -> Option<String> {
+    find_outside_list(&find_domains(text), list)
 }
 
 use super::top100;
 
-/// Returns `Some(domain)` if `text` contains a link whose domain is **not**
-/// in the built-in top-100 preset allowlist.  Messages with no links are
-/// always allowed.
-pub fn should_moderate_whitelist_top100(text: &str, allowed: &[String]) -> Option<String> {
+/// Returns `Some(domain)` if `text` contains a link whose domain is neither in
+/// the built-in top-100 list nor in `extra`.  Messages with no links never
+/// match.
+pub fn should_moderate_outside_top100(text: &str, extra: &[String]) -> Option<String> {
     let domains = find_domains(text);
     for domain in &domains {
-        let is_allowed = top100::DOMAINS.iter().any(|a| domain_matches(domain, a))
-            || allowed.iter().any(|a| domain_matches(domain, a));
-        if !is_allowed {
+        let is_listed = top100::DOMAINS
+            .iter()
+            .any(|pattern| domain_matches(domain, pattern))
+            || extra.iter().any(|pattern| domain_matches(domain, pattern));
+        if !is_listed {
             return Some(domain.clone());
         }
     }

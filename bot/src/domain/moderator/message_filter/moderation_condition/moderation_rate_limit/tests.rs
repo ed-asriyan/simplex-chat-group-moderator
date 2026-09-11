@@ -7,11 +7,11 @@ use std::time::Duration as StdDuration;
 fn test_should_moderate_when_limit_reached() {
     assert_eq!(
         should_moderate(3, 3, 60),
-        Some("user exceeds moderation rate limit: 3 moderated messages in 60 min".to_string())
+        Some("author had 3 messages moderated in 60 min".to_string())
     );
     assert_eq!(
         should_moderate(5, 3, 60),
-        Some("user exceeds moderation rate limit: 5 moderated messages in 60 min".to_string())
+        Some("author had 5 messages moderated in 60 min".to_string())
     );
 }
 
@@ -61,43 +61,37 @@ impl UserModerationActivityRepository for MockModerationActivityRepo {
 }
 
 #[tokio::test]
-async fn test_check_moderation_rate_limit_triggered() {
+async fn test_check_triggered() {
     let repo = MockModerationActivityRepo {
         count_to_return: 3,
         recorded: Mutex::new(Vec::new()),
     };
     let now = Utc::now();
-    let result = check_moderation_rate_limit(&repo, &100, &200, 3, 60, now)
-        .await
-        .unwrap();
+    let result = check(&repo, &100, &200, 3, 60, now).await.unwrap();
     assert_eq!(
         result,
-        Some("user exceeds moderation rate limit: 3 moderated messages in 60 min".to_string())
+        Some("author had 3 messages moderated in 60 min".to_string())
     );
 }
 
 #[tokio::test]
-async fn test_check_moderation_rate_limit_not_triggered() {
+async fn test_check_not_triggered() {
     let repo = MockModerationActivityRepo {
         count_to_return: 2,
         recorded: Mutex::new(Vec::new()),
     };
     let now = Utc::now();
-    let result = check_moderation_rate_limit(&repo, &100, &200, 3, 60, now)
-        .await
-        .unwrap();
+    let result = check(&repo, &100, &200, 3, 60, now).await.unwrap();
     assert_eq!(result, None);
 }
 
 #[tokio::test]
-async fn test_check_moderation_rate_limit_disabled_with_zero_limit() {
+async fn test_check_disabled_with_zero_limit() {
     let repo = MockModerationActivityRepo {
         count_to_return: 10,
         recorded: Mutex::new(Vec::new()),
     };
     let now = Utc::now();
-    let result = check_moderation_rate_limit(&repo, &100, &200, 0, 60, now)
-        .await
-        .unwrap();
+    let result = check(&repo, &100, &200, 0, 60, now).await.unwrap();
     assert_eq!(result, None);
 }
