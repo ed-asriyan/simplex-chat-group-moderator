@@ -463,6 +463,91 @@
                             "default": 60
                         }
                     }
+                },
+                {
+                    "type": "object",
+                    "title": "🧩 All of These Conditions Match (AND)",
+                    "description": "Matches only when **every** condition inside it matches. Use it to narrow a broad condition down, for example a banned word **and** an author who just joined. An empty list is not a valid condition — add at least one condition inside, or remove this one.",
+                    "required": [
+                        "type",
+                        "conditions"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "All",
+                            "default": "All",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "conditions": {
+                            "type": "array",
+                            "title": "Conditions (all must match)",
+                            "options": {
+                                "disable_collapse": true
+                            },
+                            "minItems": 1,
+                            "items": {
+                                "$ref": "#/definitions/condition"
+                            }
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "title": "🔀 Any of These Conditions Match (OR)",
+                    "description": "Matches when **at least one** condition inside it matches. Note that separate rules already work this way, so you only need this inside another condition — for example _(spam word **or** spam link) **and** a new author_.",
+                    "required": [
+                        "type",
+                        "conditions"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "Any",
+                            "default": "Any",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "conditions": {
+                            "type": "array",
+                            "title": "Conditions (any may match)",
+                            "options": {
+                                "disable_collapse": true
+                            },
+                            "minItems": 1,
+                            "items": {
+                                "$ref": "#/definitions/condition"
+                            }
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "title": "✖️ This Condition Does Not Match (NOT)",
+                    "description": "Matches when the condition inside it does **not** match. Careful with conditions that are already phrased negatively (anything starting with ✅), because the result is a double negative that is hard to read. `User Exceeds Moderation Rate Limit` cannot be used inside this one.",
+                    "required": [
+                        "type",
+                        "condition"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "Not",
+                            "default": "Not",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "condition": {
+                            "$ref": "#/definitions/condition"
+                        }
+                    }
                 }
             ]
         }

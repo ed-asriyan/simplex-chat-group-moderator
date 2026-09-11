@@ -37,6 +37,9 @@ body:
         - Message Floods Chat or Exceeds Limits
         - User Exceeds Messages Rate Limit
         - User Exceeds Moderation Rate Limit
+        - All of These Conditions Match (AND)
+        - Any of These Conditions Match (OR)
+        - This Condition Does Not Match (NOT)
         - Not sure / multiple
     validations:
       required: true

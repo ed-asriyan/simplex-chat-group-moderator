@@ -1,25 +1,35 @@
+//! Reading a group's rules back out of SQLite.
+//!
+//! A rule is a row in `moderation_rules` plus a tree of `moderation_conditions`
+//! rows plus one `moderation_actions` row, all of which point *up* at their
+//! parent. Rather than walking the tree with a query per node, everything a
+//! group owns is fetched with a fixed number of queries — one per table — and
+//! the tree is assembled in memory. The query count is therefore independent of
+//! how many rules the group has and how deeply nested they are.
+
+use std::collections::HashMap;
+
 use crate::domain::moderator::ports::{
     DeleteAuthorMessages, DeleteObserverMessages, Err, ModerationAction, ModerationCondition,
     ModerationRule, OwnedModerationRule,
 };
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 use std::sync::{Arc, Mutex};
 
 /// Resolve a rule's action from the `moderation_actions` registry (plus its
-/// per-type subtable). `None` means the rule carries no action row and falls
-/// back to the default of moderating the message.
-fn load_action(
-    guard: &rusqlite::Connection,
-    action_id: Option<i64>,
-) -> Result<ModerationAction, Err> {
-    let Some(action_id) = action_id else {
+/// per-type subtable). A rule with no action row falls back to the default of
+/// moderating the message.
+fn load_action(guard: &rusqlite::Connection, rule_id: i64) -> Result<ModerationAction, Err> {
+    let row: Option<(i64, String)> = guard
+        .query_row(
+            "SELECT id, type FROM moderation_actions WHERE rule_id = ?1",
+            params![rule_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let Some((action_id, action_type)) = row else {
         return Ok(ModerationAction::ModerateMessage);
     };
-    let action_type: String = guard.query_row(
-        "SELECT type FROM moderation_actions WHERE id = ?1",
-        params![action_id],
-        |row| row.get(0),
-    )?;
     match action_type.as_str() {
         "KickAuthor" => {
             let delete_messages_code: i64 = guard.query_row(
@@ -50,22 +60,271 @@ fn load_action(
     }
 }
 
-/// Load the child rows (keywords/domains) for a rule from a subtable keyed by
-/// `rule_id`, returning them in `id` order so the result is deterministic.
-fn load_rule_values(
+/// Load a whole group's rows from a condition subtable (keywords, domains, ...)
+/// grouped by condition id.
+fn load_condition_lists(
     guard: &rusqlite::Connection,
     table: &str,
     column: &str,
-    rule_id: i64,
-) -> Result<Vec<String>, Err> {
-    let sql = format!("SELECT {column} FROM {table} WHERE rule_id = ?1");
+    gid: i64,
+) -> Result<HashMap<i64, Vec<String>>, Err> {
+    let sql = format!(
+        "SELECT s.condition_id, s.{column}
+           FROM {table} s
+           JOIN moderation_conditions c ON c.id = s.condition_id
+           JOIN moderation_rules r ON r.id = c.rule_id
+          WHERE r.group_id = ?1"
+    );
     let mut stmt = guard.prepare(&sql)?;
-    let rows = stmt.query_map(params![rule_id], |row| row.get::<_, String>(0))?;
-    let mut values = Vec::new();
-    for value in rows {
-        values.push(value?);
+    let rows = stmt.query_map(params![gid], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+    })?;
+    let mut out: HashMap<i64, Vec<String>> = HashMap::new();
+    for row in rows {
+        let (condition_id, value) = row?;
+        out.entry(condition_id).or_default().push(value);
     }
-    Ok(values)
+    Ok(out)
+}
+
+/// Load a whole group's rows from a condition settings table, mapping each
+/// condition id to the settings tuple produced by `map_row`.
+fn load_condition_settings<T, F>(
+    guard: &rusqlite::Connection,
+    columns: &str,
+    table: &str,
+    gid: i64,
+    map_row: F,
+) -> Result<HashMap<i64, T>, Err>
+where
+    F: Fn(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
+{
+    let sql = format!(
+        "SELECT s.condition_id, {columns}
+           FROM {table} s
+           JOIN moderation_conditions c ON c.id = s.condition_id
+           JOIN moderation_rules r ON r.id = c.rule_id
+          WHERE r.group_id = ?1"
+    );
+    let mut stmt = guard.prepare(&sql)?;
+    let rows = stmt.query_map(params![gid], |row| {
+        Ok((row.get::<_, i64>(0)?, map_row(row)?))
+    })?;
+    let mut out = HashMap::new();
+    for row in rows {
+        let (condition_id, value) = row?;
+        out.insert(condition_id, value);
+    }
+    Ok(out)
+}
+
+/// Settings loaded for every condition node of one group, keyed by condition id.
+struct ConditionData {
+    banned_words: HashMap<i64, Vec<String>>,
+    exact_messages: HashMap<i64, Vec<String>>,
+    exact_message_settings: HashMap<i64, bool>,
+    regex_patterns: HashMap<i64, Vec<String>>,
+    forbidden_domains: HashMap<i64, Vec<String>>,
+    allowed_domains: HashMap<i64, Vec<String>>,
+    top100_allowed: HashMap<i64, Vec<String>>,
+    flooding: HashMap<i64, (u32, u32, u32, u32, bool, bool)>,
+    messages_rate_limit: HashMap<i64, (u32, u32)>,
+    moderation_rate_limit: HashMap<i64, (u32, u32)>,
+}
+
+impl ConditionData {
+    fn load(guard: &rusqlite::Connection, gid: i64) -> Result<Self, Err> {
+        Ok(Self {
+            banned_words: load_condition_lists(
+                guard,
+                "moderation_condition__contains_banned_words__keywords",
+                "keyword",
+                gid,
+            )?,
+            exact_messages: load_condition_lists(
+                guard,
+                "moderation_condition__matches_exact_message__messages",
+                "message",
+                gid,
+            )?,
+            exact_message_settings: load_condition_settings(
+                guard,
+                "s.case_sensitive",
+                "moderation_condition__matches_exact_message",
+                gid,
+                |row| row.get::<_, bool>(1),
+            )?,
+            regex_patterns: load_condition_lists(
+                guard,
+                "moderation_condition__matches_regex__patterns",
+                "pattern",
+                gid,
+            )?,
+            forbidden_domains: load_condition_lists(
+                guard,
+                "moderation_condition__contains_links_to_forbidden_websites__domains",
+                "domain",
+                gid,
+            )?,
+            allowed_domains: load_condition_lists(
+                guard,
+                "moderation_condition__contains_links_outside_allowed_list__domains",
+                "domain",
+                gid,
+            )?,
+            top100_allowed: load_condition_lists(
+                guard,
+                "moderation_condition__contains_links_outside_top100__allowed",
+                "domain",
+                gid,
+            )?,
+            flooding: load_condition_settings(
+                guard,
+                "s.max_characters, s.max_words, s.max_lines, s.chars_per_line, \
+                 s.disallow_invisible_chars, s.disallow_empty_messages",
+                "moderation_condition__floods_chat_or_exceeds_limits",
+                gid,
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(1)? as u32,
+                        row.get::<_, i64>(2)? as u32,
+                        row.get::<_, i64>(3)? as u32,
+                        row.get::<_, i64>(4)? as u32,
+                        row.get::<_, bool>(5)?,
+                        row.get::<_, bool>(6)?,
+                    ))
+                },
+            )?,
+            messages_rate_limit: load_condition_settings(
+                guard,
+                "s.message_count, s.time_window_minutes",
+                "moderation_condition__user_exceeds_messages_rate_limit",
+                gid,
+                |row| Ok((row.get::<_, i64>(1)? as u32, row.get::<_, i64>(2)? as u32)),
+            )?,
+            moderation_rate_limit: load_condition_settings(
+                guard,
+                "s.message_count, s.time_window_minutes",
+                "moderation_condition__user_exceeds_moderation_rate_limit",
+                gid,
+                |row| Ok((row.get::<_, i64>(1)? as u32, row.get::<_, i64>(2)? as u32)),
+            )?,
+        })
+    }
+}
+
+/// Rebuild the condition rooted at `id` from the loaded rows.
+fn build_condition(
+    id: i64,
+    nodes: &HashMap<i64, String>,
+    children: &HashMap<i64, Vec<i64>>,
+    data: &ConditionData,
+) -> Result<ModerationCondition, Err> {
+    let type_tag = nodes
+        .get(&id)
+        .ok_or_else(|| -> Err { format!("condition {id} is missing").into() })?;
+
+    let build_children = || -> Result<Vec<ModerationCondition>, Err> {
+        children
+            .get(&id)
+            .map(|ids| {
+                ids.iter()
+                    .map(|child| build_condition(*child, nodes, children, data))
+                    .collect::<Result<Vec<_>, Err>>()
+            })
+            .unwrap_or_else(|| Ok(Vec::new()))
+    };
+
+    match type_tag.as_str() {
+        "All" => Ok(ModerationCondition::All {
+            conditions: build_children()?,
+        }),
+        "Any" => Ok(ModerationCondition::Any {
+            conditions: build_children()?,
+        }),
+        "Not" => {
+            let mut built = build_children()?;
+            if built.len() != 1 {
+                return Err(format!(
+                    "condition {id} is a 'Not' with {} children, expected exactly 1",
+                    built.len()
+                )
+                .into());
+            }
+            Ok(ModerationCondition::Not {
+                condition: Box::new(built.remove(0)),
+            })
+        }
+        "ContainsBannedWords" => Ok(ModerationCondition::ContainsBannedWords {
+            keywords: data.banned_words.get(&id).cloned().unwrap_or_default(),
+        }),
+        "MatchesExactMessage" => Ok(ModerationCondition::MatchesExactMessage {
+            messages: data.exact_messages.get(&id).cloned().unwrap_or_default(),
+            case_sensitive: data
+                .exact_message_settings
+                .get(&id)
+                .copied()
+                .unwrap_or(false),
+        }),
+        "MatchesRegex" => Ok(ModerationCondition::MatchesRegex {
+            patterns: data.regex_patterns.get(&id).cloned().unwrap_or_default(),
+        }),
+        "ContainsLinksToForbiddenWebsites" => {
+            Ok(ModerationCondition::ContainsLinksToForbiddenWebsites {
+                blocked: data.forbidden_domains.get(&id).cloned().unwrap_or_default(),
+            })
+        }
+        "ContainsLinksOutsideAllowedList" => {
+            Ok(ModerationCondition::ContainsLinksOutsideAllowedList {
+                allowed: data.allowed_domains.get(&id).cloned().unwrap_or_default(),
+            })
+        }
+        "ContainsLinksOutsideTop100" => Ok(ModerationCondition::ContainsLinksOutsideTop100 {
+            allowed: data.top100_allowed.get(&id).cloned().unwrap_or_default(),
+        }),
+        "FloodsChatOrExceedsLimits" => {
+            let (
+                max_characters,
+                max_words,
+                max_lines,
+                chars_per_line,
+                disallow_invisible_chars,
+                disallow_empty_messages,
+            ) = data
+                .flooding
+                .get(&id)
+                .copied()
+                .unwrap_or((0, 0, 0, 40, false, true));
+            Ok(ModerationCondition::FloodsChatOrExceedsLimits {
+                max_characters,
+                max_words,
+                max_lines,
+                chars_per_line,
+                disallow_invisible_chars,
+                disallow_empty_messages,
+            })
+        }
+        "UserExceedsMessagesRateLimit" => {
+            let (message_count, time_window_minutes) =
+                data.messages_rate_limit.get(&id).copied().unwrap_or((0, 0));
+            Ok(ModerationCondition::UserExceedsMessagesRateLimit {
+                message_count,
+                time_window_minutes,
+            })
+        }
+        "UserExceedsModerationRateLimit" => {
+            let (message_count, time_window_minutes) = data
+                .moderation_rate_limit
+                .get(&id)
+                .copied()
+                .unwrap_or((0, 0));
+            Ok(ModerationCondition::UserExceedsModerationRateLimit {
+                message_count,
+                time_window_minutes,
+            })
+        }
+        other => Err(format!("unknown condition type '{other}' on condition {id}").into()),
+    }
 }
 
 pub(crate) fn load_rules_for_group(
@@ -73,246 +332,24 @@ pub(crate) fn load_rules_for_group(
     gid: i64,
 ) -> Result<Vec<OwnedModerationRule>, Err> {
     let guard = conn.lock().expect("moderation repo connection poisoned");
-    // Collect each rule alongside its global `rank` so the original
-    // editor-supplied order can be reconstructed across the split tables.
-    let mut ranked: Vec<(i64, OwnedModerationRule)> = Vec::new();
 
-    // ContainsBannedWords
-    let mut stmt = guard.prepare(
-        "SELECT id, rank, action_id FROM moderation_rule__contains_banned_words WHERE group_id = ?1",
-    )?;
-    let rows: Vec<(i64, i64, Option<i64>)> = stmt
-        .query_map(params![gid], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })?
+    let mut stmt =
+        guard.prepare("SELECT id FROM moderation_rules WHERE group_id = ?1 ORDER BY rank, id")?;
+    let rule_ids: Vec<i64> = stmt
+        .query_map(params![gid], |row| row.get::<_, i64>(0))?
         .collect::<Result<_, _>>()?;
-    for (rule_id, rank, action_id) in rows {
-        let keywords = load_rule_values(
-            &guard,
-            "moderation_rule__contains_banned_words__keywords",
-            "keyword",
-            rule_id,
-        )?;
-        ranked.push((
-            rank,
-            OwnedModerationRule {
-                id: rule_id as usize,
-                rule: ModerationRule {
-                    action: load_action(&guard, action_id)?,
-                    condition: ModerationCondition::ContainsBannedWords { keywords },
-                },
-            },
-        ));
+    if rule_ids.is_empty() {
+        return Ok(Vec::new());
     }
 
-    // MatchesExactMessage
+    // Every condition node the group owns, in one query.
     let mut stmt = guard.prepare(
-        "SELECT id, rank, case_sensitive, action_id FROM moderation_rule__matches_exact_message WHERE group_id = ?1",
+        "SELECT c.id, c.rule_id, c.parent_id, c.rank, c.type
+           FROM moderation_conditions c
+           JOIN moderation_rules r ON r.id = c.rule_id
+          WHERE r.group_id = ?1",
     )?;
-    let rows: Vec<(i64, i64, bool, Option<i64>)> = stmt
-        .query_map(params![gid], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-        })?
-        .collect::<Result<_, _>>()?;
-    for (rule_id, rank, case_sensitive, action_id) in rows {
-        let messages = load_rule_values(
-            &guard,
-            "moderation_rule__matches_exact_message__messages",
-            "message",
-            rule_id,
-        )?;
-        ranked.push((
-            rank,
-            OwnedModerationRule {
-                id: rule_id as usize,
-                rule: ModerationRule {
-                    action: load_action(&guard, action_id)?,
-                    condition: ModerationCondition::MatchesExactMessage {
-                        messages,
-                        case_sensitive,
-                    },
-                },
-            },
-        ));
-    }
-
-    // MatchesRegex
-    let mut stmt = guard.prepare(
-        "SELECT id, rank, action_id FROM moderation_rule__matches_regex WHERE group_id = ?1",
-    )?;
-    let rows: Vec<(i64, i64, Option<i64>)> = stmt
-        .query_map(params![gid], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })?
-        .collect::<Result<_, _>>()?;
-    for (rule_id, rank, action_id) in rows {
-        let patterns = load_rule_values(
-            &guard,
-            "moderation_rule__matches_regex__patterns",
-            "pattern",
-            rule_id,
-        )?;
-        ranked.push((
-            rank,
-            OwnedModerationRule {
-                id: rule_id as usize,
-                rule: ModerationRule {
-                    action: load_action(&guard, action_id)?,
-                    condition: ModerationCondition::MatchesRegex { patterns },
-                },
-            },
-        ));
-    }
-
-    // ContainsLinksToForbiddenWebsites
-    let mut stmt = guard.prepare(
-        "SELECT id, rank, action_id FROM moderation_rule__contains_links_to_forbidden_websites WHERE group_id = ?1",
-    )?;
-    let rows: Vec<(i64, i64, Option<i64>)> = stmt
-        .query_map(params![gid], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })?
-        .collect::<Result<_, _>>()?;
-    for (rule_id, rank, action_id) in rows {
-        let blocked = load_rule_values(
-            &guard,
-            "moderation_rule__contains_links_to_forbidden_websites__domains",
-            "domain",
-            rule_id,
-        )?;
-        ranked.push((
-            rank,
-            OwnedModerationRule {
-                id: rule_id as usize,
-                rule: ModerationRule {
-                    action: load_action(&guard, action_id)?,
-                    condition: ModerationCondition::ContainsLinksToForbiddenWebsites { blocked },
-                },
-            },
-        ));
-    }
-
-    // ContainsLinksOutsideAllowedList
-    let mut stmt = guard.prepare(
-        "SELECT id, rank, action_id FROM moderation_rule__contains_links_outside_allowed_list WHERE group_id = ?1",
-    )?;
-    let rows: Vec<(i64, i64, Option<i64>)> = stmt
-        .query_map(params![gid], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })?
-        .collect::<Result<_, _>>()?;
-    for (rule_id, rank, action_id) in rows {
-        let allowed = load_rule_values(
-            &guard,
-            "moderation_rule__contains_links_outside_allowed_list__domains",
-            "domain",
-            rule_id,
-        )?;
-        ranked.push((
-            rank,
-            OwnedModerationRule {
-                id: rule_id as usize,
-                rule: ModerationRule {
-                    action: load_action(&guard, action_id)?,
-                    condition: ModerationCondition::ContainsLinksOutsideAllowedList { allowed },
-                },
-            },
-        ));
-    }
-
-    // ContainsLinksOutsideTop100
-    let mut stmt = guard.prepare(
-        "SELECT id, rank, action_id FROM moderation_rule__contains_links_outside_top100 WHERE group_id = ?1",
-    )?;
-    let rows: Vec<(i64, i64, Option<i64>)> = stmt
-        .query_map(params![gid], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })?
-        .collect::<Result<_, _>>()?;
-    for (rule_id, rank, action_id) in rows {
-        let allowed = load_rule_values(
-            &guard,
-            "moderation_rule__contains_links_outside_top100__allowed",
-            "domain",
-            rule_id,
-        )?;
-        ranked.push((
-            rank,
-            OwnedModerationRule {
-                id: rule_id as usize,
-                rule: ModerationRule {
-                    action: load_action(&guard, action_id)?,
-                    condition: ModerationCondition::ContainsLinksOutsideTop100 { allowed },
-                },
-            },
-        ));
-    }
-
-    // FloodsChatOrExceedsLimits
-    let mut stmt = guard.prepare(
-        "SELECT id, rank, max_characters, max_words, max_lines, chars_per_line, disallow_invisible_chars, disallow_empty_messages, action_id FROM moderation_rule__floods_chat_or_exceeds_limits WHERE group_id = ?1",
-    )?;
-    let rows: Vec<(
-        i64,
-        i64,
-        Option<i64>,
-        Option<i64>,
-        Option<i64>,
-        Option<i64>,
-        bool,
-        bool,
-        Option<i64>,
-    )> = stmt
-        .query_map(params![gid], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
-                row.get(7)?,
-                row.get(8)?,
-            ))
-        })?
-        .collect::<Result<_, _>>()?;
-    for (
-        rule_id,
-        rank,
-        max_characters,
-        max_words,
-        max_lines,
-        chars_per_line,
-        disallow_invisible_chars,
-        disallow_empty_messages,
-        action_id,
-    ) in rows
-    {
-        ranked.push((
-            rank,
-            OwnedModerationRule {
-                id: rule_id as usize,
-                rule: ModerationRule {
-                    action: load_action(&guard, action_id)?,
-                    condition: ModerationCondition::FloodsChatOrExceedsLimits {
-                        max_characters: max_characters.unwrap_or(0) as u32,
-                        max_words: max_words.unwrap_or(0) as u32,
-                        max_lines: max_lines.unwrap_or(0) as u32,
-                        chars_per_line: chars_per_line.unwrap_or(40) as u32,
-                        disallow_invisible_chars,
-                        disallow_empty_messages,
-                    },
-                },
-            },
-        ));
-    }
-
-    // UserExceedsMessagesRateLimit
-    let mut stmt = guard.prepare(
-        "SELECT id, rank, message_count, time_window_minutes, action_id FROM moderation_rule__user_exceeds_messages_rate_limit WHERE group_id = ?1",
-    )?;
-    let rows: Vec<(i64, i64, i64, i64, Option<i64>)> = stmt
+    let rows: Vec<(i64, i64, Option<i64>, i64, String)> = stmt
         .query_map(params![gid], |row| {
             Ok((
                 row.get(0)?,
@@ -323,55 +360,45 @@ pub(crate) fn load_rules_for_group(
             ))
         })?
         .collect::<Result<_, _>>()?;
-    for (rule_id, rank, message_count, time_window_minutes, action_id) in rows {
-        ranked.push((
-            rank,
-            OwnedModerationRule {
-                id: rule_id as usize,
-                rule: ModerationRule {
-                    action: load_action(&guard, action_id)?,
-                    condition: ModerationCondition::UserExceedsMessagesRateLimit {
-                        message_count: message_count as u32,
-                        time_window_minutes: time_window_minutes as u32,
-                    },
-                },
-            },
-        ));
-    }
 
-    // UserExceedsModerationRateLimit
-    let mut stmt = guard.prepare(
-        "SELECT id, rank, message_count, time_window_minutes, action_id FROM moderation_rule__user_exceeds_moderation_rate_limit WHERE group_id = ?1",
-    )?;
-    let rows: Vec<(i64, i64, i64, i64, Option<i64>)> = stmt
-        .query_map(params![gid], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-            ))
-        })?
-        .collect::<Result<_, _>>()?;
-    for (rule_id, rank, message_count, time_window_minutes, action_id) in rows {
-        ranked.push((
-            rank,
-            OwnedModerationRule {
-                id: rule_id as usize,
-                rule: ModerationRule {
-                    action: load_action(&guard, action_id)?,
-                    condition: ModerationCondition::UserExceedsModerationRateLimit {
-                        message_count: message_count as u32,
-                        time_window_minutes: time_window_minutes as u32,
-                    },
-                },
-            },
-        ));
+    let mut nodes: HashMap<i64, String> = HashMap::new();
+    let mut roots: HashMap<i64, i64> = HashMap::new();
+    // (rank, id) pairs so siblings can be ordered before the ids are kept.
+    let mut children_ranked: HashMap<i64, Vec<(i64, i64)>> = HashMap::new();
+    for (id, rule_id, parent_id, rank, type_tag) in rows {
+        match parent_id {
+            Some(parent) => children_ranked.entry(parent).or_default().push((rank, id)),
+            None => {
+                roots.insert(rule_id, id);
+            }
+        }
+        nodes.insert(id, type_tag);
     }
+    let children: HashMap<i64, Vec<i64>> = children_ranked
+        .into_iter()
+        .map(|(parent, mut ids)| {
+            ids.sort_unstable();
+            (parent, ids.into_iter().map(|(_, id)| id).collect())
+        })
+        .collect();
 
-    // Restore the original (editor) order. Ties (same rank) fall back to id for
-    // a deterministic result.
-    ranked.sort_by_key(|(rank, owned)| (*rank, owned.id));
-    Ok(ranked.into_iter().map(|(_, owned)| owned).collect())
+    let data = ConditionData::load(&guard, gid)?;
+
+    let mut rules = Vec::with_capacity(rule_ids.len());
+    for rule_id in rule_ids {
+        let Some(root) = roots.get(&rule_id) else {
+            // A rule with no condition cannot be evaluated and cannot be shown
+            // back to the owner. Skip it rather than failing every other rule.
+            log::warn!("rule {rule_id} has no root condition, skipping it");
+            continue;
+        };
+        rules.push(OwnedModerationRule {
+            id: rule_id as usize,
+            rule: ModerationRule {
+                action: load_action(&guard, rule_id)?,
+                condition: build_condition(*root, &nodes, &children, &data)?,
+            },
+        });
+    }
+    Ok(rules)
 }

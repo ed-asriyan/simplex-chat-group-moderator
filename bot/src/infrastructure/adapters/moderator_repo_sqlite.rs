@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use rand::RngExt;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, params};
 use std::sync::{Arc, Mutex};
 
 use crate::domain::moderator::ports::{
@@ -12,17 +12,22 @@ const GROUP_ID_MIN: i64 = 1;
 const GROUP_ID_MAX: i64 = 1_000_000;
 const GROUP_ID_ALLOC_MAX_ATTEMPTS: usize = 32;
 
-/// Insert an action into the `moderation_actions` registry (plus its per-type
-/// subtable) and return the new action id for a rule to reference.
-fn insert_action(tx: &rusqlite::Transaction, action: &ModerationAction) -> Result<i64, Err> {
+/// Insert a rule's action into the `moderation_actions` registry (plus its
+/// per-type subtable). The action row is a child of the rule, so removing the
+/// rule removes it by cascade and nothing has to be swept up afterwards.
+fn insert_action(
+    tx: &rusqlite::Transaction,
+    rule_id: i64,
+    action: &ModerationAction,
+) -> Result<(), Err> {
     let type_tag = match action {
         ModerationAction::ModerateMessage => "ModerateMessage",
         ModerationAction::KickAuthor { .. } => "KickAuthor",
         ModerationAction::SetAuthorObserver { .. } => "SetAuthorObserver",
     };
     tx.execute(
-        "INSERT INTO moderation_actions (type) VALUES (?1)",
-        params![type_tag],
+        "INSERT INTO moderation_actions (rule_id, type) VALUES (?1, ?2)",
+        params![rule_id, type_tag],
     )
     .map_err(|e| -> Err { e.to_string().into() })?;
     let action_id = tx.last_insert_rowid();
@@ -58,7 +63,172 @@ fn insert_action(tx: &rusqlite::Transaction, action: &ModerationAction) -> Resul
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
     }
-    Ok(action_id)
+    Ok(())
+}
+
+/// Write the rows of a condition subtable (keywords, domains, ...) for one node.
+fn insert_condition_list(
+    tx: &rusqlite::Transaction,
+    table: &str,
+    column: &str,
+    condition_id: i64,
+    values: &[String],
+) -> Result<(), Err> {
+    let sql = format!("INSERT INTO {table} (condition_id, {column}) VALUES (?1, ?2)");
+    let mut stmt = tx
+        .prepare(&sql)
+        .map_err(|e| -> Err { e.to_string().into() })?;
+    for value in values {
+        stmt.execute(params![condition_id, value])
+            .map_err(|e| -> Err { e.to_string().into() })?;
+    }
+    Ok(())
+}
+
+/// Insert one condition node and, recursively, everything under it.
+///
+/// `rule_id` is carried down to every node rather than derived from the parent,
+/// which is what lets a whole rule's tree be read back (and cascade-deleted)
+/// without walking parent links. `rank` is the node's index among its siblings.
+fn insert_condition(
+    tx: &rusqlite::Transaction,
+    rule_id: i64,
+    parent_id: Option<i64>,
+    rank: i64,
+    condition: &ModerationCondition,
+) -> Result<(), Err> {
+    let type_tag = match condition {
+        ModerationCondition::All { .. } => "All",
+        ModerationCondition::Any { .. } => "Any",
+        ModerationCondition::Not { .. } => "Not",
+        ModerationCondition::ContainsBannedWords { .. } => "ContainsBannedWords",
+        ModerationCondition::MatchesExactMessage { .. } => "MatchesExactMessage",
+        ModerationCondition::MatchesRegex { .. } => "MatchesRegex",
+        ModerationCondition::ContainsLinksToForbiddenWebsites { .. } => {
+            "ContainsLinksToForbiddenWebsites"
+        }
+        ModerationCondition::ContainsLinksOutsideAllowedList { .. } => {
+            "ContainsLinksOutsideAllowedList"
+        }
+        ModerationCondition::ContainsLinksOutsideTop100 { .. } => "ContainsLinksOutsideTop100",
+        ModerationCondition::FloodsChatOrExceedsLimits { .. } => "FloodsChatOrExceedsLimits",
+        ModerationCondition::UserExceedsMessagesRateLimit { .. } => "UserExceedsMessagesRateLimit",
+        ModerationCondition::UserExceedsModerationRateLimit { .. } => {
+            "UserExceedsModerationRateLimit"
+        }
+    };
+    tx.execute(
+        "INSERT INTO moderation_conditions (rule_id, parent_id, rank, type) VALUES (?1, ?2, ?3, ?4)",
+        params![rule_id, parent_id, rank, type_tag],
+    )
+    .map_err(|e| -> Err { e.to_string().into() })?;
+    let condition_id = tx.last_insert_rowid();
+
+    match condition {
+        ModerationCondition::All { conditions } | ModerationCondition::Any { conditions } => {
+            for (index, child) in conditions.iter().enumerate() {
+                insert_condition(tx, rule_id, Some(condition_id), index as i64, child)?;
+            }
+        }
+        ModerationCondition::Not { condition } => {
+            insert_condition(tx, rule_id, Some(condition_id), 0, condition)?;
+        }
+        ModerationCondition::ContainsBannedWords { keywords } => insert_condition_list(
+            tx,
+            "moderation_condition__contains_banned_words__keywords",
+            "keyword",
+            condition_id,
+            keywords,
+        )?,
+        ModerationCondition::MatchesExactMessage {
+            messages,
+            case_sensitive,
+        } => {
+            tx.execute(
+                "INSERT INTO moderation_condition__matches_exact_message (condition_id, case_sensitive) VALUES (?1, ?2)",
+                params![condition_id, case_sensitive],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
+            insert_condition_list(
+                tx,
+                "moderation_condition__matches_exact_message__messages",
+                "message",
+                condition_id,
+                messages,
+            )?;
+        }
+        ModerationCondition::MatchesRegex { patterns } => insert_condition_list(
+            tx,
+            "moderation_condition__matches_regex__patterns",
+            "pattern",
+            condition_id,
+            patterns,
+        )?,
+        ModerationCondition::ContainsLinksToForbiddenWebsites { blocked } => insert_condition_list(
+            tx,
+            "moderation_condition__contains_links_to_forbidden_websites__domains",
+            "domain",
+            condition_id,
+            blocked,
+        )?,
+        ModerationCondition::ContainsLinksOutsideAllowedList { allowed } => insert_condition_list(
+            tx,
+            "moderation_condition__contains_links_outside_allowed_list__domains",
+            "domain",
+            condition_id,
+            allowed,
+        )?,
+        ModerationCondition::ContainsLinksOutsideTop100 { allowed } => insert_condition_list(
+            tx,
+            "moderation_condition__contains_links_outside_top100__allowed",
+            "domain",
+            condition_id,
+            allowed,
+        )?,
+        ModerationCondition::FloodsChatOrExceedsLimits {
+            max_characters,
+            max_words,
+            max_lines,
+            chars_per_line,
+            disallow_invisible_chars,
+            disallow_empty_messages,
+        } => {
+            tx.execute(
+                "INSERT INTO moderation_condition__floods_chat_or_exceeds_limits (condition_id, max_characters, max_words, max_lines, chars_per_line, disallow_invisible_chars, disallow_empty_messages) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    condition_id,
+                    max_characters,
+                    max_words,
+                    max_lines,
+                    chars_per_line,
+                    disallow_invisible_chars,
+                    disallow_empty_messages
+                ],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
+        }
+        ModerationCondition::UserExceedsMessagesRateLimit {
+            message_count,
+            time_window_minutes,
+        } => {
+            tx.execute(
+                "INSERT INTO moderation_condition__user_exceeds_messages_rate_limit (condition_id, message_count, time_window_minutes) VALUES (?1, ?2, ?3)",
+                params![condition_id, message_count, time_window_minutes],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
+        }
+        ModerationCondition::UserExceedsModerationRateLimit {
+            message_count,
+            time_window_minutes,
+        } => {
+            tx.execute(
+                "INSERT INTO moderation_condition__user_exceeds_moderation_rate_limit (condition_id, message_count, time_window_minutes) VALUES (?1, ?2, ?3)",
+                params![condition_id, message_count, time_window_minutes],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -247,184 +417,28 @@ impl ModerationRepository for SqliteModerationRepository {
 
         tokio::task::spawn_blocking(move || -> Result<(), Err> {
             let mut guard = conn.lock().expect("moderation repo connection poisoned");
-            let tx = guard.transaction().map_err(|e| -> Err { e.to_string().into() })?;
+            let tx = guard
+                .transaction()
+                .map_err(|e| -> Err { e.to_string().into() })?;
 
-            // Delete all previous rules for this group. Child rows (keywords /
-            // domains) are removed automatically via ON DELETE CASCADE. Collect
-            // the actions those rules referenced first so the now-orphaned
-            // action rows can be removed afterwards (deleting a rule does not
-            // cascade into `moderation_actions`, since the rule is the child).
-            let rule_tables = [
-                "moderation_rule__contains_banned_words",
-                "moderation_rule__matches_exact_message",
-                "moderation_rule__matches_regex",
-                "moderation_rule__contains_links_to_forbidden_websites",
-                "moderation_rule__contains_links_outside_allowed_list",
-                "moderation_rule__contains_links_outside_top100",
-                "moderation_rule__floods_chat_or_exceeds_limits",
-                "moderation_rule__user_exceeds_messages_rate_limit",
-                "moderation_rule__user_exceeds_moderation_rate_limit",
-            ];
-            let mut orphan_action_ids: Vec<i64> = Vec::new();
-            for table in rule_tables {
-                let mut stmt = tx
-                    .prepare(&format!(
-                        "SELECT action_id FROM {table} WHERE group_id = ?1 AND action_id IS NOT NULL"
-                    ))
-                    .map_err(|e| -> Err { e.to_string().into() })?;
-                let ids = stmt
-                    .query_map(rusqlite::params![gid], |row| row.get::<_, i64>(0))
-                    .map_err(|e| -> Err { e.to_string().into() })?;
-                for id in ids {
-                    orphan_action_ids.push(id.map_err(|e| -> Err { e.to_string().into() })?);
-                }
-            }
-            for table in rule_tables {
+            // Everything a rule owns — its condition tree at any depth, its
+            // action and both of their settings tables — hangs off the rule by
+            // a foreign key with ON DELETE CASCADE, so one delete is enough.
+            tx.execute(
+                "DELETE FROM moderation_rules WHERE group_id = ?1",
+                rusqlite::params![gid],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
+
+            for (rank, rule) in rules.iter().enumerate() {
                 tx.execute(
-                    &format!("DELETE FROM {table} WHERE group_id = ?1"),
-                    rusqlite::params![gid],
+                    "INSERT INTO moderation_rules (group_id, rank) VALUES (?1, ?2)",
+                    rusqlite::params![gid, rank as i64],
                 )
                 .map_err(|e| -> Err { e.to_string().into() })?;
-            }
-            {
-                let mut stmt = tx
-                    .prepare("DELETE FROM moderation_actions WHERE id = ?1")
-                    .map_err(|e| -> Err { e.to_string().into() })?;
-                for id in orphan_action_ids {
-                    stmt.execute(rusqlite::params![id])
-                        .map_err(|e| -> Err { e.to_string().into() })?;
-                }
-            }
-
-            for (rank, rule) in rules.into_iter().enumerate() {
-                let rank = rank as i64;
-                let action_id = insert_action(&tx, &rule.action)?;
-                match rule.condition {
-                    ModerationCondition::ContainsBannedWords { keywords } => {
-                        tx.execute(
-                            "INSERT INTO moderation_rule__contains_banned_words (group_id, rank, action_id) VALUES (?1, ?2, ?3)",
-                            rusqlite::params![gid, rank, action_id],
-                        )
-                        .map_err(|e| -> Err { e.to_string().into() })?;
-                        let rule_id = tx.last_insert_rowid();
-                        let mut stmt = tx
-                            .prepare("INSERT INTO moderation_rule__contains_banned_words__keywords (rule_id, keyword) VALUES (?1, ?2)")
-                            .map_err(|e| -> Err { e.to_string().into() })?;
-                        for kw in &keywords {
-                            stmt.execute(rusqlite::params![rule_id, kw])
-                                .map_err(|e| -> Err { e.to_string().into() })?;
-                        }
-                    }
-                    ModerationCondition::MatchesExactMessage { messages, case_sensitive } => {
-                        tx.execute(
-                            "INSERT INTO moderation_rule__matches_exact_message (group_id, rank, case_sensitive, action_id) VALUES (?1, ?2, ?3, ?4)",
-                            rusqlite::params![gid, rank, case_sensitive, action_id],
-                        )
-                        .map_err(|e| -> Err { e.to_string().into() })?;
-                        let rule_id = tx.last_insert_rowid();
-                        let mut stmt = tx
-                            .prepare("INSERT INTO moderation_rule__matches_exact_message__messages (rule_id, message) VALUES (?1, ?2)")
-                            .map_err(|e| -> Err { e.to_string().into() })?;
-                        for msg in &messages {
-                            stmt.execute(rusqlite::params![rule_id, msg])
-                                .map_err(|e| -> Err { e.to_string().into() })?;
-                        }
-                    }
-                    ModerationCondition::MatchesRegex { patterns } => {
-                        tx.execute(
-                            "INSERT INTO moderation_rule__matches_regex (group_id, rank, action_id) VALUES (?1, ?2, ?3)",
-                            rusqlite::params![gid, rank, action_id],
-                        )
-                        .map_err(|e| -> Err { e.to_string().into() })?;
-                        let rule_id = tx.last_insert_rowid();
-                        let mut stmt = tx
-                            .prepare("INSERT INTO moderation_rule__matches_regex__patterns (rule_id, pattern) VALUES (?1, ?2)")
-                            .map_err(|e| -> Err { e.to_string().into() })?;
-                        for pattern in &patterns {
-                            stmt.execute(rusqlite::params![rule_id, pattern])
-                                .map_err(|e| -> Err { e.to_string().into() })?;
-                        }
-                    }
-                    ModerationCondition::ContainsLinksToForbiddenWebsites { blocked } => {
-                        tx.execute(
-                            "INSERT INTO moderation_rule__contains_links_to_forbidden_websites (group_id, rank, action_id) VALUES (?1, ?2, ?3)",
-                            rusqlite::params![gid, rank, action_id],
-                        )
-                        .map_err(|e| -> Err { e.to_string().into() })?;
-                        let rule_id = tx.last_insert_rowid();
-                        let mut stmt = tx
-                            .prepare("INSERT INTO moderation_rule__contains_links_to_forbidden_websites__domains (rule_id, domain) VALUES (?1, ?2)")
-                            .map_err(|e| -> Err { e.to_string().into() })?;
-                        for domain in blocked {
-                            stmt.execute(rusqlite::params![rule_id, domain])
-                                .map_err(|e| -> Err { e.to_string().into() })?;
-                        }
-                    }
-                    ModerationCondition::ContainsLinksOutsideAllowedList { allowed } => {
-                        tx.execute(
-                            "INSERT INTO moderation_rule__contains_links_outside_allowed_list (group_id, rank, action_id) VALUES (?1, ?2, ?3)",
-                            rusqlite::params![gid, rank, action_id],
-                        )
-                        .map_err(|e| -> Err { e.to_string().into() })?;
-                        let rule_id = tx.last_insert_rowid();
-                        let mut stmt = tx
-                            .prepare("INSERT INTO moderation_rule__contains_links_outside_allowed_list__domains (rule_id, domain) VALUES (?1, ?2)")
-                            .map_err(|e| -> Err { e.to_string().into() })?;
-                        for domain in allowed {
-                            stmt.execute(rusqlite::params![rule_id, domain])
-                                .map_err(|e| -> Err { e.to_string().into() })?;
-                        }
-                    }
-                    ModerationCondition::ContainsLinksOutsideTop100 { allowed } => {
-                        tx.execute(
-                            "INSERT INTO moderation_rule__contains_links_outside_top100 (group_id, rank, action_id) VALUES (?1, ?2, ?3)",
-                            rusqlite::params![gid, rank, action_id],
-                        )
-                        .map_err(|e| -> Err { e.to_string().into() })?;
-                        let rule_id = tx.last_insert_rowid();
-                        let mut stmt = tx
-                            .prepare("INSERT INTO moderation_rule__contains_links_outside_top100__allowed (rule_id, domain) VALUES (?1, ?2)")
-                            .map_err(|e| -> Err { e.to_string().into() })?;
-                        for a in &allowed {
-                            stmt.execute(rusqlite::params![rule_id, a])
-                                .map_err(|e| -> Err { e.to_string().into() })?;
-                        }
-                    }
-                    ModerationCondition::FloodsChatOrExceedsLimits {
-                        max_characters,
-                        max_words,
-                        max_lines,
-                        chars_per_line,
-                        disallow_invisible_chars,
-                        disallow_empty_messages,
-                    } => {
-                        tx.execute(
-                            "INSERT INTO moderation_rule__floods_chat_or_exceeds_limits (group_id, rank, max_characters, max_words, max_lines, chars_per_line, disallow_invisible_chars, disallow_empty_messages, action_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                            rusqlite::params![gid, rank, max_characters, max_words, max_lines, chars_per_line, disallow_invisible_chars, disallow_empty_messages, action_id],
-                        )
-                        .map_err(|e| -> Err { e.to_string().into() })?;
-                    }
-                    ModerationCondition::UserExceedsMessagesRateLimit {
-                        message_count,
-                        time_window_minutes,
-                    } => {
-                        tx.execute(
-                            "INSERT INTO moderation_rule__user_exceeds_messages_rate_limit (group_id, rank, message_count, time_window_minutes, action_id) VALUES (?1, ?2, ?3, ?4, ?5)",
-                            rusqlite::params![gid, rank, message_count, time_window_minutes, action_id],
-                        )
-                        .map_err(|e| -> Err { e.to_string().into() })?;
-                    }
-                    ModerationCondition::UserExceedsModerationRateLimit {
-                        message_count,
-                        time_window_minutes,
-                    } => {
-                        tx.execute(
-                            "INSERT INTO moderation_rule__user_exceeds_moderation_rate_limit (group_id, rank, message_count, time_window_minutes, action_id) VALUES (?1, ?2, ?3, ?4, ?5)",
-                            rusqlite::params![gid, rank, message_count, time_window_minutes, action_id],
-                        )
-                        .map_err(|e| -> Err { e.to_string().into() })?;
-                    }
-                }
+                let rule_id = tx.last_insert_rowid();
+                insert_action(&tx, rule_id, &rule.action)?;
+                insert_condition(&tx, rule_id, None, 0, &rule.condition)?;
             }
 
             tx.commit().map_err(|e| -> Err { e.to_string().into() })?;
@@ -438,58 +452,14 @@ impl ModerationRepository for SqliteModerationRepository {
         let conn = self.conn.clone();
         let mid = *messenger_group_id;
         tokio::task::spawn_blocking(move || -> Result<(), rusqlite::Error> {
-            let mut guard = conn.lock().expect("moderation repo connection poisoned");
-            let tx = guard.transaction()?;
-
-            // Resolve the internal group id so we can gather the actions its
-            // rules reference before those rules are cascade-deleted below.
-            let gid: Option<i64> = tx
-                .query_row(
-                    "SELECT group_id FROM moderation_groups WHERE messenger_group_id = ?1",
-                    params![mid],
-                    |row| row.get(0),
-                )
-                .optional()?;
-
-            let mut orphan_action_ids: Vec<i64> = Vec::new();
-            if let Some(gid) = gid {
-                for table in [
-                    "moderation_rule__contains_banned_words",
-                    "moderation_rule__matches_exact_message",
-                    "moderation_rule__matches_regex",
-                    "moderation_rule__contains_links_to_forbidden_websites",
-                    "moderation_rule__contains_links_outside_allowed_list",
-                    "moderation_rule__contains_links_outside_top100",
-                    "moderation_rule__floods_chat_or_exceeds_limits",
-                    "moderation_rule__user_exceeds_messages_rate_limit",
-                    "moderation_rule__user_exceeds_moderation_rate_limit",
-                ] {
-                    let mut stmt = tx.prepare(&format!(
-                        "SELECT action_id FROM {table} WHERE group_id = ?1 AND action_id IS NOT NULL"
-                    ))?;
-                    let ids = stmt.query_map(params![gid], |row| row.get::<_, i64>(0))?;
-                    for id in ids {
-                        orphan_action_ids.push(id?);
-                    }
-                }
-            }
-
-            // Removing the group cascades into its rules (and their child rows).
-            tx.execute(
+            let guard = conn.lock().expect("moderation repo connection poisoned");
+            // The group is the root of the schema: rules cascade from it, and
+            // conditions, actions and all of their settings tables cascade from
+            // the rules. Nothing is left behind to clean up separately.
+            guard.execute(
                 "DELETE FROM moderation_groups WHERE messenger_group_id = ?1",
                 params![mid],
             )?;
-
-            // The rules are gone, so their actions are now orphaned; remove them
-            // (this cascades into the per-type action subtables).
-            {
-                let mut stmt = tx.prepare("DELETE FROM moderation_actions WHERE id = ?1")?;
-                for id in orphan_action_ids {
-                    stmt.execute(params![id])?;
-                }
-            }
-
-            tx.commit()?;
             Ok(())
         })
         .await

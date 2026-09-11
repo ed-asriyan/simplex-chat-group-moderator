@@ -5,8 +5,8 @@ use std::time::Duration;
 use super::message_filter::should_moderate;
 use super::ports::{
     Err, Group, GroupId, GroupInvitation, GroupMessage, GroupModerator, MessengerGroupId,
-    ModerationCondition, ModerationEngine, ModerationNotifier, ModerationRepository,
-    ModerationRule, OwnedModerationRule, PlannedAction, UserActivityRepository, UserId,
+    ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule,
+    OwnedModerationRule, PlannedAction, UserActivityRepository, UserId,
     UserModerationActivityRepository,
 };
 
@@ -43,15 +43,12 @@ impl ModeratorApplication {
         group_message: &GroupMessage,
         rules: &[ModerationRule],
     ) -> Result<(), Err> {
+        // The condition can sit at any depth inside a rule's tree, so this asks
+        // the tree rather than matching on the rule's root condition.
         let max_rate_limit_window = rules
             .iter()
-            .filter_map(|r| match &r.condition {
-                ModerationCondition::UserExceedsMessagesRateLimit {
-                    time_window_minutes,
-                    ..
-                } if *time_window_minutes > 0 => Some((*time_window_minutes).min(60)),
-                _ => None,
-            })
+            .filter_map(|r| r.condition.max_messages_rate_limit_window())
+            .map(|window| window.min(60))
             .max();
 
         if let Some(max_window_minutes) = max_rate_limit_window {
@@ -76,13 +73,8 @@ impl ModeratorApplication {
     ) -> Result<(), Err> {
         let max_moderation_window = rules
             .iter()
-            .filter_map(|r| match &r.condition {
-                ModerationCondition::UserExceedsModerationRateLimit {
-                    time_window_minutes,
-                    ..
-                } if *time_window_minutes > 0 => Some((*time_window_minutes).min(60)),
-                _ => None,
-            })
+            .filter_map(|r| r.condition.max_moderation_rate_limit_window())
+            .map(|window| window.min(60))
             .max();
 
         if let Some(max_window_minutes) = max_moderation_window {

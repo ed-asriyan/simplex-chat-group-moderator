@@ -96,30 +96,29 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
     // Delete group data
     repo.delete_group_data(&messenger_group_id).await.unwrap();
 
-    // Verify all tables are completely empty
+    // Deleting the group must leave nothing behind anywhere. The table list
+    // comes from the schema rather than being written out here, so a future
+    // table hung off something other than the group fails this test instead of
+    // being silently missed.
     {
         let guard = conn.lock().unwrap();
-        let tables = [
-            "moderation_groups",
-            "moderation_rule__contains_banned_words",
-            "moderation_rule__contains_banned_words__keywords",
-            "moderation_rule__matches_exact_message",
-            "moderation_rule__matches_exact_message__messages",
-            "moderation_rule__matches_regex",
-            "moderation_rule__matches_regex__patterns",
-            "moderation_rule__contains_links_to_forbidden_websites",
-            "moderation_rule__contains_links_to_forbidden_websites__domains",
-            "moderation_rule__contains_links_outside_allowed_list",
-            "moderation_rule__contains_links_outside_allowed_list__domains",
-            "moderation_rule__contains_links_outside_top100",
-            "moderation_rule__contains_links_outside_top100__allowed",
-            "moderation_rule__floods_chat_or_exceeds_limits",
-            "moderation_rule__user_exceeds_messages_rate_limit",
-            "moderation_actions",
-            "moderation_action__moderate_message",
-            "moderation_action__kick_author",
-            "moderation_action__set_author_observer",
-        ];
+        let tables: Vec<String> = {
+            let mut stmt = guard
+                .prepare(
+                    "SELECT name FROM sqlite_master
+                      WHERE type = 'table' AND name LIKE 'moderation%'
+                      ORDER BY name",
+                )
+                .unwrap();
+            stmt.query_map([], |row| row.get::<_, String>(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        assert!(
+            tables.len() > 10,
+            "expected the moderation schema to be discovered, found {tables:?}"
+        );
         for table in tables {
             let count: i64 = guard
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
@@ -241,4 +240,108 @@ async fn test_round_trips_regex_patterns() {
         },
     )
     .await;
+}
+
+#[tokio::test]
+async fn test_round_trips_a_nested_condition_tree() {
+    assert_round_trips(
+        2004,
+        ModerationCondition::All {
+            conditions: vec![
+                ModerationCondition::Any {
+                    conditions: vec![
+                        ModerationCondition::ContainsBannedWords {
+                            keywords: vec!["alpha".to_string()],
+                        },
+                        ModerationCondition::MatchesRegex {
+                            patterns: vec![r"\d{3}".to_string()],
+                        },
+                    ],
+                },
+                ModerationCondition::Not {
+                    condition: Box::new(ModerationCondition::ContainsLinksOutsideAllowedList {
+                        allowed: vec!["ok.com".to_string()],
+                    }),
+                },
+                ModerationCondition::UserExceedsMessagesRateLimit {
+                    message_count: 5,
+                    time_window_minutes: 2,
+                },
+            ],
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_preserves_sibling_order_within_a_composite() {
+    // Children of a composite are ordered by `rank`, not by id or type, so a
+    // composite whose children would sort differently under any other key still
+    // comes back in the order it was written.
+    assert_round_trips(
+        2005,
+        ModerationCondition::All {
+            conditions: vec![
+                ModerationCondition::MatchesRegex {
+                    patterns: vec!["z".to_string()],
+                },
+                ModerationCondition::ContainsBannedWords {
+                    keywords: vec!["a".to_string()],
+                },
+                ModerationCondition::MatchesExactMessage {
+                    messages: vec!["m".to_string()],
+                    case_sensitive: false,
+                },
+            ],
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_preserves_rule_order() {
+    let (repo, group_id) = repo_with_group(2006).await;
+    let rules: Vec<ModerationRule> = ["first", "second", "third", "fourth"]
+        .iter()
+        .map(|keyword| ModerationRule {
+            action: ModerationAction::ModerateMessage,
+            condition: ModerationCondition::ContainsBannedWords {
+                keywords: vec![(*keyword).to_string()],
+            },
+        })
+        .collect();
+
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+
+    let loaded = repo.get_group_rules(&group_id).await.unwrap();
+    let loaded: Vec<ModerationRule> = loaded.into_iter().map(|owned| owned.rule).collect();
+    assert_eq!(loaded, rules);
+}
+
+#[tokio::test]
+async fn test_replacing_rules_leaves_no_orphan_actions() {
+    let (repo, group_id) = repo_with_group(2007).await;
+    let first = vec![ModerationRule {
+        action: ModerationAction::KickAuthor {
+            delete_messages: DeleteAuthorMessages::AllMessages,
+        },
+        condition: ModerationCondition::ContainsBannedWords {
+            keywords: vec!["alpha".to_string()],
+        },
+    }];
+    repo.set_group_rules(&group_id, &first).await.unwrap();
+    repo.set_group_rules(&group_id, &first).await.unwrap();
+    repo.set_group_rules(&group_id, &first).await.unwrap();
+
+    let guard = repo.conn.lock().unwrap();
+    for table in [
+        "moderation_actions",
+        "moderation_action__kick_author",
+        "moderation_rules",
+    ] {
+        let count: i64 = guard
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1, "{table} should hold exactly one row");
+    }
 }

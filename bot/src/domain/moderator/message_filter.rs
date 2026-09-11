@@ -33,16 +33,19 @@
 //! messages were moderated. The current message must count toward that total **iff it is
 //! itself moderated by some other (independent) rule** — otherwise a single clean message
 //! could never trip the limit, and a moderated one should. Whether the message is moderated
-//! by another rule cannot depend on where the rate-limit rule happens to sit in the list
-//! (that would make behaviour order-dependent, which we explicitly avoid).
+//! by another rule cannot depend on where the rate-limit condition happens to sit (that would
+//! make behaviour order-dependent, which we explicitly avoid).
 //!
-//! Therefore, **only when a `UserExceedsModerationRateLimit` rule exists**, we do a single
-//! pre-pass that evaluates every *other* condition once, caches each result, and derives a
-//! single order-independent flag `message_is_moderated`. The main loop then reuses those
-//! cached results (so every condition is evaluated exactly once) and passes the flag into the
-//! rate-limit condition, which adds `+1` for the current message when the flag is set. When no
-//! such rule exists, the pre-pass is skipped and conditions are evaluated lazily in the main
-//! loop.
+//! Since a condition is a tree, that condition can sit at any depth inside any rule, so
+//! "every *other* rule" is no longer a well-defined set. The generalisation: **only when some
+//! rule's tree contains one**, we make a pre-pass that evaluates every rule with all
+//! `UserExceedsModerationRateLimit` nodes pinned to "no match", and take the disjunction. When
+//! the condition sits at the root of its own rule — the only shape expressible before trees —
+//! this reduces exactly to the previous behaviour. `normalize_and_validate` forbids the
+//! condition under a `Not`, which is what keeps the pinning from feeding back into itself.
+//!
+//! The pre-pass and the main loop share one memo (on `ConditionContext`), so each distinct
+//! condition is still evaluated at most once per message.
 //!
 //! # Where things live
 //! One module per entity, each owning the type and every submodule that only serves it:
@@ -84,7 +87,7 @@ pub use moderation_condition::ModerationCondition;
 pub use moderation_rule::ModerationRule;
 
 use super::ports::{Err, GroupMessage, UserActivityRepository, UserModerationActivityRepository};
-use moderation_condition::check_condition;
+use moderation_condition::{ConditionContext, check_condition};
 
 /// Result of evaluating message against moderation rules.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -106,42 +109,30 @@ pub async fn should_moderate(
     activity_repo: &dyn UserActivityRepository,
     moderation_activity_repo: &dyn UserModerationActivityRepository,
 ) -> Result<Option<ModerationMatch>, Err> {
-    let is_moderation_rate = |rule: &ModerationRule| {
-        matches!(
-            rule.condition,
-            ModerationCondition::UserExceedsModerationRateLimit { .. }
-        )
-    };
+    let mut ctx = ConditionContext::new(group_message, activity_repo, moderation_activity_repo);
 
-    // A moderation-rate condition needs to know, independently of rule order, whether this
-    // message is moderated by another rule. Only when such a condition exists do we evaluate
-    // every other condition up front and cache the result so each is computed exactly once.
-    let has_moderation_rate_rule = rules.iter().any(is_moderation_rate);
-    let mut cached_reasons: Vec<Option<String>> = Vec::new();
-    let mut message_is_moderated = false;
-    if has_moderation_rate_rule {
+    // Only pay for the pre-pass when some rule actually asks about the
+    // moderation rate limit.
+    if rules
+        .iter()
+        .any(|rule| rule.condition.contains_moderation_rate_limit())
+    {
+        ctx.moderation_rate_limit_pinned = true;
+        let mut message_is_moderated = false;
         for rule in rules {
-            let reason = if is_moderation_rate(rule) {
-                None
-            } else {
-                check_condition(
-                    group_message,
-                    &rule.condition,
-                    activity_repo,
-                    moderation_activity_repo,
-                    false,
-                )
-                .await?
-            };
-            message_is_moderated |= reason.is_some();
-            cached_reasons.push(reason);
+            if check_condition(&mut ctx, &rule.condition).await?.is_some() {
+                message_is_moderated = true;
+                break;
+            }
         }
+        ctx.moderation_rate_limit_pinned = false;
+        ctx.message_is_moderated = message_is_moderated;
     }
 
     let mut current_actions: Vec<PlannedAction> = Vec::new();
     let mut reasons: Vec<String> = Vec::new();
 
-    for (index, rule) in rules.iter().enumerate() {
+    for rule in rules {
         let candidate_actions =
             match action_planner::plan_next_actions(&current_actions, &rule.action) {
                 Some(actions) => actions,
@@ -151,20 +142,7 @@ pub async fn should_moderate(
                 }
             };
 
-        let reason = if has_moderation_rate_rule && !is_moderation_rate(rule) {
-            cached_reasons[index].clone()
-        } else {
-            check_condition(
-                group_message,
-                &rule.condition,
-                activity_repo,
-                moderation_activity_repo,
-                message_is_moderated,
-            )
-            .await?
-        };
-
-        if let Some(reason) = reason {
+        if let Some(reason) = check_condition(&mut ctx, &rule.condition).await? {
             current_actions = candidate_actions;
             reasons.push(reason);
         }
