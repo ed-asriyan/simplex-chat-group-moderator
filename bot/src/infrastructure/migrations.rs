@@ -81,7 +81,7 @@ mod tests {
         let version: i64 = guard
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 22);
+        assert_eq!(version, 23);
     }
 
     /// 0022 rebuilds every rule as a `moderation_rules` row plus a condition
@@ -124,7 +124,9 @@ mod tests {
         )
         .unwrap();
 
-        apply_through(&mut conn, 22).unwrap();
+        // Through the latest migration, not just 0022: the repository below
+        // reads the current schema, so every later table must exist too.
+        apply(&mut conn).unwrap();
 
         let conn = Arc::new(Mutex::new(conn));
         let repo =
@@ -218,6 +220,10 @@ mod tests {
                             condition: Box::new(ModerationCondition::MatchesRegex {
                                 patterns: vec!["z".to_string()],
                             }),
+                        },
+                        ModerationCondition::ContainsRepeatedSequence {
+                            min_repeats: 5,
+                            min_length: 1,
                         },
                     ],
                 },

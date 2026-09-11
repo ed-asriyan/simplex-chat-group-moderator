@@ -243,6 +243,18 @@ async fn test_round_trips_regex_patterns() {
 }
 
 #[tokio::test]
+async fn test_round_trips_repeated_sequence_settings() {
+    assert_round_trips(
+        2006,
+        ModerationCondition::ContainsRepeatedSequence {
+            min_repeats: 5,
+            min_length: 2,
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn test_round_trips_a_nested_condition_tree() {
     assert_round_trips(
         2004,

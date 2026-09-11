@@ -250,6 +250,35 @@ fn test_accepts_valid_regex_patterns() {
     condition.normalize_and_validate().unwrap();
 }
 
+fn repeated(min_repeats: u32, min_length: u32) -> ModerationCondition {
+    ModerationCondition::ContainsRepeatedSequence {
+        min_repeats,
+        min_length,
+    }
+}
+
+#[test]
+fn test_rejects_repeated_sequence_with_fewer_than_two_repeats() {
+    // One occurrence is not a repetition; allowing it would match every message.
+    assert!(err_of(&mut repeated(1, 1)).contains("Minimum repeats must be at least 2"));
+    assert!(err_of(&mut repeated(0, 1)).contains("Minimum repeats must be at least 2"));
+}
+
+#[test]
+fn test_rejects_repeated_sequence_length_out_of_range() {
+    assert!(err_of(&mut repeated(5, 0)).contains("Minimum sequence length"));
+    assert!(err_of(&mut repeated(5, 51)).contains("Minimum sequence length"));
+}
+
+#[test]
+fn test_accepts_valid_repeated_sequence_settings() {
+    for mut condition in [repeated(2, 1), repeated(5, 2), repeated(1000, 50)] {
+        let unchanged = condition.clone();
+        condition.normalize_and_validate().unwrap();
+        assert_eq!(condition, unchanged);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Composite conditions: normalization
 //

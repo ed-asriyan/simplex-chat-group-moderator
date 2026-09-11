@@ -124,6 +124,7 @@ struct ConditionData {
     exact_messages: HashMap<i64, Vec<String>>,
     exact_message_settings: HashMap<i64, bool>,
     regex_patterns: HashMap<i64, Vec<String>>,
+    repeated_sequence: HashMap<i64, (u32, u32)>,
     forbidden_domains: HashMap<i64, Vec<String>>,
     allowed_domains: HashMap<i64, Vec<String>>,
     top100_allowed: HashMap<i64, Vec<String>>,
@@ -159,6 +160,13 @@ impl ConditionData {
                 "moderation_condition__matches_regex__patterns",
                 "pattern",
                 gid,
+            )?,
+            repeated_sequence: load_condition_settings(
+                guard,
+                "s.min_repeats, s.min_length",
+                "moderation_condition__contains_repeated_sequence",
+                gid,
+                |row| Ok((row.get::<_, i64>(1)? as u32, row.get::<_, i64>(2)? as u32)),
             )?,
             forbidden_domains: load_condition_lists(
                 guard,
@@ -269,6 +277,14 @@ fn build_condition(
         "MatchesRegex" => Ok(ModerationCondition::MatchesRegex {
             patterns: data.regex_patterns.get(&id).cloned().unwrap_or_default(),
         }),
+        "ContainsRepeatedSequence" => {
+            let (min_repeats, min_length) =
+                data.repeated_sequence.get(&id).copied().unwrap_or((0, 0));
+            Ok(ModerationCondition::ContainsRepeatedSequence {
+                min_repeats,
+                min_length,
+            })
+        }
         "ContainsLinksToForbiddenWebsites" => {
             Ok(ModerationCondition::ContainsLinksToForbiddenWebsites {
                 blocked: data.forbidden_domains.get(&id).cloned().unwrap_or_default(),

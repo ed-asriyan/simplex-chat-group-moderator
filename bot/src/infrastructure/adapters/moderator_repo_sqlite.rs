@@ -104,6 +104,7 @@ fn insert_condition(
         ModerationCondition::ContainsBannedWords { .. } => "ContainsBannedWords",
         ModerationCondition::MatchesExactMessage { .. } => "MatchesExactMessage",
         ModerationCondition::MatchesRegex { .. } => "MatchesRegex",
+        ModerationCondition::ContainsRepeatedSequence { .. } => "ContainsRepeatedSequence",
         ModerationCondition::ContainsLinksToForbiddenWebsites { .. } => {
             "ContainsLinksToForbiddenWebsites"
         }
@@ -164,6 +165,16 @@ fn insert_condition(
             condition_id,
             patterns,
         )?,
+        ModerationCondition::ContainsRepeatedSequence {
+            min_repeats,
+            min_length,
+        } => {
+            tx.execute(
+                "INSERT INTO moderation_condition__contains_repeated_sequence (condition_id, min_repeats, min_length) VALUES (?1, ?2, ?3)",
+                params![condition_id, min_repeats, min_length],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
+        }
         ModerationCondition::ContainsLinksToForbiddenWebsites { blocked } => insert_condition_list(
             tx,
             "moderation_condition__contains_links_to_forbidden_websites__domains",

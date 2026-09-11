@@ -229,6 +229,42 @@
                 },
                 {
                     "type": "object",
+                    "title": "🚫 Message Contains Repeated Sequence",
+                    "description": "Matches when some sequence of characters is repeated back-to-back too many times — e.g. `aaaaa`, `!!!!!`, `hahahahaha`, `buy now buy now buy now`. Sequences can be up to 50 characters long; letter case is ignored, and spaces, line breaks and emoji count as characters. Note that numbers like `1000000` and dots like `.....` count too.",
+                    "required": [
+                        "type",
+                        "min_repeats",
+                        "min_length"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "ContainsRepeatedSequence",
+                            "default": "ContainsRepeatedSequence",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "min_repeats": {
+                            "type": "integer",
+                            "title": "Minimum Repeats in a Row",
+                            "description": "Matches if a sequence appears at least this many times in a row. For example, 5 catches `aaaaa` but not `aaaa`.",
+                            "minimum": 2,
+                            "default": 5
+                        },
+                        "min_length": {
+                            "type": "integer",
+                            "title": "Minimum Sequence Length",
+                            "description": "Shortest sequence (in characters) that counts. 1 catches single repeated characters like `!!!!!`; raise it to ignore them — e.g. with 2 and Minimum Repeats 2, the doubled letter in `keep` is fine but `byebye` is not.",
+                            "minimum": 1,
+                            "maximum": 50,
+                            "default": 1
+                        }
+                    }
+                },
+                {
+                    "type": "object",
                     "title": "🚫 Message Contains Links to Forbidden Websites",
                     "description": "Matches when the message contains links to specified forbidden websites or domains (including obfuscated links like `spam [dot] com` or `hxxp://`).",
                     "required": [

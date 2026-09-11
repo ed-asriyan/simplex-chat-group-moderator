@@ -33,6 +33,7 @@ mod messages_blacklist;
 mod moderation_rate_limit;
 mod rate_limit;
 mod regex_match;
+mod repeated_sequence;
 mod screen_flooding;
 
 use crate::domain::moderator::ports::Err;
@@ -93,6 +94,12 @@ pub enum ModerationCondition {
     },
     MatchesRegex {
         patterns: Vec<String>,
+    },
+    /// Some sequence of at least `min_length` characters appears at least
+    /// `min_repeats` times in a row.
+    ContainsRepeatedSequence {
+        min_repeats: u32,
+        min_length: u32,
     },
     ContainsLinksToForbiddenWebsites {
         blocked: Vec<String>,
@@ -255,6 +262,7 @@ impl ModerationCondition {
             Self::ContainsBannedWords { .. } => "contains a blacklisted word".into(),
             Self::MatchesExactMessage { .. } => "matches a blacklisted message".into(),
             Self::MatchesRegex { .. } => "matches a regex pattern".into(),
+            Self::ContainsRepeatedSequence { .. } => "contains a repeated sequence".into(),
             Self::ContainsLinksToForbiddenWebsites { .. } => {
                 "contains a link to a forbidden website".into()
             }
@@ -366,6 +374,26 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
             // pattern as "never matches" instead of surfacing errors per message.
             if let Some(pattern) = patterns.iter().find(|p| Regex::new(p).is_err()) {
                 return Err(format!("Invalid regex pattern: '{pattern}'").into());
+            }
+            Ok(())
+        }
+        ModerationCondition::ContainsRepeatedSequence {
+            min_repeats,
+            min_length,
+        } => {
+            // A single occurrence is not a repetition: 1 (or 0) would match
+            // every non-empty message.
+            if *min_repeats < 2 {
+                return Err(
+                    format!("Minimum repeats must be at least 2, got {min_repeats}").into(),
+                );
+            }
+            if !(1..=repeated_sequence::MAX_SEQUENCE_LENGTH).contains(min_length) {
+                return Err(format!(
+                    "Minimum sequence length must be between 1 and {}, got {min_length}",
+                    repeated_sequence::MAX_SEQUENCE_LENGTH
+                )
+                .into());
             }
             Ok(())
         }
@@ -580,6 +608,10 @@ fn should_moderate_by_condition(message: &str, condition: &ModerationCondition) 
             regex_match::should_moderate(message, patterns)
                 .map(|pattern| format!("matches regex pattern: '{pattern}'"))
         }
+        ModerationCondition::ContainsRepeatedSequence {
+            min_repeats,
+            min_length,
+        } => repeated_sequence::should_moderate(message, *min_repeats, *min_length),
         ModerationCondition::ContainsLinksToForbiddenWebsites { blocked } => {
             links::should_moderate_blacklist(message.trim(), blocked)
         }
