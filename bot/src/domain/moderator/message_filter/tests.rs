@@ -207,7 +207,7 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
             delete_messages: DeleteAuthorMessages::None,
         }
     );
-    assert_eq!(m.reason, "contains word: 'danger'");
+    assert_eq!(m.reasons, vec!["contains word: 'danger'".to_string()]);
 }
 
 #[tokio::test]
@@ -258,7 +258,13 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
             }
         ]
     );
-    assert_eq!(m.reason, "contains word: 'first', contains word: 'second'");
+    assert_eq!(
+        m.reasons,
+        vec![
+            "contains word: 'first'".to_string(),
+            "contains word: 'second'".to_string()
+        ]
+    );
 
     // Reversed rules list: KickAuthor is evaluated first.
     // ModerateMessage is a subset of KickAuthor { TriggeredMessage }, so its condition is skipped!
@@ -275,7 +281,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
         }
     );
     // Reason only contains 'second' because the subset rule was skipped!
-    assert_eq!(rm.reason, "contains word: 'second'");
+    assert_eq!(rm.reasons, vec!["contains word: 'second'".to_string()]);
 }
 
 #[tokio::test]
@@ -438,7 +444,7 @@ async fn test_should_moderate_with_message_rate_limit() {
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         }
     );
-    assert_eq!(m.reason, "author sent 5 messages in 1 min");
+    assert_eq!(m.reasons, vec!["author sent 5 messages in 1 min".to_string()]);
 }
 
 #[tokio::test]
@@ -484,7 +490,10 @@ async fn test_should_moderate_with_moderation_rate_limit() {
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         }
     );
-    assert_eq!(m.reason, "author had 3 messages moderated in 60 min");
+    assert_eq!(
+        m.reasons,
+        vec!["author had 3 messages moderated in 60 min".to_string()]
+    );
 }
 
 #[tokio::test]
@@ -682,7 +691,7 @@ async fn test_moderation_rate_limit_is_order_independent() {
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         }
     );
-    assert!(result.reason.contains("messages moderated in"));
+    assert!(result.reasons.iter().any(|r| r.contains("messages moderated in")));
 }
 
 // ---------------------------------------------------------------------------
@@ -725,8 +734,8 @@ async fn test_all_matches_only_when_every_child_matches() {
     let both = matched("alpha and beta", condition).await.unwrap();
     // Every child contributes its own reason, so the owner sees what combined.
     assert_eq!(
-        both.reason,
-        "contains word: 'alpha' and contains word: 'beta'"
+        both.reasons,
+        vec!["contains word: 'alpha' and contains word: 'beta'".to_string()]
     );
 }
 
@@ -738,7 +747,7 @@ async fn test_any_matches_when_one_child_matches() {
     assert!(matched("nothing here", condition.clone()).await.is_none());
 
     let hit = matched("only beta", condition).await.unwrap();
-    assert_eq!(hit.reason, "contains word: 'beta'");
+    assert_eq!(hit.reasons, vec!["contains word: 'beta'".to_string()]);
 }
 
 #[tokio::test]
@@ -755,8 +764,8 @@ async fn test_not_inverts_its_child() {
     let hit = matched("anything else", condition).await.unwrap();
     // The child did not match, so it produced no reason of its own.
     assert_eq!(
-        hit.reason,
-        "does not match: contains one of the listed words"
+        hit.reasons,
+        vec!["does not match: contains one of the listed words".to_string()]
     );
 }
 
@@ -852,7 +861,7 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
             delete_messages: DeleteAuthorMessages::TriggeredMessage,
         }
     );
-    assert!(result.reason.contains("messages moderated in"));
+    assert!(result.reasons.iter().any(|r| r.contains("messages moderated in")));
 }
 
 #[tokio::test]
@@ -1171,7 +1180,10 @@ async fn test_joined_recently_matches_only_newcomers() {
     let hit = matched_from(Some(3), "hello", joined_recently(10))
         .await
         .unwrap();
-    assert_eq!(hit.reason, "author joined 3 min ago (less than 10 min)");
+    assert_eq!(
+        hit.reasons,
+        vec!["author joined 3 min ago (less than 10 min)".to_string()]
+    );
 
     assert!(
         matched_from(Some(30), "hello", joined_recently(10))
@@ -1195,8 +1207,8 @@ async fn test_joined_recently_narrows_another_condition_inside_all() {
         .await
         .unwrap();
     assert_eq!(
-        hit.reason,
-        "author joined 5 min ago (less than 60 min) and contains word: 'http'"
+        hit.reasons,
+        vec!["author joined 5 min ago (less than 60 min) and contains word: 'http'".to_string()]
     );
 
     assert!(
@@ -1229,7 +1241,7 @@ async fn test_not_joined_recently_matches_members_from_before_the_bot() {
 
     let hit = matched_from(None, "hello", condition).await.unwrap();
     assert_eq!(
-        hit.reason,
-        "does not match: author joined less than 10 min ago"
+        hit.reasons,
+        vec!["does not match: author joined less than 10 min ago".to_string()]
     );
 }

@@ -106,7 +106,7 @@ pub trait ModerationNotifier: Send + Sync {
         group: &Group,
         action: &ModerationAction,
         message: &str,
-        reason: &str,
+        reasons: &[String],
     ) -> Result<(), Err>;
 }
 

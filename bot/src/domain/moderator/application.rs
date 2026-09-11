@@ -165,7 +165,7 @@ impl ModerationEngine for ModeratorApplication {
                         &group,
                         &matched.action(),
                         &group_message.text,
-                        &matched.reason,
+                        &matched.reasons,
                     )
                     .await;
             }

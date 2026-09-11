@@ -92,14 +92,14 @@ impl ModerationNotifier for MockModerationNotifier {
         group: &Group,
         action: &ModerationAction,
         message: &str,
-        reason: &str,
+        reasons: &[String],
     ) -> Result<(), Err> {
         self.notifications.lock().unwrap().push((
             user_id,
             group.id,
             *action,
             message.to_string(),
-            reason.to_string(),
+            reasons.join(", "),
         ));
         self.call_log
             .lock()

@@ -405,7 +405,7 @@ impl ModerationNotificationReceiver for BotDmApplication {
         group: &Group,
         action: &ModerationAction,
         message: &str,
-        reason: &str,
+        reasons: &[String],
     ) -> Result<(), Err> {
         let message = if message.chars().count() > MAX_MESSAGE_LENGTH {
             format!(
@@ -464,9 +464,10 @@ impl ModerationNotificationReceiver for BotDmApplication {
                 }
             }
         };
+        let reasons = reasons.iter().map(|x| format!("• {}", x)).collect::<Vec<_>>().join("\n");
         let text = format!(
             "{} in *{}*!\n\n*The message:*\n{}\n\n*Reason:*\n{}",
-            action_text, group.name, message, reason,
+            action_text, group.name, message, reasons,
         );
         self.messenger.send_dm(&user_id, &text).await
     }

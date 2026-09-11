@@ -93,7 +93,7 @@ use moderation_condition::{ConditionContext, check_condition};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModerationMatch {
     pub actions: Vec<PlannedAction>,
-    pub reason: String,
+    pub reasons: Vec<String>,
 }
 
 impl ModerationMatch {
@@ -151,10 +151,9 @@ pub async fn should_moderate(
     if current_actions.is_empty() {
         Ok(None)
     } else {
-        let reason = reasons.join(", ");
         Ok(Some(ModerationMatch {
             actions: current_actions,
-            reason,
+            reasons,
         }))
     }
 }
