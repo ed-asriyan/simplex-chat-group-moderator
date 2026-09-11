@@ -81,7 +81,7 @@ mod tests {
         let version: i64 = guard
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 23);
+        assert_eq!(version, 24);
     }
 
     /// 0022 rebuilds every rule as a `moderation_rules` row plus a condition
@@ -224,6 +224,9 @@ mod tests {
                         ModerationCondition::ContainsRepeatedSequence {
                             min_repeats: 5,
                             min_length: 1,
+                        },
+                        ModerationCondition::UserJoinedRecently {
+                            time_window_minutes: 10,
                         },
                     ],
                 },

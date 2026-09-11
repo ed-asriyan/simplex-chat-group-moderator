@@ -255,6 +255,17 @@ async fn test_round_trips_repeated_sequence_settings() {
 }
 
 #[tokio::test]
+async fn test_round_trips_user_joined_recently_settings() {
+    assert_round_trips(
+        2007,
+        ModerationCondition::UserJoinedRecently {
+            time_window_minutes: 45,
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn test_round_trips_a_nested_condition_tree() {
     assert_round_trips(
         2004,

@@ -54,6 +54,7 @@ async fn handle_event(
             message_id,
             timestamp,
             text,
+            author_joined_at,
         } => {
             let group_message = GroupMessage {
                 group: MessengerGroup {
@@ -64,6 +65,7 @@ async fn handle_event(
                 author_id,
                 text,
                 timestamp,
+                author_joined_at,
             };
             moderator.process_group_message(group_message).await?;
         }

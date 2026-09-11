@@ -294,6 +294,7 @@ async fn test_process_group_message_moderate_message_action() {
         author_id: 555,
         text: "Contains badword here".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -362,6 +363,7 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
         author_id: 777,
         text: "Contains danger here".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -433,6 +435,7 @@ async fn test_process_group_message_kick_author_with_delete_messages_none() {
         author_id: 777,
         text: "Contains danger here".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -504,6 +507,7 @@ async fn test_process_group_message_kick_author_with_delete_messages_all_message
         author_id: 777,
         text: "Contains danger here".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -575,6 +579,7 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
         author_id: 555,
         text: "Contains danger here".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -636,6 +641,7 @@ async fn test_process_group_message_no_match_does_nothing() {
         author_id: 555,
         text: "Clean friendly message".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -708,6 +714,7 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
         author_id: 888,
         text: "first and second in the same message".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -782,6 +789,7 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
         author_id: 777,
         text: "Contains danger here".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -864,6 +872,7 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
         author_id: 777,
         text: "Contains danger here".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -937,6 +946,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
         author_id: 777,
         text: "Contains danger here".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1002,6 +1012,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
         author_id: 777,
         text: "Contains danger here".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1066,6 +1077,7 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
         author_id: 777,
         text: "Contains danger here".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1130,6 +1142,7 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
         author_id: 777,
         text: "Contains danger here".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     // Even if notification fails, the overall processing must succeed (best-effort)
@@ -1209,6 +1222,7 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
         author_id: 888,
         text: "first and second in the same message".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1287,6 +1301,7 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
         author_id: 888,
         text: "first and second in the same message".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1361,6 +1376,7 @@ async fn test_process_group_message_rate_limit_triggers_on_threshold() {
         author_id: 42,
         text: format!("Message {msg_id}"),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     // Message 1: under limit
@@ -1441,6 +1457,7 @@ async fn test_process_group_message_rate_limit_kick_author() {
         author_id,
         text: "hello".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     // User A message 1
@@ -1513,6 +1530,7 @@ async fn test_process_group_message_rate_limit_dry_mode() {
         author_id: 999,
         text: "hi".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1573,6 +1591,7 @@ async fn test_process_group_message_rate_limit_uses_message_timestamp() {
         author_id: 123,
         text: "first".to_string(),
         timestamp: base_time,
+        author_joined_at: None,
     })
     .await
     .unwrap();
@@ -1587,6 +1606,7 @@ async fn test_process_group_message_rate_limit_uses_message_timestamp() {
         author_id: 123,
         text: "second".to_string(),
         timestamp: base_time + chrono::Duration::minutes(10),
+        author_joined_at: None,
     })
     .await
     .unwrap();
@@ -1604,6 +1624,7 @@ async fn test_process_group_message_rate_limit_uses_message_timestamp() {
         author_id: 123,
         text: "third".to_string(),
         timestamp: base_time + chrono::Duration::minutes(12),
+        author_joined_at: None,
     })
     .await
     .unwrap();
@@ -1654,6 +1675,7 @@ async fn test_track_user_message_called_when_rate_limit_rule_configured() {
         author_id: 42,
         text: "hello".to_string(),
         timestamp: msg_time,
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1732,6 +1754,7 @@ async fn test_track_user_message_uses_max_window_across_multiple_rate_limit_rule
         author_id: 55,
         text: "hello".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1798,6 +1821,7 @@ async fn test_track_user_message_not_called_when_no_rate_limit_rules() {
         author_id: 55,
         text: "clean message".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1840,6 +1864,7 @@ async fn test_track_user_message_not_called_when_group_has_empty_rules() {
         author_id: 55,
         text: "hello".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1891,6 +1916,7 @@ async fn test_track_user_message_not_called_when_rate_limit_window_is_zero() {
         author_id: 55,
         text: "hello".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1942,6 +1968,7 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
         author_id: 55,
         text: "hello".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -2021,6 +2048,7 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
         author_id: 777,
         text: text.to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     // Message 1: contains spam -> moderated via rule 2 (ModerateMessage).
@@ -2107,6 +2135,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         author_id: 42,
         text: "clean message".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     // Clean message: should NOT record into moderation activity recorder
@@ -2126,6 +2155,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         author_id: 42,
         text: "contains badword here".to_string(),
         timestamp: bad_time,
+        author_joined_at: None,
     };
 
     // Moderated message: MUST record into moderation activity recorder
@@ -2179,6 +2209,7 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
         author_id: 42,
         text: "contains badword here".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     app.process_group_message(bad_msg).await.unwrap();

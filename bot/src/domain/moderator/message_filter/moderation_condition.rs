@@ -27,6 +27,7 @@
 #[cfg(test)]
 mod tests;
 
+mod joined_recently;
 mod keywords;
 mod links;
 mod messages_blacklist;
@@ -162,6 +163,12 @@ pub enum ModerationCondition {
         )]
         time_window_minutes: u32,
     },
+    /// The author joined the group less than `time_window_minutes` ago. Never
+    /// matches members who were already in the group when the bot joined,
+    /// since their join time is unknown.
+    UserJoinedRecently {
+        time_window_minutes: u32,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +286,9 @@ impl ModerationCondition {
             Self::UserExceedsModerationRateLimit { .. } => {
                 "author exceeds the moderation rate limit".into()
             }
+            Self::UserJoinedRecently {
+                time_window_minutes,
+            } => format!("author joined less than {time_window_minutes} min ago"),
         }
     }
 }
@@ -405,6 +415,19 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
         | ModerationCondition::ContainsLinksOutsideTop100 { allowed } => {
             normalize_list(allowed);
             check_list(allowed, MAX_KEYWORD_LENGTH, "domains", "Domain")
+        }
+        ModerationCondition::UserJoinedRecently {
+            time_window_minutes,
+        } => {
+            // Unlike the rate limits, where 0 means "disabled", a zero window
+            // would store a rule that can never match while the owner believes
+            // it protects the group.
+            if *time_window_minutes == 0 {
+                return Err(
+                    "'User Joined Recently' needs a time window of at least 1 minute".into(),
+                );
+            }
+            Ok(())
         }
         ModerationCondition::FloodsChatOrExceedsLimits { .. }
         | ModerationCondition::UserExceedsMessagesRateLimit { .. }
@@ -637,10 +660,11 @@ fn should_moderate_by_condition(message: &str, condition: &ModerationCondition) 
             *disallow_invisible_chars,
             *disallow_empty_messages,
         ),
-        // Repository-backed and composite conditions never reach here; they are
-        // handled by `evaluate` because they need the context.
+        // Repository-backed, author-based and composite conditions never reach
+        // here; they are handled by `evaluate` because they need the context.
         ModerationCondition::UserExceedsMessagesRateLimit { .. }
         | ModerationCondition::UserExceedsModerationRateLimit { .. }
+        | ModerationCondition::UserJoinedRecently { .. }
         | ModerationCondition::All { .. }
         | ModerationCondition::Any { .. }
         | ModerationCondition::Not { .. } => None,
@@ -773,6 +797,13 @@ async fn evaluate(
             )
             .await
         }
+        ModerationCondition::UserJoinedRecently {
+            time_window_minutes,
+        } => Ok(joined_recently::should_moderate(
+            ctx.group_message.author_joined_at,
+            ctx.group_message.timestamp,
+            *time_window_minutes,
+        )),
         other => Ok(should_moderate_by_condition(&ctx.group_message.text, other)),
     }
 }

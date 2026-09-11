@@ -279,6 +279,26 @@ fn test_accepts_valid_repeated_sequence_settings() {
     }
 }
 
+#[test]
+fn test_rejects_joined_recently_with_zero_window() {
+    let mut condition = ModerationCondition::UserJoinedRecently {
+        time_window_minutes: 0,
+    };
+    assert!(err_of(&mut condition).contains("at least 1 minute"));
+}
+
+#[test]
+fn test_accepts_joined_recently_with_positive_window() {
+    for time_window_minutes in [1, 60, u32::MAX] {
+        let mut condition = ModerationCondition::UserJoinedRecently {
+            time_window_minutes,
+        };
+        let unchanged = condition.clone();
+        condition.normalize_and_validate().unwrap();
+        assert_eq!(condition, unchanged);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Composite conditions: normalization
 //

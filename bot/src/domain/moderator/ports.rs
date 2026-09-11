@@ -42,6 +42,10 @@ pub struct GroupMessage {
     pub author_id: UserId,
     pub text: String,
     pub timestamp: DateTime<Utc>,
+    /// When the author joined the group, if known. Only members who joined
+    /// after the bot have a known join time; for everyone who was already there
+    /// when the bot joined this is `None`.
+    pub author_joined_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Clone, Debug)]

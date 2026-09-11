@@ -117,6 +117,7 @@ fn insert_condition(
         ModerationCondition::UserExceedsModerationRateLimit { .. } => {
             "UserExceedsModerationRateLimit"
         }
+        ModerationCondition::UserJoinedRecently { .. } => "UserJoinedRecently",
     };
     tx.execute(
         "INSERT INTO moderation_conditions (rule_id, parent_id, rank, type) VALUES (?1, ?2, ?3, ?4)",
@@ -235,6 +236,15 @@ fn insert_condition(
             tx.execute(
                 "INSERT INTO moderation_condition__user_exceeds_moderation_rate_limit (condition_id, message_count, time_window_minutes) VALUES (?1, ?2, ?3)",
                 params![condition_id, message_count, time_window_minutes],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
+        }
+        ModerationCondition::UserJoinedRecently {
+            time_window_minutes,
+        } => {
+            tx.execute(
+                "INSERT INTO moderation_condition__user_joined_recently (condition_id, time_window_minutes) VALUES (?1, ?2)",
+                params![condition_id, time_window_minutes],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }

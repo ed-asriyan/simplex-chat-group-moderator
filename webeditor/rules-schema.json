@@ -502,6 +502,33 @@
                 },
                 {
                     "type": "object",
+                    "title": "🚫 User Joined Recently",
+                    "description": "Matches when the author joined the group less than the given number of minutes ago. On its own it moderates every message from newcomers; combine it with another condition inside **All of These Conditions Match (AND)** to only restrict what newcomers post, e.g. links. Only members who joined **after the bot** was added have a known join time — members who were already in the group before that never match.",
+                    "required": [
+                        "type",
+                        "time_window_minutes"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "UserJoinedRecently",
+                            "default": "UserJoinedRecently",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "time_window_minutes": {
+                            "type": "integer",
+                            "title": "Joined Less Than (Minutes) Ago",
+                            "description": "Matches if the author joined the group less than this many minutes before sending the message. For example, 60 matches members during their first hour in the group.",
+                            "minimum": 1,
+                            "default": 60
+                        }
+                    }
+                },
+                {
+                    "type": "object",
                     "title": "🧩 All of These Conditions Match (AND)",
                     "description": "Matches only when **every** condition inside it matches. Use it to narrow a broad condition down, for example a banned word **and** an author who just joined. An empty list is not a valid condition — add at least one condition inside, or remove this one.",
                     "required": [

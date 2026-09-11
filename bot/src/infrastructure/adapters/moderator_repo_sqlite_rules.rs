@@ -131,6 +131,7 @@ struct ConditionData {
     flooding: HashMap<i64, (u32, u32, u32, u32, bool, bool)>,
     messages_rate_limit: HashMap<i64, (u32, u32)>,
     moderation_rate_limit: HashMap<i64, (u32, u32)>,
+    joined_recently: HashMap<i64, u32>,
 }
 
 impl ConditionData {
@@ -216,6 +217,13 @@ impl ConditionData {
                 "moderation_condition__user_exceeds_moderation_rate_limit",
                 gid,
                 |row| Ok((row.get::<_, i64>(1)? as u32, row.get::<_, i64>(2)? as u32)),
+            )?,
+            joined_recently: load_condition_settings(
+                guard,
+                "s.time_window_minutes",
+                "moderation_condition__user_joined_recently",
+                gid,
+                |row| Ok(row.get::<_, i64>(1)? as u32),
             )?,
         })
     }
@@ -339,6 +347,9 @@ fn build_condition(
                 time_window_minutes,
             })
         }
+        "UserJoinedRecently" => Ok(ModerationCondition::UserJoinedRecently {
+            time_window_minutes: data.joined_recently.get(&id).copied().unwrap_or(0),
+        }),
         other => Err(format!("unknown condition type '{other}' on condition {id}").into()),
     }
 }

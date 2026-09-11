@@ -11,7 +11,8 @@ use simploxide_client::prelude::ApiSendMessages;
 use simploxide_client::types::GroupChatScopeInfo::{self, MemberSupport};
 use simploxide_client::types::{
     CIContent, CIDirection, ChatBotCommand, ChatInfo, ChatPeerType, ChatRef, ChatType,
-    ComposedMessage, FeatureAllowed, GroupMemberRole, MsgContent, SimplePreference,
+    ComposedMessage, FeatureAllowed, GroupMember, GroupMemberCategory, GroupMemberRole, MsgContent,
+    SimplePreference,
 };
 use simploxide_client::{
     ClientApi,
@@ -39,6 +40,8 @@ pub enum SimplexEvent {
         message_id: MessageId,
         timestamp: DateTime<Utc>,
         text: String,
+        /// When the author joined the group; `None` if unknown (see `member_joined_at`).
+        author_joined_at: Option<DateTime<Utc>>,
     },
     Connected {
         user_id: UserId,
@@ -316,6 +319,23 @@ fn parse_utc_time(value: &str) -> DateTime<Utc> {
         .unwrap_or_else(|_| Utc::now())
 }
 
+/// When `member` joined the group, as far as this client can tell.
+///
+/// SimpleX has no join-time field; `created_at` is when this client created its
+/// record of the member. Only for `Post` members (joined after the bot) is that
+/// record created on the join announcement itself. For members who were there
+/// before the bot it is merely when the bot was introduced to them, so their
+/// join time is unknown. A timestamp that fails to parse is unknown too, rather
+/// than "now", which would make the member look like they just joined.
+fn member_joined_at(member: &GroupMember) -> Option<DateTime<Utc>> {
+    if !matches!(member.member_category, GroupMemberCategory::Post) {
+        return None;
+    }
+    DateTime::parse_from_rfc3339(&member.created_at)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+}
+
 fn extract_message_text(chat_content: &MsgContent) -> Option<String> {
     match chat_content {
         MsgContent::Text { text, .. } => Some(text.clone()),
@@ -415,6 +435,7 @@ async fn handle_event(
                                         timestamp: parse_utc_time(
                                             &chat_item.chat_item.meta.created_at,
                                         ),
+                                        author_joined_at: member_joined_at(group_member),
                                     }
                                 })
                             }
@@ -443,6 +464,7 @@ async fn handle_event(
                         message_id: chat_item.chat_item.chat_item.meta.item_id,
                         text,
                         timestamp: parse_utc_time(&chat_item.chat_item.chat_item.meta.created_at),
+                        author_joined_at: member_joined_at(group_member),
                     })
                     .map_or(vec![], |event| vec![event]))
             } else {

@@ -463,6 +463,7 @@ async fn test_should_moderate_with_rate_limit() {
         author_id: 2,
         text: "hello".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     let repo_under_limit = MockActivityRepoForFilter { count: 4 };
@@ -511,6 +512,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
         author_id: 2,
         text: "hello".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     let activity_repo = InMemoryUserActivityRepository::new();
@@ -667,6 +669,7 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
         author_id: 2,
         text: "this has badword".to_string(),
         timestamp: Utc::now(),
+        author_joined_at: None,
     };
 
     let activity_repo = InMemoryUserActivityRepository::new();
@@ -1165,4 +1168,117 @@ async fn test_an_empty_banned_words_condition_is_harmless_inside_any() {
     );
     assert!(moderates(&rules, "this is spam").await);
     assert!(!moderates(&rules, "this is fine").await);
+}
+
+// ---------------------------------------------------------------------------
+// Author join time
+// ---------------------------------------------------------------------------
+
+/// Evaluate `condition` against `text` from an author who joined
+/// `joined_minutes_ago` minutes before the message (`None`: unknown, i.e. a
+/// member who was in the group before the bot).
+async fn matched_from(
+    joined_minutes_ago: Option<i64>,
+    text: &str,
+    condition: ModerationCondition,
+) -> Option<ModerationMatch> {
+    let now = Utc::now();
+    let msg = GroupMessage {
+        text: text.to_string(),
+        timestamp: now,
+        author_joined_at: joined_minutes_ago.map(|m| now - chrono::Duration::minutes(m)),
+        ..Default::default()
+    };
+    let repo = InMemoryUserActivityRepository::new();
+    let mod_repo = InMemoryUserModerationActivityRepository::new();
+    should_moderate(&msg, &rule_with(condition), &repo, &mod_repo)
+        .await
+        .unwrap()
+}
+
+fn joined_recently(time_window_minutes: u32) -> ModerationCondition {
+    ModerationCondition::UserJoinedRecently {
+        time_window_minutes,
+    }
+}
+
+#[test]
+fn test_joined_recently_wire_format_matches_the_editor_schema() {
+    let json = r#"{
+        "action": { "type": "ModerateMessage" },
+        "condition": { "type": "UserJoinedRecently", "time_window_minutes": 10 }
+    }"#;
+    let rule: ModerationRule = serde_json::from_str(json).unwrap();
+    assert_eq!(rule.condition, joined_recently(10));
+    let round_tripped: ModerationRule =
+        serde_json::from_str(&serde_json::to_string(&rule).unwrap()).unwrap();
+    assert_eq!(round_tripped.condition, rule.condition);
+}
+
+#[tokio::test]
+async fn test_joined_recently_matches_only_newcomers() {
+    let hit = matched_from(Some(3), "hello", joined_recently(10))
+        .await
+        .unwrap();
+    assert_eq!(hit.reason, "author joined 3 min ago (less than 10 min)");
+
+    assert!(
+        matched_from(Some(30), "hello", joined_recently(10))
+            .await
+            .is_none()
+    );
+    assert!(
+        matched_from(None, "hello", joined_recently(10))
+            .await
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn test_joined_recently_narrows_another_condition_inside_all() {
+    // The intended use: "newcomers may not post links", everyone else may.
+    let condition = ModerationCondition::All {
+        conditions: vec![joined_recently(60), banned("http")],
+    };
+    let hit = matched_from(Some(5), "see http://x", condition.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        hit.reason,
+        "author joined 5 min ago (less than 60 min) and blacklisted word: 'http'"
+    );
+
+    assert!(
+        matched_from(Some(5), "just saying hi", condition.clone())
+            .await
+            .is_none()
+    );
+    assert!(
+        matched_from(Some(90), "see http://x", condition.clone())
+            .await
+            .is_none()
+    );
+    assert!(
+        matched_from(None, "see http://x", condition)
+            .await
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn test_not_joined_recently_matches_members_from_before_the_bot() {
+    let condition = ModerationCondition::Not {
+        condition: Box::new(joined_recently(10)),
+    };
+    assert!(
+        matched_from(Some(3), "hello", condition.clone())
+            .await
+            .is_none()
+    );
+
+    let hit = matched_from(None, "hello", condition).await.unwrap();
+    assert_eq!(
+        hit.reason,
+        "does not match: author joined less than 10 min ago"
+    );
 }
