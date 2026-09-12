@@ -153,3 +153,84 @@ fn test_invisible_characters_false_positives() {
     assert_eq!(should_moderate_invisible("hello\u{200D}world"), invisible());
     assert_eq!(should_moderate_invisible("👨\u{200D}hello"), invisible());
 }
+
+#[test]
+fn test_emoji_presentation_selector_is_not_invisible() {
+    // Most of the older emoji are a plain character plus U+FE0F, the selector that
+    // asks for the colourful rendering. The selector is default-ignorable, but the
+    // emoji it spells out is perfectly visible.
+    for (text, what) in [
+        ("❤\u{FE0F}👍", "heart + thumbs up"),
+        ("⚠\u{FE0F} careful", "warning sign"),
+        ("done ✅\u{FE0F}", "check mark"),
+        ("©\u{FE0F} 2026", "copyright sign"),
+    ] {
+        assert!(should_moderate_invisible(text).is_none(), "{what}");
+    }
+
+    // U+FE0E, the text-presentation selector, is the same sequence the other way round.
+    assert!(should_moderate_invisible("❤\u{FE0E}").is_none());
+
+    // A keycap is a digit, the selector, and the enclosing keycap mark.
+    assert!(should_moderate_invisible("1\u{FE0F}\u{20E3}").is_none());
+
+    // A selector that follows something which is not an emoji character is still
+    // hidden content, and so are the variation selectors that mean something else.
+    assert_eq!(should_moderate_invisible("hello\u{FE0F}world"), invisible());
+    assert_eq!(should_moderate_invisible("\u{FE0F}hello"), invisible());
+    assert_eq!(should_moderate_invisible("❤\u{FE0F}\u{FE00}"), invisible());
+    // A second selector stacked on the same base is padding, not a sequence.
+    assert_eq!(should_moderate_invisible("✈\u{FE0F}\u{FE0F}"), invisible());
+}
+
+#[test]
+fn test_zwj_sequence_built_on_presentation_sequences_is_not_invisible() {
+    // "heart on fire" = heart + U+FE0F + ZWJ + fire: the ZWJ joins two emoji
+    // elements even though a presentation selector sits between them.
+    assert!(should_moderate_invisible("❤\u{FE0F}\u{200D}🔥").is_none());
+    assert!(should_moderate_invisible("❤\u{FE0F}\u{200D}🩹").is_none());
+
+    // Skin tone and gender signs join the same way.
+    assert!(should_moderate_invisible("👨🏽\u{200D}⚕\u{FE0F}").is_none());
+    assert!(should_moderate_invisible("👨\u{200D}❤\u{FE0F}\u{200D}💋\u{200D}👨").is_none());
+}
+
+/// Spells `s` in Unicode tag characters, the invisible ASCII alphabet an emoji
+/// tag sequence is written in.
+fn tagged(s: &str) -> String {
+    s.chars()
+        .map(|c| char::from_u32(0xE0000 + c as u32).expect("tag characters are valid scalars"))
+        .collect()
+}
+
+#[test]
+fn test_subdivision_flags_are_not_invisible() {
+    // The England/Scotland/Wales flags are a black flag followed by invisible tag
+    // characters spelling the region code, terminated by CANCEL TAG.
+    for region in ["gbeng", "gbsct", "gbwls"] {
+        let flag = format!("🏴{}\u{E007F}", tagged(region));
+        assert!(should_moderate_invisible(&flag).is_none(), "{region}");
+        assert!(
+            should_moderate_invisible(&format!("from {flag} with love")).is_none(),
+            "{region} in text"
+        );
+    }
+}
+
+#[test]
+fn test_tag_characters_hiding_text_are_still_invisible() {
+    // A run long enough to hide a message is not a region code, even behind a flag.
+    assert_eq!(
+        should_moderate_invisible(&format!("🏴{}\u{E007F}", tagged("smuggled"))),
+        invisible()
+    );
+    // Nor is one that never terminates, or one with no emoji base in front of it.
+    assert_eq!(
+        should_moderate_invisible(&format!("🏴{}", tagged("gbeng"))),
+        invisible()
+    );
+    assert_eq!(
+        should_moderate_invisible(&format!("hello{}\u{E007F}", tagged("gbeng"))),
+        invisible()
+    );
+}
