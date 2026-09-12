@@ -53,38 +53,24 @@ body:
   - type: dropdown
     id: rule-action
     attributes:
-      label: Which rule action was configured?
+      label: Which rule action was triggered?
       description: What action was set to trigger when a message matches this rule? Pick the one that misbehaved; if the rule had several actions, pick "Several actions".
       options:
         - "Moderate the message"
         - "Set author as observer"
-        - "Set author as observer — restored to member after a set number of minutes"
         - "Kick the author"
-        - "Kick the author — also delete every message the author has sent in this group"
-        - "Several actions"
-        - "Not sure"
-    validations:
-      required: true
-
-  - type: dropdown
-    id: wrong-behavior
-    attributes:
-      label: What went wrong?
-      options:
-        - "False positive: a message was deleted that should have been allowed"
-        - "False negative: a message was NOT deleted that should have been deleted"
-        - "Other (explain below)"
+        - "Action was not triggered (false negative)"
     validations:
       required: true
 
   - type: textarea
     id: message-text
     attributes:
-      label: The exact message text
+      label: The message text
       description: >
-        Copy the message **verbatim**, including any spacing, punctuation, or
+        Copy the message including any spacing, punctuation, or
         odd characters. Obfuscation handling is whitespace/character-sensitive,
-        so even small differences matter. Wrap it in a code block.
+        so even small differences matter. Wrap it in a code block. Please mask any sensitive information.
       placeholder: |
         ```
         how to use dot net?
@@ -110,18 +96,6 @@ body:
       placeholder: |
         Expected: message kept (no link, "dot net" is the .NET framework)
         Actual: message deleted as if it linked to "use.net"
-    validations:
-      required: true
-
-  - type: dropdown
-    id: dry-mode
-    attributes:
-      label: Was the group in dry mode?
-      description: In dry mode the bot reports but does not actually delete.
-      options:
-        - "No — messages are actually deleted"
-        - "Yes — dry mode (notify only)"
-        - "Not sure"
     validations:
       required: true
 

@@ -75,7 +75,7 @@ Hi! I'm an *automated moderation* bot for SimpleX groups.
 
 Use /help anytime for commands and extra features (like Dry Mode and notifications).
 
-My code is open source and [available on GitHub](https://github.com/ed-asriyan/simplex-chat-group-moderator).
+My code [available on GitHub](https://github.com/ed-asriyan/simplex-chat-group-moderator).
 ";
 
 pub struct BotDmApplication {
@@ -496,7 +496,7 @@ impl ModerationNotificationReceiver for BotDmApplication {
             .collect::<Vec<_>>()
             .join("\n");
         let text = format!(
-            "{} in *{}*!\n\n*The message:*\n{}\n\n*Reason:*\n{}",
+            "{} in *{}*!\n\n*The message:*\n{}\n\n*Reason:*\n{}\n\nIf it's a false positive, please [file an issue](https://github.com/ed-asriyan/simplex-chat-group-moderator/issues/new?template=moderation-rule-bug.yml)",
             actions_text, group.name, message, reasons,
         );
         self.messenger.send_dm(&user_id, &text).await
