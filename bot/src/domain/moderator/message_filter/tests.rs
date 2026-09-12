@@ -9,16 +9,14 @@ use chrono::{DateTime, Utc};
 #[test]
 fn test_deserialize_rule_with_moderate_message_action() {
     let json = r#"{
-        "action": {
-            "type": "ModerateMessage"
-        },
+        "actions": [{ "type": "ModerateMessage" }],
         "condition": {
             "type": "ContainsWords",
             "keywords": ["spam", "ad"]
         }
     }"#;
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
-    assert_eq!(rule.action, ModerationAction::ModerateMessage);
+    assert_eq!(rule.actions, vec![ModerationAction::ModerateMessage]);
     match rule.condition {
         ModerationCondition::ContainsWords { keywords } => {
             assert_eq!(keywords, vec!["spam".to_string(), "ad".to_string()]);
@@ -30,10 +28,7 @@ fn test_deserialize_rule_with_moderate_message_action() {
 #[test]
 fn test_deserialize_rule_with_kick_author_action() {
     let json = r#"{
-        "action": {
-            "type": "KickAuthor",
-            "delete_messages": "TriggeredMessage"
-        },
+        "actions": [{ "type": "KickAuthor", "delete_all_messages": true }],
         "condition": {
             "type": "ContainsWords",
             "keywords": ["malware"]
@@ -41,55 +36,16 @@ fn test_deserialize_rule_with_kick_author_action() {
     }"#;
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
     assert_eq!(
-        rule.action,
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage,
-        }
+        rule.actions,
+        vec![ModerationAction::KickAuthor {
+            delete_all_messages: true
+        }]
     );
 
-    // Test with delete_messages: "None"
-    let json_no_delete = r#"{
-        "action": {
-            "type": "KickAuthor",
-            "delete_messages": "None"
-        },
-        "condition": {
-            "type": "ContainsWords",
-            "keywords": ["malware"]
-        }
-    }"#;
-    let rule_no_delete: ModerationRule = serde_json::from_str(json_no_delete).unwrap();
-    assert_eq!(
-        rule_no_delete.action,
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::None,
-        }
-    );
-
-    // Test with delete_messages: "AllMessages"
-    let json_all = r#"{
-        "action": {
-            "type": "KickAuthor",
-            "delete_messages": "AllMessages"
-        },
-        "condition": {
-            "type": "ContainsWords",
-            "keywords": ["malware"]
-        }
-    }"#;
-    let rule_all: ModerationRule = serde_json::from_str(json_all).unwrap();
-    assert_eq!(
-        rule_all.action,
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::AllMessages,
-        }
-    );
-
-    // Test with default when delete_messages is omitted
+    // The editor always sends the flag; an omitted one means the author's
+    // history is left alone.
     let json_default = r#"{
-        "action": {
-            "type": "KickAuthor"
-        },
+        "actions": [{ "type": "KickAuthor" }],
         "condition": {
             "type": "ContainsWords",
             "keywords": ["malware"]
@@ -97,77 +53,97 @@ fn test_deserialize_rule_with_kick_author_action() {
     }"#;
     let rule_default: ModerationRule = serde_json::from_str(json_default).unwrap();
     assert_eq!(
-        rule_default.action,
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage,
-        }
+        rule_default.actions,
+        vec![ModerationAction::KickAuthor {
+            delete_all_messages: false
+        }]
     );
 }
 
 #[test]
 fn test_deserialize_rule_with_set_author_observer_action() {
     let json = r#"{
-        "action": {
-            "type": "SetAuthorObserver",
-            "delete_message": "TriggeredMessage"
-        },
+        "actions": [{ "type": "SetAuthorObserver" }],
         "condition": {
             "type": "ContainsWords",
-            "keywords": ["malware"]
+            "keywords": ["spam"]
+        }
+    }"#;
+    let rule: ModerationRule = serde_json::from_str(json).unwrap();
+    assert_eq!(rule.actions, vec![ModerationAction::SetAuthorObserver]);
+}
+
+#[test]
+fn test_deserialize_rule_with_several_actions_keeps_their_order() {
+    let json = r#"{
+        "actions": [
+            { "type": "SetAuthorObserver" },
+            { "type": "ModerateMessage" }
+        ],
+        "condition": {
+            "type": "ContainsWords",
+            "keywords": ["spam"]
         }
     }"#;
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
     assert_eq!(
-        rule.action,
-        ModerationAction::SetAuthorObserver {
-            delete_message: DeleteObserverMessages::TriggeredMessage,
-        }
+        rule.actions,
+        vec![
+            ModerationAction::SetAuthorObserver,
+            ModerationAction::ModerateMessage
+        ]
     );
+}
 
-    // Test with delete_messages: "None"
-    let json_no_delete = r#"{
-        "action": {
-            "type": "SetAuthorObserver",
-            "delete_message": "None"
+#[test]
+fn test_normalize_and_validate_rejects_a_rule_without_actions() {
+    let mut rule = ModerationRule {
+        actions: vec![],
+        condition: ModerationCondition::ContainsWords {
+            keywords: vec!["spam".to_string()],
         },
-        "condition": {
-            "type": "ContainsWords",
-            "keywords": ["malware"]
-        }
-    }"#;
-    let rule_no_delete: ModerationRule = serde_json::from_str(json_no_delete).unwrap();
-    assert_eq!(
-        rule_no_delete.action,
-        ModerationAction::SetAuthorObserver {
-            delete_message: DeleteObserverMessages::None,
-        }
-    );
+    };
+    let err = rule.normalize_and_validate().unwrap_err().to_string();
+    assert!(err.contains("no actions"), "unexpected error: {err}");
+}
 
-    // Test with default when delete_messages is omitted
-    let json_default = r#"{
-        "action": {
-            "type": "SetAuthorObserver"
+#[test]
+fn test_normalize_and_validate_canonicalizes_the_action_list() {
+    let mut rule = ModerationRule {
+        actions: vec![
+            ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            },
+            ModerationAction::ModerateMessage,
+            // Already implied by the kick, and listed twice on top of that.
+            ModerationAction::SetAuthorObserver,
+            ModerationAction::SetAuthorObserver,
+        ],
+        condition: ModerationCondition::ContainsWords {
+            keywords: vec!["spam".to_string()],
         },
-        "condition": {
-            "type": "ContainsWords",
-            "keywords": ["malware"]
-        }
-    }"#;
-    let rule_default: ModerationRule = serde_json::from_str(json_default).unwrap();
+    };
+    rule.normalize_and_validate().unwrap();
     assert_eq!(
-        rule_default.action,
-        ModerationAction::SetAuthorObserver {
-            delete_message: DeleteObserverMessages::TriggeredMessage,
-        }
+        rule.actions,
+        vec![
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
+                delete_all_messages: false
+            }
+        ]
     );
 }
 
 #[test]
 fn test_serialization_roundtrip() {
     let rule = ModerationRule {
-        action: ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage,
-        },
+        actions: vec![
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            },
+        ],
         condition: ModerationCondition::MatchesExactMessage {
             messages: vec!["banned message".to_string()],
             case_sensitive: false,
@@ -182,9 +158,9 @@ fn test_serialization_roundtrip() {
 #[tokio::test]
 async fn test_should_moderate_returns_matching_action_and_reason() {
     let rules = vec![ModerationRule {
-        action: ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::None,
-        },
+        actions: vec![ModerationAction::KickAuthor {
+            delete_all_messages: false,
+        }],
         condition: ModerationCondition::ContainsWords {
             keywords: vec!["danger".to_string()],
         },
@@ -202,10 +178,10 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
     assert!(result.is_some());
     let m = result.unwrap();
     assert_eq!(
-        m.action(),
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::None,
-        }
+        m.actions,
+        vec![ModerationAction::KickAuthor {
+            delete_all_messages: false,
+        },]
     );
     assert_eq!(m.reasons, vec!["contains word: 'danger'".to_string()]);
 }
@@ -214,15 +190,18 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
 async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
     let rules = vec![
         ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["first".to_string()],
             },
         },
         ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::ModerateMessage,
+                ModerationAction::KickAuthor {
+                    delete_all_messages: false,
+                },
+            ],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["second".to_string()],
             },
@@ -237,23 +216,26 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
     let mod_repo = InMemoryUserModerationActivityRepository::new();
 
     // When ModerateMessage is first, KickAuthor is stronger (covers ModerateMessage),
-    // so it checks the second rule and upgrades to KickAuthor { TriggeredMessage }.
+    // so it checks the second rule and upgrades to moderate-then-kick.
     let result = should_moderate(&msg, &rules, &repo, &mod_repo)
         .await
         .unwrap();
     assert!(result.is_some());
     let m = result.unwrap();
     assert_eq!(
-        m.action(),
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage,
-        }
+        m.actions,
+        vec![
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            },
+        ]
     );
     assert_eq!(
         m.actions,
         vec![
-            PlannedAction::DeleteTriggeredMessage,
-            PlannedAction::KickAuthor {
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
                 delete_all_messages: false
             }
         ]
@@ -267,7 +249,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
     );
 
     // Reversed rules list: KickAuthor is evaluated first.
-    // ModerateMessage is a subset of KickAuthor { TriggeredMessage }, so its condition is skipped!
+    // ModerateMessage is already part of the second rule's plan, so its condition is skipped!
     let reversed_rules = vec![rules[1].clone(), rules[0].clone()];
     let reversed_result = should_moderate(&msg, &reversed_rules, &repo, &mod_repo)
         .await
@@ -275,10 +257,13 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
     assert!(reversed_result.is_some());
     let rm = reversed_result.unwrap();
     assert_eq!(
-        rm.action(),
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage,
-        }
+        rm.actions,
+        vec![
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            },
+        ]
     );
     // Reason only contains 'second' because the subset rule was skipped!
     assert_eq!(rm.reasons, vec!["contains word: 'second'".to_string()]);
@@ -287,7 +272,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
 #[tokio::test]
 async fn test_no_rules_match_returns_none() {
     let rules = vec![ModerationRule {
-        action: ModerationAction::ModerateMessage,
+        actions: vec![ModerationAction::ModerateMessage],
         condition: ModerationCondition::ContainsWords {
             keywords: vec!["banned".to_string()],
         },
@@ -311,10 +296,7 @@ async fn test_no_rules_match_returns_none() {
 #[test]
 fn test_deserialize_message_rate_limit_rule() {
     let json = r#"{
-        "action": {
-            "type": "KickAuthor",
-            "delete_messages": "AllMessages"
-        },
+        "actions": [{ "type": "KickAuthor", "delete_all_messages": true }],
         "condition": {
             "type": "AuthorHitsMessageRateLimit",
             "message_count": 5,
@@ -323,10 +305,10 @@ fn test_deserialize_message_rate_limit_rule() {
     }"#;
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
     assert_eq!(
-        rule.action,
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::AllMessages,
-        }
+        rule.actions,
+        vec![ModerationAction::KickAuthor {
+            delete_all_messages: true
+        }]
     );
     assert_eq!(
         rule.condition,
@@ -340,7 +322,7 @@ fn test_deserialize_message_rate_limit_rule() {
 #[test]
 fn test_message_rate_limit_serialization_roundtrip() {
     let rule = ModerationRule {
-        action: ModerationAction::ModerateMessage,
+        actions: vec![ModerationAction::ModerateMessage],
         condition: ModerationCondition::AuthorHitsMessageRateLimit {
             message_count: 10,
             time_window_minutes: 5,
@@ -404,9 +386,12 @@ impl UserModerationActivityRepository for MockActivityRepoForFilter {
 #[tokio::test]
 async fn test_should_moderate_with_message_rate_limit() {
     let rules = vec![ModerationRule {
-        action: ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage,
-        },
+        actions: vec![
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            },
+        ],
         condition: ModerationCondition::AuthorHitsMessageRateLimit {
             message_count: 5,
             time_window_minutes: 1,
@@ -439,20 +424,29 @@ async fn test_should_moderate_with_message_rate_limit() {
     assert!(res.is_some());
     let m = res.unwrap();
     assert_eq!(
-        m.action(),
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage,
-        }
+        m.actions,
+        vec![
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            },
+        ]
     );
-    assert_eq!(m.reasons, vec!["author sent 5 messages in 1 min".to_string()]);
+    assert_eq!(
+        m.reasons,
+        vec!["author sent 5 messages in 1 min".to_string()]
+    );
 }
 
 #[tokio::test]
 async fn test_should_moderate_with_moderation_rate_limit() {
     let rules = vec![ModerationRule {
-        action: ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage,
-        },
+        actions: vec![
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            },
+        ],
         condition: ModerationCondition::AuthorHitsModerationRateLimit {
             message_count: 3,
             time_window_minutes: 60,
@@ -485,10 +479,13 @@ async fn test_should_moderate_with_moderation_rate_limit() {
     assert!(res.is_some());
     let m = res.unwrap();
     assert_eq!(
-        m.action(),
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage,
-        }
+        m.actions,
+        vec![
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            },
+        ]
     );
     assert_eq!(
         m.reasons,
@@ -500,15 +497,15 @@ async fn test_should_moderate_with_moderation_rate_limit() {
 async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_message_disappears() {
     let rules = vec![
         ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["spam".to_string()],
             },
         },
         ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::AllMessages,
-            },
+            actions: vec![ModerationAction::KickAuthor {
+                delete_all_messages: true,
+            }],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["malware".to_string()],
             },
@@ -529,15 +526,15 @@ async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_mess
     let m = res.unwrap();
     // ModerateMessage is completely covered by KickAuthor { AllMessages }
     assert_eq!(
-        m.action(),
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::AllMessages,
-        }
+        m.actions,
+        vec![ModerationAction::KickAuthor {
+            delete_all_messages: true,
+        },]
     );
-    // DeleteTriggeredMessage disappeared! Only KickAuthor { delete_all_messages: true } remains.
+    // ModerateMessage disappeared! Only KickAuthor { delete_all_messages: true } remains.
     assert_eq!(
         m.actions,
-        vec![PlannedAction::KickAuthor {
+        vec![ModerationAction::KickAuthor {
             delete_all_messages: true
         }]
     );
@@ -547,15 +544,15 @@ async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_mess
 async fn test_independent_rules_combine_and_order_deletion_before_kick() {
     let rules = vec![
         ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["spam".to_string()],
             },
         },
         ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::None,
-            },
+            actions: vec![ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            }],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["kickme".to_string()],
             },
@@ -574,19 +571,22 @@ async fn test_independent_rules_combine_and_order_deletion_before_kick() {
         .unwrap();
     assert!(res.is_some());
     let m = res.unwrap();
-    // Combined action: KickAuthor with TriggeredMessage
+    // Combined plan: the message is moderated, then the author is kicked.
     assert_eq!(
-        m.action(),
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage,
-        }
+        m.actions,
+        vec![
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            },
+        ]
     );
     // Deletion MUST come before kicking:
     assert_eq!(
         m.actions,
         vec![
-            PlannedAction::DeleteTriggeredMessage,
-            PlannedAction::KickAuthor {
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
                 delete_all_messages: false
             }
         ]
@@ -600,15 +600,18 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
     // Rule 2: KickAuthor on AuthorHitsModerationRateLimit (limit: 3)
     let rules = vec![
         ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["badword".to_string()],
             },
         },
         ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::ModerateMessage,
+                ModerationAction::KickAuthor {
+                    delete_all_messages: false,
+                },
+            ],
             condition: ModerationCondition::AuthorHitsModerationRateLimit {
                 message_count: 3,
                 time_window_minutes: 60,
@@ -638,10 +641,13 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
     assert!(res.is_some());
     let m = res.unwrap();
     assert_eq!(
-        m.action(),
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage,
-        }
+        m.actions,
+        vec![
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            },
+        ]
     );
 }
 
@@ -651,16 +657,19 @@ async fn test_moderation_rate_limit_is_order_independent() {
     // The current message must still count toward the rate limit.
     let rules = vec![
         ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::ModerateMessage,
+                ModerationAction::KickAuthor {
+                    delete_all_messages: false,
+                },
+            ],
             condition: ModerationCondition::AuthorHitsModerationRateLimit {
                 message_count: 3,
                 time_window_minutes: 60,
             },
         },
         ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["badword".to_string()],
             },
@@ -686,12 +695,20 @@ async fn test_moderation_rate_limit_is_order_independent() {
         .unwrap();
 
     assert_eq!(
-        result.action(),
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage,
-        }
+        result.actions,
+        vec![
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            },
+        ]
     );
-    assert!(result.reasons.iter().any(|r| r.contains("messages moderated in")));
+    assert!(
+        result
+            .reasons
+            .iter()
+            .any(|r| r.contains("messages moderated in"))
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -706,7 +723,7 @@ fn words(keyword: &str) -> ModerationCondition {
 
 fn rule_with(condition: ModerationCondition) -> Vec<ModerationRule> {
     vec![ModerationRule {
-        action: ModerationAction::ModerateMessage,
+        actions: vec![ModerationAction::ModerateMessage],
         condition,
     }]
 }
@@ -813,9 +830,12 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
     // trees this was a flat "every other rule" scan.
     let rules = vec![
         ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::ModerateMessage,
+                ModerationAction::KickAuthor {
+                    delete_all_messages: false,
+                },
+            ],
             condition: ModerationCondition::All {
                 conditions: vec![
                     ModerationCondition::AuthorHitsModerationRateLimit {
@@ -829,7 +849,7 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
             },
         },
         ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::Any {
                 conditions: vec![words("badword"), words("otherword")],
             },
@@ -856,12 +876,20 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
         .unwrap();
 
     assert_eq!(
-        result.action(),
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage,
-        }
+        result.actions,
+        vec![
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            },
+        ]
     );
-    assert!(result.reasons.iter().any(|r| r.contains("messages moderated in")));
+    assert!(
+        result
+            .reasons
+            .iter()
+            .any(|r| r.contains("messages moderated in"))
+    );
 }
 
 #[tokio::test]
@@ -870,7 +898,7 @@ async fn test_moderation_rate_limit_in_a_tree_ignores_its_own_rule() {
     // match. With nothing else moderating the message, the current message must
     // not be counted, so two prior strikes stay under the limit of three.
     let rules = vec![ModerationRule {
-        action: ModerationAction::ModerateMessage,
+        actions: vec![ModerationAction::ModerateMessage],
         condition: ModerationCondition::Any {
             conditions: vec![
                 ModerationCondition::AuthorHitsModerationRateLimit {
@@ -907,7 +935,7 @@ fn test_composite_wire_format_matches_the_editor_schema() {
     // names here are a contract with it: `conditions` (array) on All/Any and
     // `condition` (object) on Not.
     let json = r#"{
-        "action": { "type": "ModerateMessage" },
+        "actions": [{ "type": "ModerateMessage" }],
         "condition": {
             "type": "All",
             "conditions": [
@@ -928,7 +956,7 @@ fn test_composite_wire_format_matches_the_editor_schema() {
 
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
     let expected = ModerationRule {
-        action: ModerationAction::ModerateMessage,
+        actions: vec![ModerationAction::ModerateMessage],
         condition: ModerationCondition::All {
             conditions: vec![
                 ModerationCondition::Any {
@@ -958,7 +986,7 @@ fn test_a_flat_condition_still_deserializes_unchanged() {
     // Links already in the wild carry a bare condition object, which is just a
     // tree of one node.
     let json = r#"{
-        "action": { "type": "ModerateMessage" },
+        "actions": [{ "type": "ModerateMessage" }],
         "condition": { "type": "ContainsWords", "keywords": ["spam"] }
     }"#;
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
@@ -983,7 +1011,7 @@ fn test_a_flat_condition_still_deserializes_unchanged() {
 /// The decoded contents of the link's `rules` parameter, with the condition
 /// type renamed to its current name (`ContainsBannedWords` at the time).
 const EDITOR_LINK_RULES_JSON: &str = r#"[{
-    "action": { "type": "ModerateMessage" },
+    "actions": [{ "type": "ModerateMessage" }],
     "condition": {
         "type": "All",
         "conditions": [
@@ -1027,7 +1055,7 @@ async fn moderates(rules: &[ModerationRule], text: &str) -> bool {
 fn test_editor_link_rules_survive_saving_unchanged() {
     let rules = saved(EDITOR_LINK_RULES_JSON);
     assert_eq!(rules.len(), 1);
-    assert_eq!(rules[0].action, ModerationAction::ModerateMessage);
+    assert_eq!(rules[0].actions, vec![ModerationAction::ModerateMessage]);
 
     // Nothing about this tree is redundant in the structural sense, so
     // normalization leaves it exactly as the editor sent it. In particular the
@@ -1071,7 +1099,7 @@ async fn test_the_same_rule_without_the_empty_condition_works_as_intended() {
     // meant, and it shows the `All`/`Any` nesting itself is fine: the empty
     // child is the whole difference.
     let json = r#"[{
-        "action": { "type": "ModerateMessage" },
+        "actions": [{ "type": "ModerateMessage" }],
         "condition": {
             "type": "All",
             "conditions": [
@@ -1103,7 +1131,7 @@ async fn test_the_same_rule_without_the_empty_condition_works_as_intended() {
 async fn test_an_empty_words_condition_matches_nothing_on_its_own() {
     // The root cause, isolated: this is why the `All` above can never pass.
     let rules = saved(
-        r#"[{ "action": { "type": "ModerateMessage" },
+        r#"[{ "actions": [{ "type": "ModerateMessage" }],
               "condition": { "type": "ContainsWords", "keywords": [] } }]"#,
     );
     assert!(!moderates(&rules, "anything at all").await);
@@ -1116,7 +1144,7 @@ async fn test_an_empty_words_condition_is_harmless_inside_any() {
     // matches, so only `All` turns it into a rule-killer.
     let rules = saved(
         r#"[{
-            "action": { "type": "ModerateMessage" },
+            "actions": [{ "type": "ModerateMessage" }],
             "condition": {
                 "type": "Any",
                 "conditions": [
@@ -1165,7 +1193,7 @@ fn joined_recently(time_window_minutes: u32) -> ModerationCondition {
 #[test]
 fn test_joined_recently_wire_format_matches_the_editor_schema() {
     let json = r#"{
-        "action": { "type": "ModerateMessage" },
+        "actions": [{ "type": "ModerateMessage" }],
         "condition": { "type": "AuthorJoinedRecently", "time_window_minutes": 10 }
     }"#;
     let rule: ModerationRule = serde_json::from_str(json).unwrap();

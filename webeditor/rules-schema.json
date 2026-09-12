@@ -1,12 +1,12 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Moderation Rules",
-    "description": "**1️⃣ Click the gray button above to add a rule. 2️⃣ For each rule set the ⚡ Action — what the bot does when a message matches — and the 🔎 Condition — what to detect. 3️⃣ When you're done, click the red \"Apply Changes\" button above and send the copied link back to the bot.**",
+    "description": "**1️⃣ Click the gray button above to add a rule. 2️⃣ For each rule set the ⚡ Actions — what the bot does when a message matches — and the 🔎 Condition — what to detect. 3️⃣ When you're done, click the red \"Apply Changes\" button above and send the copied link back to the bot.**",
     "definitions": {
         "action": {
             "type": "object",
             "title": "⚡ Action",
-            "description": "What the bot does when a message matches this rule.",
+            "description": "One thing the bot does when a message matches this rule.",
             "options": {
                 "disable_collapse": true
             },
@@ -32,11 +32,30 @@
                 },
                 {
                     "type": "object",
+                    "title": "👁 Set author as observer",
+                    "description": "Sets the author to the observer role, so they can read the group but not write to it. The bot must have the **Admin or higher** role in the group to perform this action. _The message that triggered the rule stays in the group — add the 🗑 *Moderate the message* action next to this one if it should be removed too._",
+                    "required": [
+                        "type"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "SetAuthorObserver",
+                            "default": "SetAuthorObserver",
+                            "options": {
+                                "hidden": true
+                            }
+                        }
+                    }
+                },
+                {
+                    "type": "object",
                     "title": "🚪 Kick the author",
-                    "description": "Kicks the author from the group. The bot must have the **Owner** role in the group to perform this action.",
+                    "description": "Kicks the author from the group. The bot must have the **Owner** role in the group to perform this action. _The message that triggered the rule stays in the group — add the 🗑 *Moderate the message* action next to this one if it should be removed too._",
                     "required": [
                         "type",
-                        "delete_messages"
+                        "delete_all_messages"
                     ],
                     "additionalProperties": false,
                     "properties": {
@@ -48,66 +67,12 @@
                                 "hidden": true
                             }
                         },
-                        "delete_messages": {
-                            "type": "string",
-                            "title": "Author's messages",
-                            "enum": [
-                                "None",
-                                "TriggeredMessage",
-                                "AllMessages"
-                            ],
-                            "enum_titles": [
-                                "Don't delete any messages",
-                                "Moderate the message that triggered the rule",
-                                "Delete ALL messages the author has sent in this group"
-                            ],
-                            "options": {
-                                "enum_titles": [
-                                    "Don't delete any messages",
-                                    "Moderate the message that triggered the rule",
-                                    "Delete ALL messages the author has sent in this group"
-                                ]
-                            },
-                            "default": "TriggeredMessage"
-                        }
-                    }
-                },
-                {
-                    "type": "object",
-                    "title": "👁 Set author as observer",
-                    "description": "Sets the author to the observer role. The bot must have the **Admin or higher** role in the group to perform this action.",
-                    "required": [
-                        "type",
-                        "delete_message"
-                    ],
-                    "additionalProperties": false,
-                    "properties": {
-                        "type": {
-                            "type": "string",
-                            "const": "SetAuthorObserver",
-                            "default": "SetAuthorObserver",
-                            "options": {
-                                "hidden": true
-                            }
-                        },
-                        "delete_message": {
-                            "type": "string",
-                            "title": "Author's message",
-                            "enum": [
-                                "None",
-                                "TriggeredMessage"
-                            ],
-                            "enum_titles": [
-                                "Don't delete any messages",
-                                "Moderate the message that triggered the rule"
-                            ],
-                            "options": {
-                                "enum_titles": [
-                                    "Don't delete any messages",
-                                    "Moderate the message that triggered the rule"
-                                ]
-                            },
-                            "default": "TriggeredMessage"
+                        "delete_all_messages": {
+                            "type": "boolean",
+                            "title": "Also delete every message the author has ever sent in this group",
+                            "format": "checkbox",
+                            "default": false,
+                            "description": "Deletes the author's whole history in this group, not just the message that triggered the rule."
                         }
                     }
                 }
@@ -197,7 +162,7 @@
                 {
                     "type": "object",
                     "title": "💬 Message Matches Any of These Regex Patterns",
-                    "description": "Matches when the message matches any of the given regular expressions (Rust `regex` crate syntax — no lookaheads/lookbehinds/backreferences). Runs against the raw, unmodified message text — unlike `Message Contains Any of These Words`, it does **not** see through leet-speak, look-alike characters, or other obfuscation. Use it for structural patterns (e.g. \"`\\d{4,}`\" for runs of 4+ digits, \"` {5,}`\" for 5+ consecutive spaces) rather than for words. _Build and test your patterns at [\ud83e\uddea regex101](https://regex101.com/) — pick **Rust** in the flavor list on the left, so it behaves exactly like this bot._",
+                    "description": "Matches when the message matches any of the given regular expressions (Rust `regex` crate syntax — no lookaheads/lookbehinds/backreferences). Runs against the raw, unmodified message text — unlike `Message Contains Any of These Words`, it does **not** see through leet-speak, look-alike characters, or other obfuscation. Use it for structural patterns (e.g. \"`\\d{4,}`\" for runs of 4+ digits, \"` {5,}`\" for 5+ consecutive spaces) rather than for words. _Build and test your patterns at [🧪 regex101](https://regex101.com/) — pick **Rust** in the flavor list on the left, so it behaves exactly like this bot._",
                     "required": [
                         "type",
                         "patterns"
@@ -685,7 +650,7 @@
         "title": "Rule",
         "headerTemplate": "{{ i1 }}. {{ self.condition.type }}",
         "required": [
-            "action",
+            "actions",
             "condition"
         ],
         "additionalProperties": false,
@@ -693,8 +658,17 @@
             "disable_collapse": true
         },
         "properties": {
-            "action": {
-                "$ref": "#/definitions/action"
+            "actions": {
+                "type": "array",
+                "title": "⚡ Actions",
+                "description": "Everything the bot does when this rule matches. Add one entry per action — for example *Moderate the message* **and** *Kick the author*. The bot performs them in a safe order (observer role, then moderation, then kick) whatever order they are listed in, and skips an action that another one already covers.",
+                "options": {
+                    "disable_collapse": true
+                },
+                "minItems": 1,
+                "items": {
+                    "$ref": "#/definitions/action"
+                }
             },
             "condition": {
                 "$ref": "#/definitions/condition"

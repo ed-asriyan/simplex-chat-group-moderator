@@ -81,7 +81,7 @@ mod tests {
         let version: i64 = guard
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 25);
+        assert_eq!(version, 26);
     }
 
     /// 0022 rebuilds every rule as a `moderation_rules` row plus a condition
@@ -137,29 +137,28 @@ mod tests {
         let loaded: Vec<_> = loaded.into_iter().map(|owned| owned.rule).collect();
 
         use crate::domain::moderator::ports::{
-            DeleteAuthorMessages, ModerationAction, ModerationCondition, ModerationRepository,
-            ModerationRule,
+            ModerationAction, ModerationCondition, ModerationRepository, ModerationRule,
         };
         assert_eq!(
             loaded,
             vec![
                 ModerationRule {
-                    action: ModerationAction::ModerateMessage,
+                    actions: vec![ModerationAction::ModerateMessage],
                     condition: ModerationCondition::ContainsWords {
                         keywords: vec!["alpha".to_string(), "beta".to_string()],
                     },
                 },
                 ModerationRule {
-                    action: ModerationAction::KickAuthor {
-                        delete_messages: DeleteAuthorMessages::AllMessages,
-                    },
+                    actions: vec![ModerationAction::KickAuthor {
+                        delete_all_messages: true,
+                    }],
                     condition: ModerationCondition::MatchesExactMessage {
                         messages: vec!["spam".to_string()],
                         case_sensitive: true,
                     },
                 },
                 ModerationRule {
-                    action: ModerationAction::ModerateMessage,
+                    actions: vec![ModerationAction::ModerateMessage],
                     condition: ModerationCondition::AuthorHitsMessageRateLimit {
                         message_count: 5,
                         time_window_minutes: 3,
@@ -386,6 +385,146 @@ mod tests {
         );
     }
 
+    /// 0026 turns the single action per rule into a list and flattens the two
+    /// actions that carried a "...and what about the message?" setting. Seed the
+    /// schema it replaces with one rule per old case and check each reads back as
+    /// the sequence of actions that means the same thing, in execution order.
+    #[tokio::test]
+    async fn test_0026_splits_tri_state_actions_into_action_lists() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        apply_through(&mut conn, 25).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name)
+                  VALUES (11, 1100, 110, 'Action Group');
+
+             INSERT INTO moderation_rules (id, group_id, rank) VALUES
+                 (1, 11, 0), (2, 11, 1), (3, 11, 2), (4, 11, 3), (5, 11, 4), (6, 11, 5),
+                 (7, 11, 6);
+
+             -- One condition per rule; the conditions are irrelevant here, they
+             -- only make the rules loadable.
+             INSERT INTO moderation_conditions (id, rule_id, parent_id, rank, type) VALUES
+                 (1, 1, NULL, 0, 'ContainsWords'),
+                 (2, 2, NULL, 0, 'ContainsWords'),
+                 (3, 3, NULL, 0, 'ContainsWords'),
+                 (4, 4, NULL, 0, 'ContainsWords'),
+                 (5, 5, NULL, 0, 'ContainsWords'),
+                 (6, 6, NULL, 0, 'ContainsWords'),
+                 (7, 7, NULL, 0, 'ContainsWords');
+             INSERT INTO moderation_condition__contains_words__keywords VALUES
+                 (1, 'one'), (2, 'two'), (3, 'three'), (4, 'four'), (5, 'five'), (6, 'six'),
+                 (7, 'seven');
+
+             -- ModerateMessage, the only action that was already flat.
+             INSERT INTO moderation_actions (id, rule_id, type) VALUES (1, 1, 'ModerateMessage');
+             INSERT INTO moderation_action__moderate_message (action_id) VALUES (1);
+
+             -- KickAuthor, all three message settings.
+             INSERT INTO moderation_actions (id, rule_id, type) VALUES
+                 (2, 2, 'KickAuthor'), (3, 3, 'KickAuthor'), (4, 4, 'KickAuthor');
+             INSERT INTO moderation_action__kick_author (action_id, delete_messages) VALUES
+                 (2, 0), (3, 1), (4, 2);
+
+             -- SetAuthorObserver, both message settings.
+             INSERT INTO moderation_actions (id, rule_id, type) VALUES
+                 (5, 5, 'SetAuthorObserver'), (6, 6, 'SetAuthorObserver');
+             INSERT INTO moderation_action__set_author_observer (action_id, delete_message) VALUES
+                 (5, 0), (6, 1);
+
+             -- A value outside the three the writer produced. The reader being
+             -- replaced treated anything but 0 and 2 as \"also moderate the
+             -- message\", so the migration has to as well.
+             INSERT INTO moderation_actions (id, rule_id, type) VALUES (7, 7, 'KickAuthor');
+             INSERT INTO moderation_action__kick_author (action_id, delete_messages)
+                  VALUES (7, 7);",
+        )
+        .unwrap();
+
+        apply(&mut conn).unwrap();
+
+        let conn = Arc::new(Mutex::new(conn));
+        let repo =
+            crate::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository::new(
+                conn.clone(),
+            );
+        use crate::domain::moderator::ports::{ModerationAction, ModerationRepository};
+        let loaded = repo.get_group_rules(&11).await.unwrap();
+        let actions: Vec<Vec<ModerationAction>> =
+            loaded.into_iter().map(|owned| owned.rule.actions).collect();
+
+        use ModerationAction::*;
+        assert_eq!(
+            actions,
+            vec![
+                // ModerateMessage is unchanged.
+                vec![ModerateMessage],
+                // KickAuthor / None: nothing happens to the messages.
+                vec![KickAuthor {
+                    delete_all_messages: false
+                }],
+                // KickAuthor / TriggeredMessage: the message deletion becomes its
+                // own action, running before the kick.
+                vec![
+                    ModerateMessage,
+                    KickAuthor {
+                        delete_all_messages: false
+                    }
+                ],
+                // KickAuthor / AllMessages: the kick keeps doing the deleting.
+                vec![KickAuthor {
+                    delete_all_messages: true
+                }],
+                // SetAuthorObserver / None.
+                vec![SetAuthorObserver],
+                // SetAuthorObserver / TriggeredMessage: observer first, then the
+                // message is moderated.
+                vec![SetAuthorObserver, ModerateMessage],
+                // An out-of-range setting keeps the meaning the old reader gave
+                // it, which was the same as TriggeredMessage.
+                vec![
+                    ModerateMessage,
+                    KickAuthor {
+                        delete_all_messages: false
+                    }
+                ],
+            ]
+        );
+
+        let guard = conn.lock().unwrap();
+        // The three split rules gained an action each; nothing else did.
+        let action_count: i64 = guard
+            .query_row("SELECT COUNT(*) FROM moderation_actions", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(action_count, 10);
+        // Every action belongs to a rule and has its settings row, including the
+        // two rows the backfill created.
+        let unowned: i64 = guard
+            .query_row(
+                "SELECT COUNT(*) FROM moderation_actions WHERE rule_id IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(unowned, 0);
+        let moderate_settings: i64 = guard
+            .query_row(
+                "SELECT COUNT(*) FROM moderation_action__moderate_message",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(moderate_settings, 4);
+        let temp_tables: i64 = guard
+            .query_row("SELECT COUNT(*) FROM sqlite_temp_master", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            temp_tables, 0,
+            "the migration's scratch tables should be gone"
+        );
+    }
+
     /// The invariant the schema is shaped around: the group is the root, so one
     /// delete empties everything, with no manual sweeping anywhere.
     #[tokio::test]
@@ -404,7 +543,7 @@ mod tests {
         repo.set_group_rules(
             &group_id,
             &[ModerationRule {
-                action: ModerationAction::ModerateMessage,
+                actions: vec![ModerationAction::ModerateMessage],
                 condition: ModerationCondition::All {
                     conditions: vec![
                         ModerationCondition::ContainsWords {

@@ -1,8 +1,8 @@
 use super::*;
 use crate::domain::moderator::message_filter::ModerationCondition;
 use crate::domain::moderator::ports::{
-    DeleteAuthorMessages, DeleteObserverMessages, MessageId, MessengerGroup, ModerationAction,
-    UserActivityRepository, UserModerationActivityRepository,
+    MessageId, MessengerGroup, ModerationAction, UserActivityRepository,
+    UserModerationActivityRepository,
 };
 use crate::infrastructure::adapters::user_activity_repo_in_memory::InMemoryUserActivityRepository;
 use crate::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
@@ -15,7 +15,7 @@ enum PortCall {
     SetObserver(GroupId, UserId),
     DeleteMessage(GroupId, MessageId),
     KickMember(GroupId, UserId),
-    NotifyAction(UserId, GroupId, ModerationAction),
+    NotifyAction(UserId, GroupId, Vec<ModerationAction>),
 }
 
 #[derive(Default)]
@@ -79,7 +79,7 @@ impl GroupModerator for MockGroupModerator {
 
 #[derive(Default)]
 struct MockModerationNotifier {
-    notifications: Arc<Mutex<Vec<(UserId, GroupId, ModerationAction, String, String)>>>,
+    notifications: Arc<Mutex<Vec<(UserId, GroupId, Vec<ModerationAction>, String, String)>>>,
     call_log: Arc<Mutex<Vec<PortCall>>>,
     fail_notification: bool,
 }
@@ -90,21 +90,22 @@ impl ModerationNotifier for MockModerationNotifier {
         &self,
         user_id: UserId,
         group: &Group,
-        action: &ModerationAction,
+        actions: &[ModerationAction],
         message: &str,
         reasons: &[String],
     ) -> Result<(), Err> {
         self.notifications.lock().unwrap().push((
             user_id,
             group.id,
-            *action,
+            actions.to_vec(),
             message.to_string(),
             reasons.join(", "),
         ));
-        self.call_log
-            .lock()
-            .unwrap()
-            .push(PortCall::NotifyAction(user_id, group.id, *action));
+        self.call_log.lock().unwrap().push(PortCall::NotifyAction(
+            user_id,
+            group.id,
+            actions.to_vec(),
+        ));
         if self.fail_notification {
             return Err("notification failed".into());
         }
@@ -256,7 +257,7 @@ async fn test_process_group_message_moderate_message_action() {
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["badword".to_string()],
             },
@@ -308,7 +309,7 @@ async fn test_process_group_message_moderate_message_action() {
     assert_eq!(notifs.len(), 1);
     assert_eq!(notifs[0].0, 100);
     assert_eq!(notifs[0].1, 10);
-    assert_eq!(notifs[0].2, ModerationAction::ModerateMessage);
+    assert_eq!(notifs[0].2, vec![ModerationAction::ModerateMessage,]);
 }
 
 #[tokio::test]
@@ -323,9 +324,12 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::ModerateMessage,
+                ModerationAction::KickAuthor {
+                    delete_all_messages: false,
+                },
+            ],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["danger".to_string()],
             },
@@ -377,14 +381,17 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
     assert_eq!(notifs.len(), 1);
     assert_eq!(
         notifs[0].2,
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage,
-        }
+        vec![
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            },
+        ]
     );
 }
 
 #[tokio::test]
-async fn test_process_group_message_kick_author_with_delete_messages_none() {
+async fn test_process_group_message_kick_author_without_deleting_messages() {
     let group = Group {
         id: 10,
         owner_id: 100,
@@ -395,9 +402,9 @@ async fn test_process_group_message_kick_author_with_delete_messages_none() {
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::None,
-            },
+            actions: vec![ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            }],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["danger".to_string()],
             },
@@ -449,14 +456,14 @@ async fn test_process_group_message_kick_author_with_delete_messages_none() {
     assert_eq!(notifs.len(), 1);
     assert_eq!(
         notifs[0].2,
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::None,
-        }
+        vec![ModerationAction::KickAuthor {
+            delete_all_messages: false,
+        },]
     );
 }
 
 #[tokio::test]
-async fn test_process_group_message_kick_author_with_delete_messages_all_messages() {
+async fn test_process_group_message_kick_author_deleting_all_messages() {
     let group = Group {
         id: 10,
         owner_id: 100,
@@ -467,9 +474,9 @@ async fn test_process_group_message_kick_author_with_delete_messages_all_message
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::AllMessages,
-            },
+            actions: vec![ModerationAction::KickAuthor {
+                delete_all_messages: true,
+            }],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["danger".to_string()],
             },
@@ -521,9 +528,9 @@ async fn test_process_group_message_kick_author_with_delete_messages_all_message
     assert_eq!(notifs.len(), 1);
     assert_eq!(
         notifs[0].2,
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::AllMessages,
-        }
+        vec![ModerationAction::KickAuthor {
+            delete_all_messages: true,
+        },]
     );
 }
 
@@ -539,9 +546,12 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::ModerateMessage,
+                ModerationAction::KickAuthor {
+                    delete_all_messages: false,
+                },
+            ],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["danger".to_string()],
             },
@@ -603,7 +613,7 @@ async fn test_process_group_message_no_match_does_nothing() {
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["badword".to_string()],
             },
@@ -665,7 +675,7 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
     let rule1 = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["first".to_string()],
             },
@@ -674,9 +684,12 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
     let rule2 = OwnedModerationRule {
         id: 2,
         rule: ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::ModerateMessage,
+                ModerationAction::KickAuthor {
+                    delete_all_messages: false,
+                },
+            ],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["second".to_string()],
             },
@@ -719,17 +732,21 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
 
     app.process_group_message(msg).await.unwrap();
 
-    // Rule 2 is KickAuthor { delete_messages: TriggeredMessage }, which covers Rule 1 (ModerateMessage).
-    // Therefore, Rule 2 upgrades the planned actions: the message is deleted AND the member is kicked.
+    // Rule 2 moderates the message and kicks the author, which covers Rule 1
+    // (ModerateMessage alone). Both planned actions run: the message is deleted
+    // AND the member is kicked.
     assert_eq!(*deleted_messages.lock().unwrap(), vec![(10, 42)]);
     assert_eq!(*kicked_members.lock().unwrap(), vec![(10, 888)]);
     let notifs = notifications.lock().unwrap();
     assert_eq!(notifs.len(), 1);
     assert_eq!(
         notifs[0].2,
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage,
-        }
+        vec![
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            },
+        ]
     );
 }
 
@@ -745,9 +762,10 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::SetAuthorObserver {
-                delete_message: DeleteObserverMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::SetAuthorObserver,
+                ModerationAction::ModerateMessage,
+            ],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["danger".to_string()],
             },
@@ -803,9 +821,10 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
             PortCall::NotifyAction(
                 100,
                 10,
-                ModerationAction::SetAuthorObserver {
-                    delete_message: DeleteObserverMessages::TriggeredMessage,
-                },
+                vec![
+                    ModerationAction::SetAuthorObserver,
+                    ModerationAction::ModerateMessage,
+                ],
             ),
         ]
     );
@@ -828,9 +847,7 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::SetAuthorObserver {
-                delete_message: DeleteObserverMessages::None,
-            },
+            actions: vec![ModerationAction::SetAuthorObserver],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["danger".to_string()],
             },
@@ -882,13 +899,7 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
         *call_log.lock().unwrap(),
         vec![
             PortCall::SetObserver(10, 777),
-            PortCall::NotifyAction(
-                100,
-                10,
-                ModerationAction::SetAuthorObserver {
-                    delete_message: DeleteObserverMessages::None,
-                },
-            ),
+            PortCall::NotifyAction(100, 10, vec![ModerationAction::SetAuthorObserver,],),
         ]
     );
 
@@ -910,9 +921,10 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::SetAuthorObserver {
-                delete_message: DeleteObserverMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::SetAuthorObserver,
+                ModerationAction::ModerateMessage,
+            ],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["danger".to_string()],
             },
@@ -957,9 +969,10 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
         vec![PortCall::NotifyAction(
             100,
             10,
-            ModerationAction::SetAuthorObserver {
-                delete_message: DeleteObserverMessages::TriggeredMessage,
-            },
+            vec![
+                ModerationAction::SetAuthorObserver,
+                ModerationAction::ModerateMessage,
+            ],
         )]
     );
 }
@@ -976,9 +989,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::SetAuthorObserver {
-                delete_message: DeleteObserverMessages::None,
-            },
+            actions: vec![ModerationAction::SetAuthorObserver],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["danger".to_string()],
             },
@@ -1022,9 +1033,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
         vec![PortCall::NotifyAction(
             100,
             10,
-            ModerationAction::SetAuthorObserver {
-                delete_message: DeleteObserverMessages::None,
-            },
+            vec![ModerationAction::SetAuthorObserver,],
         )]
     );
 }
@@ -1041,9 +1050,10 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::SetAuthorObserver {
-                delete_message: DeleteObserverMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::SetAuthorObserver,
+                ModerationAction::ModerateMessage,
+            ],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["danger".to_string()],
             },
@@ -1105,9 +1115,10 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::SetAuthorObserver {
-                delete_message: DeleteObserverMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::SetAuthorObserver,
+                ModerationAction::ModerateMessage,
+            ],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["danger".to_string()],
             },
@@ -1157,9 +1168,10 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
             PortCall::NotifyAction(
                 100,
                 10,
-                ModerationAction::SetAuthorObserver {
-                    delete_message: DeleteObserverMessages::TriggeredMessage,
-                },
+                vec![
+                    ModerationAction::SetAuthorObserver,
+                    ModerationAction::ModerateMessage,
+                ],
             ),
         ]
     );
@@ -1177,9 +1189,10 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
     let rule1 = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::SetAuthorObserver {
-                delete_message: DeleteObserverMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::SetAuthorObserver,
+                ModerationAction::ModerateMessage,
+            ],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["first".to_string()],
             },
@@ -1188,7 +1201,7 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
     let rule2 = OwnedModerationRule {
         id: 2,
         rule: ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["second".to_string()],
             },
@@ -1236,9 +1249,10 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
             PortCall::NotifyAction(
                 100,
                 10,
-                ModerationAction::SetAuthorObserver {
-                    delete_message: DeleteObserverMessages::TriggeredMessage,
-                },
+                vec![
+                    ModerationAction::SetAuthorObserver,
+                    ModerationAction::ModerateMessage,
+                ],
             ),
         ]
     );
@@ -1256,7 +1270,7 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
     let rule1 = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["first".to_string()],
             },
@@ -1265,9 +1279,10 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
     let rule2 = OwnedModerationRule {
         id: 2,
         rule: ModerationRule {
-            action: ModerationAction::SetAuthorObserver {
-                delete_message: DeleteObserverMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::SetAuthorObserver,
+                ModerationAction::ModerateMessage,
+            ],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["second".to_string()],
             },
@@ -1306,8 +1321,9 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
 
     app.process_group_message(msg).await.unwrap();
 
-    // Rule 2 (SetAuthorObserver { TriggeredMessage }) covers Rule 1 (ModerateMessage),
-    // so the action is upgraded: author is set as observer and message is deleted.
+    // Rule 2 sets the author as observer and moderates the message, which covers
+    // Rule 1 (ModerateMessage alone): the author is set as observer and the
+    // message is deleted.
     assert_eq!(
         *call_log.lock().unwrap(),
         vec![
@@ -1316,9 +1332,10 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
             PortCall::NotifyAction(
                 100,
                 10,
-                ModerationAction::SetAuthorObserver {
-                    delete_message: DeleteObserverMessages::TriggeredMessage,
-                },
+                vec![
+                    ModerationAction::SetAuthorObserver,
+                    ModerationAction::ModerateMessage,
+                ],
             ),
         ]
     );
@@ -1336,7 +1353,7 @@ async fn test_process_group_message_message_rate_limit_triggers_on_threshold() {
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::AuthorHitsMessageRateLimit {
                 message_count: 3,
                 time_window_minutes: 1,
@@ -1395,7 +1412,7 @@ async fn test_process_group_message_message_rate_limit_triggers_on_threshold() {
     let notifs = notifications.lock().unwrap();
     assert_eq!(notifs.len(), 1);
     assert_eq!(notifs[0].0, 100);
-    assert_eq!(notifs[0].2, ModerationAction::ModerateMessage);
+    assert_eq!(notifs[0].2, vec![ModerationAction::ModerateMessage,]);
     assert!(notifs[0].4.contains("author sent 3 messages in 1 min"));
 }
 
@@ -1411,9 +1428,12 @@ async fn test_process_group_message_message_rate_limit_kick_author() {
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::ModerateMessage,
+                ModerationAction::KickAuthor {
+                    delete_all_messages: false,
+                },
+            ],
             condition: ModerationCondition::AuthorHitsMessageRateLimit {
                 message_count: 2,
                 time_window_minutes: 5,
@@ -1484,9 +1504,12 @@ async fn test_process_group_message_message_rate_limit_dry_mode() {
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::ModerateMessage,
+                ModerationAction::KickAuthor {
+                    delete_all_messages: false,
+                },
+            ],
             condition: ModerationCondition::AuthorHitsMessageRateLimit {
                 message_count: 1,
                 time_window_minutes: 1,
@@ -1550,7 +1573,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::AuthorHitsMessageRateLimit {
                 message_count: 2,
                 time_window_minutes: 5,
@@ -1641,7 +1664,7 @@ async fn test_track_user_message_called_when_message_rate_limit_rule_configured(
     let rule = OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::AuthorHitsMessageRateLimit {
                 message_count: 5,
                 time_window_minutes: 10,
@@ -1708,7 +1731,7 @@ async fn test_track_user_message_uses_max_window_across_multiple_message_rate_li
         OwnedModerationRule {
             id: 1,
             rule: ModerationRule {
-                action: ModerationAction::ModerateMessage,
+                actions: vec![ModerationAction::ModerateMessage],
                 condition: ModerationCondition::AuthorHitsMessageRateLimit {
                     message_count: 5,
                     time_window_minutes: 5,
@@ -1718,9 +1741,9 @@ async fn test_track_user_message_uses_max_window_across_multiple_message_rate_li
         OwnedModerationRule {
             id: 2,
             rule: ModerationRule {
-                action: ModerationAction::KickAuthor {
-                    delete_messages: DeleteAuthorMessages::None,
-                },
+                actions: vec![ModerationAction::KickAuthor {
+                    delete_all_messages: false,
+                }],
                 condition: ModerationCondition::AuthorHitsMessageRateLimit {
                     message_count: 20,
                     time_window_minutes: 25,
@@ -1774,7 +1797,7 @@ async fn test_track_user_message_not_called_when_no_message_rate_limit_rules() {
         OwnedModerationRule {
             id: 1,
             rule: ModerationRule {
-                action: ModerationAction::ModerateMessage,
+                actions: vec![ModerationAction::ModerateMessage],
                 condition: ModerationCondition::ContainsWords {
                     keywords: vec!["badword".to_string()],
                 },
@@ -1783,7 +1806,7 @@ async fn test_track_user_message_not_called_when_no_message_rate_limit_rules() {
         OwnedModerationRule {
             id: 2,
             rule: ModerationRule {
-                action: ModerationAction::ModerateMessage,
+                actions: vec![ModerationAction::ModerateMessage],
                 condition: ModerationCondition::ExceedsMaxLines {
                     max_lines: 5,
                     chars_per_line: 40,
@@ -1879,7 +1902,7 @@ async fn test_track_user_message_not_called_when_message_rate_limit_window_is_ze
     let rules = vec![OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::AuthorHitsMessageRateLimit {
                 message_count: 5,
                 time_window_minutes: 0,
@@ -1931,7 +1954,7 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
     let rules = vec![OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::AuthorHitsMessageRateLimit {
                 message_count: 5,
                 time_window_minutes: 120, // exceeds 60 min ceiling
@@ -1987,9 +2010,12 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
         OwnedModerationRule {
             id: 1,
             rule: ModerationRule {
-                action: ModerationAction::KickAuthor {
-                    delete_messages: DeleteAuthorMessages::TriggeredMessage,
-                },
+                actions: vec![
+                    ModerationAction::ModerateMessage,
+                    ModerationAction::KickAuthor {
+                        delete_all_messages: false,
+                    },
+                ],
                 condition: ModerationCondition::AuthorHitsModerationRateLimit {
                     message_count: 2,
                     time_window_minutes: 60,
@@ -1999,7 +2025,7 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
         OwnedModerationRule {
             id: 2,
             rule: ModerationRule {
-                action: ModerationAction::ModerateMessage,
+                actions: vec![ModerationAction::ModerateMessage],
                 condition: ModerationCondition::ContainsWords {
                     keywords: vec!["spam".to_string()],
                 },
@@ -2062,9 +2088,12 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
     assert_eq!(notifs.len(), 2);
     assert_eq!(
         notifs[1].2,
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage
-        }
+        vec![
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            },
+        ]
     );
     assert!(
         notifs[1]
@@ -2086,9 +2115,9 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         OwnedModerationRule {
             id: 1,
             rule: ModerationRule {
-                action: ModerationAction::KickAuthor {
-                    delete_messages: DeleteAuthorMessages::None,
-                },
+                actions: vec![ModerationAction::KickAuthor {
+                    delete_all_messages: false,
+                }],
                 condition: ModerationCondition::AuthorHitsModerationRateLimit {
                     message_count: 5,
                     time_window_minutes: 30,
@@ -2098,7 +2127,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         OwnedModerationRule {
             id: 2,
             rule: ModerationRule {
-                action: ModerationAction::ModerateMessage,
+                actions: vec![ModerationAction::ModerateMessage],
                 condition: ModerationCondition::ContainsWords {
                     keywords: vec!["badword".to_string()],
                 },
@@ -2173,7 +2202,7 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
     let rules = vec![OwnedModerationRule {
         id: 1,
         rule: ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["badword".to_string()],
             },
@@ -2246,7 +2275,7 @@ async fn test_set_group_rules_rejects_invalid_condition() {
             100,
             10,
             vec![ModerationRule {
-                action: ModerationAction::ModerateMessage,
+                actions: vec![ModerationAction::ModerateMessage],
                 condition: ModerationCondition::ContainsWords {
                     keywords: vec!["a".repeat(101)],
                 },
@@ -2269,7 +2298,7 @@ async fn test_set_group_rules_accepts_valid_conditions() {
         100,
         10,
         vec![ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["badword".to_string()],
             },
@@ -2290,7 +2319,7 @@ async fn test_set_group_rules_checks_ownership_before_validating() {
             999,
             10,
             vec![ModerationRule {
-                action: ModerationAction::ModerateMessage,
+                actions: vec![ModerationAction::ModerateMessage],
                 condition: ModerationCondition::ContainsWords {
                     keywords: vec!["a".repeat(101)],
                 },

@@ -1,10 +1,13 @@
 use super::ports::{
-    BotDmReceiver, BotMessenger, DeleteAuthorMessages, DeleteObserverMessages, Err, GroupId,
-    GroupInvitation, GroupOperations, ModerationAction, ModerationNotificationReceiver, UserId,
+    BotDmReceiver, BotMessenger, Err, GroupId, GroupInvitation, GroupOperations, ModerationAction,
+    ModerationNotificationReceiver, UserId,
 };
 use crate::domain::bot_dm::ports::{Group, Message};
 use async_trait::async_trait;
 use std::sync::Arc;
+
+#[cfg(test)]
+mod tests;
 
 fn lz_compress(s: &str) -> String {
     let data: Vec<u16> = s.encode_utf16().collect();
@@ -397,13 +400,70 @@ impl BotDmReceiver for BotDmApplication {
     }
 }
 
+/// Renders the actions the moderator performed (or, in dry mode, would have
+/// performed) as one sentence, e.g. "🛡 I moderated the message and kicked the
+/// author".
+///
+/// The actions arrive already merged and in execution order, so the phrases are
+/// joined in the order they are given. Dry mode only switches the tense.
+fn describe_actions(actions: &[ModerationAction], dry_mode: bool) -> String {
+    let phrases: Vec<&str> = actions
+        .iter()
+        .map(|action| match (action, dry_mode) {
+            (ModerationAction::ModerateMessage, false) => "moderated the message",
+            (ModerationAction::ModerateMessage, true) => "moderate the message",
+            // "set" reads the same in both tenses.
+            (ModerationAction::SetAuthorObserver, _) => "set the author as observer",
+            (
+                ModerationAction::KickAuthor {
+                    delete_all_messages: false,
+                },
+                false,
+            ) => "kicked the author",
+            (
+                ModerationAction::KickAuthor {
+                    delete_all_messages: false,
+                },
+                true,
+            ) => "kick the author",
+            (
+                ModerationAction::KickAuthor {
+                    delete_all_messages: true,
+                },
+                false,
+            ) => "kicked the author and deleted all their messages",
+            (
+                ModerationAction::KickAuthor {
+                    delete_all_messages: true,
+                },
+                true,
+            ) => "kick the author and delete all their messages",
+        })
+        .collect();
+
+    // A match always carries at least one action, but saying so plainly beats
+    // claiming something that did not happen if one ever arrives empty.
+    let joined = match phrases.split_last() {
+        None if dry_mode => "take no action".to_owned(),
+        None => "took no action".to_owned(),
+        Some((last, [])) => (*last).to_owned(),
+        Some((last, rest)) => format!("{} and {}", rest.join(", "), last),
+    };
+
+    if dry_mode {
+        format!("🛡 I would {joined}")
+    } else {
+        format!("🛡 I {joined}")
+    }
+}
+
 #[async_trait]
 impl ModerationNotificationReceiver for BotDmApplication {
     async fn send_moderation_notification(
         &self,
         user_id: UserId,
         group: &Group,
-        action: &ModerationAction,
+        actions: &[ModerationAction],
         message: &str,
         reasons: &[String],
     ) -> Result<(), Err> {
@@ -415,59 +475,15 @@ impl ModerationNotificationReceiver for BotDmApplication {
         } else {
             message.to_owned()
         };
-        let action_text = match action {
-            ModerationAction::ModerateMessage => {
-                if group.dry_mode_enabled {
-                    "🛡 I would moderate a message"
-                } else {
-                    "🛡 I moderated a message"
-                }
-            }
-            ModerationAction::KickAuthor { delete_messages } => {
-                if group.dry_mode_enabled {
-                    match delete_messages {
-                        DeleteAuthorMessages::AllMessages => {
-                            "🛡 I would kick the author and delete all their messages"
-                        }
-                        DeleteAuthorMessages::TriggeredMessage => {
-                            "🛡 I would kick the author and moderated their message"
-                        }
-                        DeleteAuthorMessages::None => "🛡 I would kick the author",
-                    }
-                } else {
-                    match delete_messages {
-                        DeleteAuthorMessages::AllMessages => {
-                            "🛡 I kicked the author and deleted all their messages"
-                        }
-                        DeleteAuthorMessages::TriggeredMessage => {
-                            "🛡 I kicked the author and moderated their message"
-                        }
-                        DeleteAuthorMessages::None => "🛡 I kicked the author",
-                    }
-                }
-            }
-            ModerationAction::SetAuthorObserver { delete_message } => {
-                if group.dry_mode_enabled {
-                    match delete_message {
-                        DeleteObserverMessages::None => "🛡 I would set the author as observer",
-                        DeleteObserverMessages::TriggeredMessage => {
-                            "🛡 I would set the author as observer and moderate the message"
-                        }
-                    }
-                } else {
-                    match delete_message {
-                        DeleteObserverMessages::None => "🛡 I set the author as observer",
-                        DeleteObserverMessages::TriggeredMessage => {
-                            "🛡 I set the author as observer and moderated the message"
-                        }
-                    }
-                }
-            }
-        };
-        let reasons = reasons.iter().map(|x| format!("• {}", x)).collect::<Vec<_>>().join("\n");
+        let actions_text = describe_actions(actions, group.dry_mode_enabled);
+        let reasons = reasons
+            .iter()
+            .map(|x| format!("• {}", x))
+            .collect::<Vec<_>>()
+            .join("\n");
         let text = format!(
             "{} in *{}*!\n\n*The message:*\n{}\n\n*Reason:*\n{}",
-            action_text, group.name, message, reasons,
+            actions_text, group.name, message, reasons,
         );
         self.messenger.send_dm(&user_id, &text).await
     }

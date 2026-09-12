@@ -5,9 +5,8 @@ use std::time::Duration;
 use super::message_filter::should_moderate;
 use super::ports::{
     Err, Group, GroupId, GroupInvitation, GroupMessage, GroupModerator, MessengerGroupId,
-    ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule,
-    OwnedModerationRule, PlannedAction, UserActivityRepository, UserId,
-    UserModerationActivityRepository,
+    ModerationAction, ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule,
+    OwnedModerationRule, UserActivityRepository, UserId, UserModerationActivityRepository,
 };
 
 #[cfg(test)]
@@ -126,7 +125,7 @@ impl ModerationEngine for ModeratorApplication {
             if !dry_mode {
                 for action in &matched.actions {
                     match action {
-                        PlannedAction::SetObserver => {
+                        ModerationAction::SetAuthorObserver => {
                             self.group_moderator
                                 .set_member_observer(
                                     &group_message.group.id,
@@ -134,12 +133,12 @@ impl ModerationEngine for ModeratorApplication {
                                 )
                                 .await?;
                         }
-                        PlannedAction::DeleteTriggeredMessage => {
+                        ModerationAction::ModerateMessage => {
                             self.group_moderator
                                 .delete_message(&group_message.group.id, &group_message.message_id)
                                 .await?;
                         }
-                        PlannedAction::KickAuthor {
+                        ModerationAction::KickAuthor {
                             delete_all_messages,
                         } => {
                             self.group_moderator
@@ -163,7 +162,7 @@ impl ModerationEngine for ModeratorApplication {
                     .notify_moderation_action(
                         group.owner_id,
                         &group,
-                        &matched.action(),
+                        &matched.actions,
                         &group_message.text,
                         &matched.reasons,
                     )
@@ -215,7 +214,7 @@ impl ModerationEngine for ModeratorApplication {
 
         let mut rules = rules;
         for rule in &mut rules {
-            rule.condition.normalize_and_validate()?;
+            rule.normalize_and_validate()?;
         }
 
         self.repository.set_group_rules(&group_id, &rules).await?;

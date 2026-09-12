@@ -54,15 +54,14 @@ body:
     id: rule-action
     attributes:
       label: Which rule action was configured?
-      description: What action was set to trigger when a message matches this rule?
+      description: What action was set to trigger when a message matches this rule? Pick the one that misbehaved; if the rule had several actions, pick "Several actions".
       options:
         - "Moderate the message"
-        - "Kick the author — Don't delete any messages"
-        - "Kick the author — Moderate the message that triggered the rule"
-        - "Kick the author — Delete ALL messages the author has sent in this group"
-        - "Set author as observer — Don't delete the message"
-        - "Set author as observer — Moderate the message that triggered the rule"
-        - "Not sure / multiple"
+        - "Set author as observer"
+        - "Kick the author"
+        - "Kick the author — also delete every message the author has sent in this group"
+        - "Several actions"
+        - "Not sure"
     validations:
       required: true
 

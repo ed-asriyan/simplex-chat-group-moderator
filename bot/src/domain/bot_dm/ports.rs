@@ -9,28 +9,13 @@ pub type Err = Box<dyn Error + Send + Sync>;
 
 pub type JoinError = Box<dyn Error + Send + Sync>;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DeleteAuthorMessages {
-    None,
-    TriggeredMessage,
-    AllMessages,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DeleteObserverMessages {
-    None,
-    TriggeredMessage,
-}
-
+/// One action the moderator reported having performed. This context's own copy
+/// of the moderator's action type; the notification router translates between them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModerationAction {
     ModerateMessage,
-    KickAuthor {
-        delete_messages: DeleteAuthorMessages,
-    },
-    SetAuthorObserver {
-        delete_message: DeleteObserverMessages,
-    },
+    SetAuthorObserver,
+    KickAuthor { delete_all_messages: bool },
 }
 
 #[derive(Debug)]
@@ -69,15 +54,15 @@ pub trait BotMessenger: Send + Sync {
     async fn send_dm(&self, user_id: &UserId, text: &str) -> Result<(), Err>;
 }
 
-/// Inbound port: deliver a notification to a group owner that the bot performed a
-/// moderation action in their group.
+/// Inbound port: deliver a notification to a group owner that the bot performed
+/// moderation actions in their group.
 #[async_trait]
 pub trait ModerationNotificationReceiver: Send + Sync {
     async fn send_moderation_notification(
         &self,
         user_id: UserId,
         group: &Group,
-        action: &ModerationAction,
+        actions: &[ModerationAction],
         message: &str,
         reasons: &[String],
     ) -> Result<(), Err>;

@@ -16,52 +16,54 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
 
     let rules = vec![
         ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec!["word1".to_string()],
             },
         },
         ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::ModerateMessage,
+                ModerationAction::KickAuthor {
+                    delete_all_messages: false,
+                },
+            ],
             condition: ModerationCondition::MatchesExactMessage {
                 messages: vec!["msg1".to_string()],
                 case_sensitive: true,
             },
         },
         ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::MatchesRegex {
                 patterns: vec![r" {5,}".to_string()],
             },
         },
         ModerationRule {
-            action: ModerationAction::SetAuthorObserver {
-                delete_message: DeleteObserverMessages::None,
-            },
+            actions: vec![ModerationAction::SetAuthorObserver],
             condition: ModerationCondition::ContainsLinksInList {
                 domains: vec!["spam.com".to_string()],
             },
         },
         ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::ContainsLinksOutsideList {
                 domains: vec!["ok.com".to_string()],
             },
         },
         ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::AllMessages,
-            },
+            actions: vec![ModerationAction::KickAuthor {
+                delete_all_messages: true,
+            }],
             condition: ModerationCondition::ContainsLinksOutsideTop100 {
                 domains: vec!["extra.com".to_string()],
             },
         },
         ModerationRule {
-            action: ModerationAction::SetAuthorObserver {
-                delete_message: DeleteObserverMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::SetAuthorObserver,
+                ModerationAction::ModerateMessage,
+            ],
             condition: ModerationCondition::Any {
                 conditions: vec![
                     ModerationCondition::IsBlank,
@@ -78,9 +80,9 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
             },
         },
         ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::AllMessages,
-            },
+            actions: vec![ModerationAction::KickAuthor {
+                delete_all_messages: true,
+            }],
             condition: ModerationCondition::AuthorHitsMessageRateLimit {
                 message_count: 5,
                 time_window_minutes: 2,
@@ -96,7 +98,8 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
         let action_count: i64 = guard
             .query_row("SELECT COUNT(*) FROM moderation_actions", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(action_count, 8);
+        // Eight rules, two of which carry two actions each.
+        assert_eq!(action_count, 10);
     }
 
     // Delete group data
@@ -152,16 +155,19 @@ async fn test_save_and_load_rate_limit_rules() {
 
     let rules = vec![
         ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::AuthorHitsMessageRateLimit {
                 message_count: 3,
                 time_window_minutes: 1,
             },
         },
         ModerationRule {
-            action: ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::TriggeredMessage,
-            },
+            actions: vec![
+                ModerationAction::ModerateMessage,
+                ModerationAction::KickAuthor {
+                    delete_all_messages: false,
+                },
+            ],
             condition: ModerationCondition::AuthorHitsMessageRateLimit {
                 message_count: 10,
                 time_window_minutes: 60,
@@ -199,7 +205,7 @@ async fn repo_with_group(messenger_group_id: i64) -> (SqliteModerationRepository
 async fn assert_round_trips(messenger_group_id: i64, condition: ModerationCondition) {
     let (repo, group_id) = repo_with_group(messenger_group_id).await;
     let rules = vec![ModerationRule {
-        action: ModerationAction::ModerateMessage,
+        actions: vec![ModerationAction::ModerateMessage],
         condition,
     }];
 
@@ -394,7 +400,7 @@ async fn test_preserves_rule_order() {
     let rules: Vec<ModerationRule> = ["first", "second", "third", "fourth"]
         .iter()
         .map(|keyword| ModerationRule {
-            action: ModerationAction::ModerateMessage,
+            actions: vec![ModerationAction::ModerateMessage],
             condition: ModerationCondition::ContainsWords {
                 keywords: vec![(*keyword).to_string()],
             },
@@ -409,12 +415,37 @@ async fn test_preserves_rule_order() {
 }
 
 #[tokio::test]
+async fn test_preserves_action_order_within_a_rule() {
+    let (repo, group_id) = repo_with_group(2008).await;
+    let rules = vec![ModerationRule {
+        actions: vec![
+            ModerationAction::SetAuthorObserver,
+            ModerationAction::ModerateMessage,
+            ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            },
+        ],
+        condition: ModerationCondition::ContainsWords {
+            keywords: vec!["alpha".to_string()],
+        },
+    }];
+
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+
+    let loaded = repo.get_group_rules(&group_id).await.unwrap();
+    assert_eq!(loaded.len(), 1);
+    // The rank column, not the insertion order of the rows, is what restores
+    // the order the actions are executed in.
+    assert_eq!(loaded[0].rule, rules[0]);
+}
+
+#[tokio::test]
 async fn test_replacing_rules_leaves_no_orphan_actions() {
     let (repo, group_id) = repo_with_group(2007).await;
     let first = vec![ModerationRule {
-        action: ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::AllMessages,
-        },
+        actions: vec![ModerationAction::KickAuthor {
+            delete_all_messages: true,
+        }],
         condition: ModerationCondition::ContainsWords {
             keywords: vec!["alpha".to_string()],
         },

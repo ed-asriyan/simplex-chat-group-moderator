@@ -2,30 +2,32 @@
 //!
 //! # What this module answers
 //! Given one incoming message and a group's ordered list of rules, produce the set of
-//! concrete actions to perform (delete the message, set the author to observer, kick the
+//! concrete actions to perform (moderate the message, set the author to observer, kick the
 //! author), or nothing if no rule matches. Each [`ModerationRule`] pairs a *condition*
-//! (does this message match?) with an *action* (what to do if it matches).
+//! (does this message match?) with the *actions* to take if it matches.
 //!
 //! # Why it is not "first matching rule wins"
 //! Multiple rules can match the same message, and their actions are not independent — some
-//! actions subsume others. For example "delete the message" is already implied by "kick the
+//! actions subsume others. For example "moderate the message" is already implied by "kick the
 //! author and delete all their messages". Naively applying every matched action, or only the
 //! first, would either double-act or under-act. So actions are compared by a *covers*
-//! (subset) relation and merged into a minimal, non-redundant plan. All of that comparison
-//! lives in the `action_planner` submodule; this module only orchestrates rule evaluation.
+//! (subset) relation and merged into a minimal, non-redundant plan. The same relation also
+//! normalizes a single rule's own action list, which is a set rather than a sequence. All of
+//! that comparison lives in the `action_planner` submodule; this module only orchestrates
+//! rule evaluation.
 //!
 //! # The evaluation algorithm ([`should_moderate`])
-//! We keep a growing list of planned [`PlannedAction`]s, starting empty, and walk the rules
+//! We keep a growing list of planned [`ModerationAction`]s, starting empty, and walk the rules
 //! **in their given order** (order is meaningful for tie-breaking and reasons):
 //! 1. Before checking a rule's condition, ask `action_planner::plan_next_actions` what the
 //!    plan *would become* if this rule applied.
-//!    - `None` → the rule's action is already covered by the current plan, so it can add
-//!      nothing. We skip the condition check entirely (saves work, and for repo-backed
+//!    - `None` → every action of the rule is already covered by the current plan, so it can
+//!      add nothing. We skip the condition check entirely (saves work, and for repo-backed
 //!      conditions saves a query).
 //!    - `Some(next)` → only now do we evaluate the condition. If it matches, the plan
 //!      becomes `next` and the human-readable reason is recorded.
 //! 2. After the loop, the planned actions are executed by the application layer in the order
-//!    the planner emitted them (see `action_planner`'s ordering guarantees, e.g. delete
+//!    the planner emitted them (see `action_planner`'s ordering guarantees, e.g. moderate
 //!    before kick).
 //!
 //! # The `AuthorHitsModerationRateLimit` special case (why there is a pre-pass)
@@ -52,22 +54,23 @@
 //! - `moderation_condition` — [`ModerationCondition`]: its parameters, the checks applied when
 //!   an owner saves them, and how one is evaluated against a message. The per-kind matching
 //!   algorithms are its children (`keywords`, `links`, `regex_match`, `message_length`, ...).
-//! - `moderation_action` — [`ModerationAction`]: what a matched rule does. A plain file, not a
-//!   directory: unlike a condition, an action carries no per-kind logic of its own.
+//! - `moderation_action` — [`ModerationAction`]: one thing a matched rule does. A plain file,
+//!   not a directory: unlike a condition, an action carries no per-kind logic of its own.
 //! - `moderation_rule` — [`ModerationRule`]: the pairing of the two.
 //!
 //! Alongside them — deliberately *not* inside `moderation_action` — sits `action_planner`,
-//! which owns [`PlannedAction`] and merges the actions of several matched rules into one
-//! non-redundant plan. It reasons about a *set* of actions coming from a *set* of rules, so it
-//! belongs at the same level as this module's own [`should_moderate`], not one level down
-//! inside the module that describes a single action.
+//! which merges the actions of several matched rules into one non-redundant plan and decides
+//! the order they run in. It reasons about a *set* of actions coming from a *set* of rules, so
+//! it belongs at the same level as this module's own [`should_moderate`], not one level down
+//! inside the module that describes a single action. [`ModerationRule::normalize_and_validate`]
+//! reaches into it for the same reason: one rule's action list is such a set too.
 //!
 //! This module is left with the orchestration across a set of rules ([`should_moderate`]) and
 //! its result, [`ModerationMatch`].
 //!
 //! # Guidance for future changes
 //! - Put action comparison / subsumption / ordering in the `action_planner` submodule, not
-//!   here. This module must not learn that "one rule is stronger than another"; it only asks
+//!   here or in `moderation_action`. This module must not learn that "one rule is stronger than another"; it only asks
 //!   the planner.
 //! - Keep rule evaluation order-independent in outcome. If you need cross-rule context (like
 //!   the pre-pass flag), compute it up front rather than relying on list position.
@@ -81,8 +84,7 @@ mod moderation_rule;
 #[cfg(test)]
 mod tests;
 
-pub use action_planner::PlannedAction;
-pub use moderation_action::{DeleteAuthorMessages, DeleteObserverMessages, ModerationAction};
+pub use moderation_action::ModerationAction;
 pub use moderation_condition::ModerationCondition;
 pub use moderation_rule::ModerationRule;
 
@@ -90,17 +92,13 @@ use super::ports::{Err, GroupMessage, UserActivityRepository, UserModerationActi
 use moderation_condition::{ConditionContext, check_condition};
 
 /// Result of evaluating message against moderation rules.
+///
+/// `actions` is the merged, non-redundant plan in execution order — it is what
+/// the application performs and what the owner is told about.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModerationMatch {
-    pub actions: Vec<PlannedAction>,
+    pub actions: Vec<ModerationAction>,
     pub reasons: Vec<String>,
-}
-
-impl ModerationMatch {
-    /// Consolidated `ModerationAction` representation (e.g. for owner notifications).
-    pub fn action(&self) -> ModerationAction {
-        action_planner::planned_actions_to_moderation_action(&self.actions)
-    }
 }
 
 pub async fn should_moderate(
@@ -129,15 +127,15 @@ pub async fn should_moderate(
         ctx.message_is_moderated = message_is_moderated;
     }
 
-    let mut current_actions: Vec<PlannedAction> = Vec::new();
+    let mut current_actions: Vec<ModerationAction> = Vec::new();
     let mut reasons: Vec<String> = Vec::new();
 
     for rule in rules {
         let candidate_actions =
-            match action_planner::plan_next_actions(&current_actions, &rule.action) {
+            match action_planner::plan_next_actions(&current_actions, &rule.actions) {
                 Some(actions) => actions,
                 None => {
-                    // Rule action is a subset of already planned actions; skip condition check.
+                    // Rule actions are a subset of already planned actions; skip condition check.
                     continue;
                 }
             };

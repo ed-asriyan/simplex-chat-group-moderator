@@ -1,336 +1,143 @@
 use super::planner::*;
-use crate::domain::moderator::ports::{
-    DeleteAuthorMessages, DeleteObserverMessages, ModerationAction,
+use crate::domain::moderator::ports::ModerationAction;
+
+const MODERATE: ModerationAction = ModerationAction::ModerateMessage;
+const OBSERVER: ModerationAction = ModerationAction::SetAuthorObserver;
+const KICK: ModerationAction = ModerationAction::KickAuthor {
+    delete_all_messages: false,
+};
+const KICK_ALL: ModerationAction = ModerationAction::KickAuthor {
+    delete_all_messages: true,
 };
 
 #[test]
-fn test_plan_from_empty_moderate_message() {
-    let planned = plan_next_actions(&[], &ModerationAction::ModerateMessage);
-    assert_eq!(planned, Some(vec![PlannedAction::DeleteTriggeredMessage]));
+fn test_normalize_single_action_is_unchanged() {
+    assert_eq!(normalize_actions(&[MODERATE]), vec![MODERATE]);
+    assert_eq!(normalize_actions(&[OBSERVER]), vec![OBSERVER]);
+    assert_eq!(normalize_actions(&[KICK_ALL]), vec![KICK_ALL]);
 }
 
 #[test]
-fn test_plan_from_empty_set_observer_with_triggered() {
-    let planned = plan_next_actions(
-        &[],
-        &ModerationAction::SetAuthorObserver {
-            delete_message: DeleteObserverMessages::TriggeredMessage,
-        },
-    );
+fn test_normalize_drops_duplicates() {
+    assert_eq!(normalize_actions(&[MODERATE, MODERATE]), vec![MODERATE]);
+}
+
+#[test]
+fn test_normalize_orders_actions_for_safe_execution() {
+    // Whatever order the owner listed them in, the author is kicked last...
+    assert_eq!(normalize_actions(&[KICK, MODERATE]), vec![MODERATE, KICK]);
+    // ...and restricted to observer first.
     assert_eq!(
-        planned,
-        Some(vec![
-            PlannedAction::SetObserver,
-            PlannedAction::DeleteTriggeredMessage
-        ])
-    );
-}
-
-#[test]
-fn test_plan_from_empty_set_observer_with_none() {
-    let planned = plan_next_actions(
-        &[],
-        &ModerationAction::SetAuthorObserver {
-            delete_message: DeleteObserverMessages::None,
-        },
-    );
-    assert_eq!(planned, Some(vec![PlannedAction::SetObserver]));
-}
-
-#[test]
-fn test_plan_from_empty_kick_author_none() {
-    let planned = plan_next_actions(
-        &[],
-        &ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::None,
-        },
-    );
-    assert_eq!(
-        planned,
-        Some(vec![PlannedAction::KickAuthor {
-            delete_all_messages: false
-        }])
+        normalize_actions(&[MODERATE, OBSERVER]),
+        vec![OBSERVER, MODERATE]
     );
 }
 
 #[test]
-fn test_plan_from_empty_kick_author_triggered() {
-    let planned = plan_next_actions(
-        &[],
-        &ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage,
-        },
+fn test_normalize_drops_actions_a_stronger_one_covers() {
+    // Deleting every message of the author's already moderates this one, and
+    // kicking them already keeps them from writing.
+    assert_eq!(
+        normalize_actions(&[MODERATE, OBSERVER, KICK_ALL]),
+        vec![KICK_ALL]
+    );
+    // A plain kick does not delete the message, so moderation survives it.
+    assert_eq!(normalize_actions(&[MODERATE, KICK]), vec![MODERATE, KICK]);
+    // ...but it does cover the observer role.
+    assert_eq!(normalize_actions(&[OBSERVER, KICK]), vec![KICK]);
+    // The stronger kick wins over the weaker one.
+    assert_eq!(normalize_actions(&[KICK, KICK_ALL]), vec![KICK_ALL]);
+}
+
+#[test]
+fn test_plan_from_empty_plan_takes_the_rule_actions() {
+    assert_eq!(plan_next_actions(&[], &[MODERATE]), Some(vec![MODERATE]));
+    assert_eq!(
+        plan_next_actions(&[], &[OBSERVER, MODERATE]),
+        Some(vec![OBSERVER, MODERATE])
     );
     assert_eq!(
-        planned,
-        Some(vec![
-            PlannedAction::DeleteTriggeredMessage,
-            PlannedAction::KickAuthor {
-                delete_all_messages: false
-            }
-        ])
+        plan_next_actions(&[], &[MODERATE, KICK]),
+        Some(vec![MODERATE, KICK])
     );
 }
 
 #[test]
-fn test_plan_from_empty_kick_author_all_messages() {
-    let planned = plan_next_actions(
-        &[],
-        &ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::AllMessages,
-        },
-    );
+fn test_plan_normalizes_the_rule_actions_it_takes() {
+    // A rule saved before normalization existed (or written by hand) still
+    // yields a canonical plan.
     assert_eq!(
-        planned,
-        Some(vec![PlannedAction::KickAuthor {
-            delete_all_messages: true
-        }])
+        plan_next_actions(&[], &[KICK_ALL, MODERATE]),
+        Some(vec![KICK_ALL])
     );
 }
 
 #[test]
-fn test_plan_identical_action_is_subset_and_returns_none() {
-    let current = vec![PlannedAction::DeleteTriggeredMessage];
+fn test_plan_identical_actions_are_a_subset_and_return_none() {
+    assert_eq!(plan_next_actions(&[MODERATE], &[MODERATE]), None);
     assert_eq!(
-        plan_next_actions(&current, &ModerationAction::ModerateMessage),
-        None
-    );
-
-    let observer_current = vec![
-        PlannedAction::SetObserver,
-        PlannedAction::DeleteTriggeredMessage,
-    ];
-    assert_eq!(
-        plan_next_actions(
-            &observer_current,
-            &ModerationAction::SetAuthorObserver {
-                delete_message: DeleteObserverMessages::TriggeredMessage
-            }
-        ),
+        plan_next_actions(&[OBSERVER, MODERATE], &[OBSERVER, MODERATE]),
         None
     );
 }
 
 #[test]
 fn test_smaller_action_is_subset_of_larger_action_and_returns_none() {
-    // ModerateMessage { DeleteTriggeredMessage } is a subset of SetAuthorObserver { SetObserver, DeleteTriggeredMessage }
-    let current_observer = vec![
-        PlannedAction::SetObserver,
-        PlannedAction::DeleteTriggeredMessage,
-    ];
-    assert_eq!(
-        plan_next_actions(&current_observer, &ModerationAction::ModerateMessage),
-        None
-    );
-
-    // ModerateMessage { DeleteTriggeredMessage } is a subset of KickAuthor { KickMember, DeleteTriggeredMessage }
-    let current_kick = vec![
-        PlannedAction::DeleteTriggeredMessage,
-        PlannedAction::KickAuthor {
-            delete_all_messages: false,
-        },
-    ];
-    assert_eq!(
-        plan_next_actions(&current_kick, &ModerationAction::ModerateMessage),
-        None
-    );
-
-    // ModerateMessage { DeleteTriggeredMessage } is covered by KickAuthor { KickMember, DeleteAllMessages }
-    // because DeleteAllMessages covers DeleteTriggeredMessage
-    let current_kick_all = vec![PlannedAction::KickAuthor {
-        delete_all_messages: true,
-    }];
-    assert_eq!(
-        plan_next_actions(&current_kick_all, &ModerationAction::ModerateMessage),
-        None
-    );
+    // Moderation is already planned as part of the observer rule's plan.
+    assert_eq!(plan_next_actions(&[OBSERVER, MODERATE], &[MODERATE]), None);
+    // ...and as part of a kick that also deletes the message.
+    assert_eq!(plan_next_actions(&[MODERATE, KICK], &[MODERATE]), None);
+    // Deleting every message of the author's covers deleting this one.
+    assert_eq!(plan_next_actions(&[KICK_ALL], &[MODERATE]), None);
 }
 
 #[test]
 fn test_larger_action_covers_smaller_and_smaller_disappears() {
-    // Rule 1: ModerateMessage -> [DeleteTriggeredMessage]
-    // Rule 2: KickAuthor { delete_messages: AllMessages }
-    // Since KickAuthor { AllMessages } covers DeleteTriggeredMessage, DeleteTriggeredMessage disappears!
-    let current = vec![PlannedAction::DeleteTriggeredMessage];
-    let next = plan_next_actions(
-        &current,
-        &ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::AllMessages,
-        },
-    );
+    // Rule 1 planned moderation; rule 2 kicks and deletes everything, which
+    // subsumes it, so moderation disappears from the plan.
     assert_eq!(
-        next,
-        Some(vec![PlannedAction::KickAuthor {
-            delete_all_messages: true
-        }])
+        plan_next_actions(&[MODERATE], &[KICK_ALL]),
+        Some(vec![KICK_ALL])
     );
 }
 
 #[test]
 fn test_kick_covers_observer_and_observer_disappears() {
-    // Rule 1: SetAuthorObserver { delete_message: None } -> [SetObserver]
-    // Rule 2: KickAuthor { delete_messages: None } -> [KickMember]
-    // KickMember covers SetObserver, so SetObserver disappears!
-    let current = vec![PlannedAction::SetObserver];
-    let next = plan_next_actions(
-        &current,
-        &ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::None,
-        },
-    );
-    assert_eq!(
-        next,
-        Some(vec![PlannedAction::KickAuthor {
-            delete_all_messages: false
-        }])
-    );
+    assert_eq!(plan_next_actions(&[OBSERVER], &[KICK]), Some(vec![KICK]));
 }
 
 #[test]
-fn test_partially_covered_action_removes_only_covered_part() {
-    // Current: SetAuthorObserver { delete_message: TriggeredMessage } -> { SetObserver, DeleteTriggeredMessage }
-    // Rule 2: KickAuthor { delete_messages: None } -> { KickMember }
-    // KickMember covers SetObserver, so SetObserver disappears.
-    // But DeleteTriggeredMessage is NOT covered by KickMember { None }, so DeleteTriggeredMessage remains!
-    let current = vec![
-        PlannedAction::SetObserver,
-        PlannedAction::DeleteTriggeredMessage,
-    ];
-    let next = plan_next_actions(
-        &current,
-        &ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::None,
-        },
-    );
+fn test_partially_covered_plan_keeps_only_the_uncovered_part() {
+    // A plain kick covers the observer role but not the message deletion, so
+    // moderation survives alongside the kick.
     assert_eq!(
-        next,
-        Some(vec![
-            PlannedAction::DeleteTriggeredMessage,
-            PlannedAction::KickAuthor {
-                delete_all_messages: false
-            }
-        ])
+        plan_next_actions(&[OBSERVER, MODERATE], &[KICK]),
+        Some(vec![MODERATE, KICK])
     );
 }
 
 #[test]
 fn test_independent_actions_combine_in_safe_execution_order() {
-    // Rule 1: ModerateMessage -> [DeleteTriggeredMessage]
-    // Rule 2: KickAuthor { delete_messages: None } -> [KickAuthor]
-    // Neither covers the other! Both remain, and DeleteTriggeredMessage MUST run before KickAuthor.
-    let current = vec![PlannedAction::DeleteTriggeredMessage];
-    let next = plan_next_actions(
-        &current,
-        &ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::None,
-        },
-    );
+    // Neither covers the other: both remain, moderation before the kick.
     assert_eq!(
-        next,
-        Some(vec![
-            PlannedAction::DeleteTriggeredMessage,
-            PlannedAction::KickAuthor {
-                delete_all_messages: false
-            }
-        ])
+        plan_next_actions(&[MODERATE], &[KICK]),
+        Some(vec![MODERATE, KICK])
+    );
+    // And the observer role sorts ahead of both.
+    assert_eq!(
+        plan_next_actions(&[MODERATE], &[OBSERVER]),
+        Some(vec![OBSERVER, MODERATE])
     );
 }
 
 #[test]
-fn test_subset_and_covers_predicates() {
-    // ModerateMessage is a subset of KickAuthor { AllMessages }: adding it changes nothing.
+fn test_stronger_rule_upgrades_an_existing_plan() {
     assert_eq!(
-        plan_next_actions(
-            &[PlannedAction::KickAuthor {
-                delete_all_messages: true
-            }],
-            &ModerationAction::ModerateMessage
-        ),
-        None
+        plan_next_actions(&[MODERATE], &[KICK_ALL]),
+        Some(vec![KICK_ALL])
     );
-
-    // KickAuthor { AllMessages } is NOT a subset of ModerateMessage: it must upgrade the plan.
     assert_eq!(
-        plan_next_actions(
-            &[PlannedAction::DeleteTriggeredMessage],
-            &ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::AllMessages
-            }
-        ),
-        Some(vec![PlannedAction::KickAuthor {
-            delete_all_messages: true
-        }])
-    );
-
-    // KickAuthor { None } does not cover ModerateMessage (it does not delete the message),
-    // so the deletion survives alongside the kick.
-    assert_eq!(
-        plan_next_actions(
-            &[PlannedAction::DeleteTriggeredMessage],
-            &ModerationAction::KickAuthor {
-                delete_messages: DeleteAuthorMessages::None
-            }
-        ),
-        Some(vec![
-            PlannedAction::DeleteTriggeredMessage,
-            PlannedAction::KickAuthor {
-                delete_all_messages: false
-            },
-        ])
-    );
-}
-
-#[test]
-fn test_planned_actions_to_moderation_action_conversion() {
-    assert_eq!(
-        planned_actions_to_moderation_action(&[PlannedAction::DeleteTriggeredMessage]),
-        ModerationAction::ModerateMessage
-    );
-
-    assert_eq!(
-        planned_actions_to_moderation_action(&[PlannedAction::SetObserver]),
-        ModerationAction::SetAuthorObserver {
-            delete_message: DeleteObserverMessages::None
-        }
-    );
-
-    assert_eq!(
-        planned_actions_to_moderation_action(&[
-            PlannedAction::SetObserver,
-            PlannedAction::DeleteTriggeredMessage
-        ]),
-        ModerationAction::SetAuthorObserver {
-            delete_message: DeleteObserverMessages::TriggeredMessage
-        }
-    );
-
-    assert_eq!(
-        planned_actions_to_moderation_action(&[PlannedAction::KickAuthor {
-            delete_all_messages: false
-        }]),
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::None
-        }
-    );
-
-    assert_eq!(
-        planned_actions_to_moderation_action(&[
-            PlannedAction::DeleteTriggeredMessage,
-            PlannedAction::KickAuthor {
-                delete_all_messages: false
-            }
-        ]),
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::TriggeredMessage
-        }
-    );
-
-    assert_eq!(
-        planned_actions_to_moderation_action(&[PlannedAction::KickAuthor {
-            delete_all_messages: true
-        }]),
-        ModerationAction::KickAuthor {
-            delete_messages: DeleteAuthorMessages::AllMessages
-        }
+        plan_next_actions(&[KICK], &[KICK_ALL]),
+        Some(vec![KICK_ALL])
     );
 }

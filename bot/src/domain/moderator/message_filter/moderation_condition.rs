@@ -14,7 +14,7 @@
 //! [`ModerationCondition::Not`] — which carry other conditions. A rule therefore
 //! owns a *tree* of conditions whose root is the rule's `condition` field. The
 //! rule list itself is already a disjunction (any matching rule contributes its
-//! action), so `Any` only adds expressiveness when nested.
+//! actions), so `Any` only adds expressiveness when nested.
 //!
 //! Two invariants keep that tree manageable, both established by
 //! [`ModerationCondition::normalize_and_validate`] before anything is stored:

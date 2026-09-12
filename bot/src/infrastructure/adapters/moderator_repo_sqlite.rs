@@ -4,63 +4,60 @@ use rusqlite::{Connection, params};
 use std::sync::{Arc, Mutex};
 
 use crate::domain::moderator::ports::{
-    DeleteAuthorMessages, DeleteObserverMessages, Err, Group, GroupId, MessengerGroupId,
-    ModerationAction, ModerationCondition, ModerationRepository, ModerationRule,
-    OwnedModerationRule, UserId,
+    Err, Group, GroupId, MessengerGroupId, ModerationAction, ModerationCondition,
+    ModerationRepository, ModerationRule, OwnedModerationRule, UserId,
 };
 const GROUP_ID_MIN: i64 = 1;
 const GROUP_ID_MAX: i64 = 1_000_000;
 const GROUP_ID_ALLOC_MAX_ATTEMPTS: usize = 32;
 
-/// Insert a rule's action into the `moderation_actions` registry (plus its
-/// per-type subtable). The action row is a child of the rule, so removing the
-/// rule removes it by cascade and nothing has to be swept up afterwards.
-fn insert_action(
+/// Insert a rule's actions into the `moderation_actions` registry (plus their
+/// per-type subtables). The action rows are children of the rule, so removing the
+/// rule removes them by cascade and nothing has to be swept up afterwards.
+///
+/// `rank` is the action's index in the rule's list, which is the order the
+/// planner put them in when the rule was saved.
+fn insert_actions(
     tx: &rusqlite::Transaction,
     rule_id: i64,
-    action: &ModerationAction,
+    actions: &[ModerationAction],
 ) -> Result<(), Err> {
-    let type_tag = match action {
-        ModerationAction::ModerateMessage => "ModerateMessage",
-        ModerationAction::KickAuthor { .. } => "KickAuthor",
-        ModerationAction::SetAuthorObserver { .. } => "SetAuthorObserver",
-    };
-    tx.execute(
-        "INSERT INTO moderation_actions (rule_id, type) VALUES (?1, ?2)",
-        params![rule_id, type_tag],
-    )
-    .map_err(|e| -> Err { e.to_string().into() })?;
-    let action_id = tx.last_insert_rowid();
-    match action {
-        ModerationAction::ModerateMessage => {
-            tx.execute(
-                "INSERT INTO moderation_action__moderate_message (action_id) VALUES (?1)",
-                params![action_id],
-            )
-            .map_err(|e| -> Err { e.to_string().into() })?;
-        }
-        ModerationAction::KickAuthor { delete_messages } => {
-            let delete_messages_code: i64 = match delete_messages {
-                DeleteAuthorMessages::None => 0,
-                DeleteAuthorMessages::TriggeredMessage => 1,
-                DeleteAuthorMessages::AllMessages => 2,
-            };
-            tx.execute(
-                "INSERT INTO moderation_action__kick_author (action_id, delete_messages) VALUES (?1, ?2)",
-                params![action_id, delete_messages_code],
-            )
-            .map_err(|e| -> Err { e.to_string().into() })?;
-        }
-        ModerationAction::SetAuthorObserver { delete_message } => {
-            let delete_message_code: i64 = match delete_message {
-                DeleteObserverMessages::None => 0,
-                DeleteObserverMessages::TriggeredMessage => 1,
-            };
-            tx.execute(
-                "INSERT INTO moderation_action__set_author_observer (action_id, delete_message) VALUES (?1, ?2)",
-                params![action_id, delete_message_code],
-            )
-            .map_err(|e| -> Err { e.to_string().into() })?;
+    for (rank, action) in actions.iter().enumerate() {
+        let type_tag = match action {
+            ModerationAction::ModerateMessage => "ModerateMessage",
+            ModerationAction::SetAuthorObserver => "SetAuthorObserver",
+            ModerationAction::KickAuthor { .. } => "KickAuthor",
+        };
+        tx.execute(
+            "INSERT INTO moderation_actions (rule_id, rank, type) VALUES (?1, ?2, ?3)",
+            params![rule_id, rank as i64, type_tag],
+        )
+        .map_err(|e| -> Err { e.to_string().into() })?;
+        let action_id = tx.last_insert_rowid();
+        match action {
+            ModerationAction::ModerateMessage => {
+                tx.execute(
+                    "INSERT INTO moderation_action__moderate_message (action_id) VALUES (?1)",
+                    params![action_id],
+                )
+                .map_err(|e| -> Err { e.to_string().into() })?;
+            }
+            ModerationAction::SetAuthorObserver => {
+                tx.execute(
+                    "INSERT INTO moderation_action__set_author_observer (action_id) VALUES (?1)",
+                    params![action_id],
+                )
+                .map_err(|e| -> Err { e.to_string().into() })?;
+            }
+            ModerationAction::KickAuthor {
+                delete_all_messages,
+            } => {
+                tx.execute(
+                    "INSERT INTO moderation_action__kick_author (action_id, delete_all_messages) VALUES (?1, ?2)",
+                    params![action_id, delete_all_messages],
+                )
+                .map_err(|e| -> Err { e.to_string().into() })?;
+            }
         }
     }
     Ok(())
@@ -462,7 +459,7 @@ impl ModerationRepository for SqliteModerationRepository {
                 )
                 .map_err(|e| -> Err { e.to_string().into() })?;
                 let rule_id = tx.last_insert_rowid();
-                insert_action(&tx, rule_id, &rule.action)?;
+                insert_actions(&tx, rule_id, &rule.actions)?;
                 insert_condition(&tx, rule_id, None, 0, &rule.condition)?;
             }
 

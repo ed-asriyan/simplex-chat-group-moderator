@@ -226,7 +226,7 @@ async fn test_integration_with_message_filter_rules() {
     };
 
     let rules = vec![ModerationRule {
-        action: ModerationAction::ModerateMessage,
+        actions: vec![ModerationAction::ModerateMessage],
         condition: ModerationCondition::Any {
             conditions: vec![
                 ModerationCondition::IsBlank,
@@ -264,7 +264,7 @@ async fn test_integration_with_message_filter_rules() {
 
     // Without IsBlank, a short blank message matches nothing
     let length_only = vec![ModerationRule {
-        action: ModerationAction::ModerateMessage,
+        actions: vec![ModerationAction::ModerateMessage],
         condition: ModerationCondition::ExceedsMaxCharacters {
             max_characters: 100,
         },

@@ -1,6 +1,5 @@
 pub use super::message_filter::{
-    DeleteAuthorMessages, DeleteObserverMessages, ModerationAction, ModerationCondition,
-    ModerationMatch, ModerationRule, PlannedAction,
+    ModerationAction, ModerationCondition, ModerationMatch, ModerationRule,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -97,14 +96,14 @@ pub trait ModerationEngine: Send + Sync {
     ) -> Result<(), Err>;
 }
 
-/// Outbound port: notify a group owner that a moderation action was performed.
+/// Outbound port: notify a group owner that moderation actions were performed.
 #[async_trait]
 pub trait ModerationNotifier: Send + Sync {
     async fn notify_moderation_action(
         &self,
         user_id: UserId,
         group: &Group,
-        action: &ModerationAction,
+        actions: &[ModerationAction],
         message: &str,
         reasons: &[String],
     ) -> Result<(), Err>;

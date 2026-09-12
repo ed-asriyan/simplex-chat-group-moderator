@@ -1,7 +1,7 @@
 //! Reading a group's rules back out of SQLite.
 //!
 //! A rule is a row in `moderation_rules` plus a tree of `moderation_conditions`
-//! rows plus one `moderation_actions` row, all of which point *up* at their
+//! rows plus its `moderation_actions` rows, all of which point *up* at their
 //! parent. Rather than walking the tree with a query per node, everything a
 //! group owns is fetched with a fixed number of queries — one per table — and
 //! the tree is assembled in memory. The query count is therefore independent of
@@ -10,54 +10,54 @@
 use std::collections::HashMap;
 
 use crate::domain::moderator::ports::{
-    DeleteAuthorMessages, DeleteObserverMessages, Err, ModerationAction, ModerationCondition,
-    ModerationRule, OwnedModerationRule,
+    Err, ModerationAction, ModerationCondition, ModerationRule, OwnedModerationRule,
 };
-use rusqlite::{OptionalExtension, params};
+use rusqlite::params;
 use std::sync::{Arc, Mutex};
 
-/// Resolve a rule's action from the `moderation_actions` registry (plus its
-/// per-type subtable). A rule with no action row falls back to the default of
-/// moderating the message.
-fn load_action(guard: &rusqlite::Connection, rule_id: i64) -> Result<ModerationAction, Err> {
-    let row: Option<(i64, String)> = guard
-        .query_row(
-            "SELECT id, type FROM moderation_actions WHERE rule_id = ?1",
-            params![rule_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()?;
-    let Some((action_id, action_type)) = row else {
-        return Ok(ModerationAction::ModerateMessage);
-    };
-    match action_type.as_str() {
-        "KickAuthor" => {
-            let delete_messages_code: i64 = guard.query_row(
-                "SELECT delete_messages FROM moderation_action__kick_author WHERE action_id = ?1",
-                params![action_id],
-                |row| row.get(0),
-            )?;
-            let delete_messages = match delete_messages_code {
-                0 => DeleteAuthorMessages::None,
-                2 => DeleteAuthorMessages::AllMessages,
-                _ => DeleteAuthorMessages::TriggeredMessage,
-            };
-            Ok(ModerationAction::KickAuthor { delete_messages })
-        }
-        "SetAuthorObserver" => {
-            let delete_message_code: i64 = guard.query_row(
-                "SELECT delete_message FROM moderation_action__set_author_observer WHERE action_id = ?1",
-                params![action_id],
-                |row| row.get(0),
-            )?;
-            let delete_message = match delete_message_code {
-                0 => DeleteObserverMessages::None,
-                _ => DeleteObserverMessages::TriggeredMessage,
-            };
-            Ok(ModerationAction::SetAuthorObserver { delete_message })
-        }
-        _ => Ok(ModerationAction::ModerateMessage),
+/// Resolve every rule's actions for a whole group in one query, keyed by rule id
+/// and kept in `rank` order — the execution order the planner fixed when the
+/// rules were saved.
+///
+/// The only action carrying settings is `KickAuthor`, so its subtable is joined
+/// in directly instead of being fetched per action.
+fn load_actions(
+    guard: &rusqlite::Connection,
+    gid: i64,
+) -> Result<HashMap<i64, Vec<ModerationAction>>, Err> {
+    let mut stmt = guard.prepare(
+        "SELECT a.rule_id, a.type, k.delete_all_messages
+           FROM moderation_actions a
+           JOIN moderation_rules r ON r.id = a.rule_id
+           LEFT JOIN moderation_action__kick_author k ON k.action_id = a.id
+          WHERE r.group_id = ?1
+          ORDER BY a.rule_id, a.rank, a.id",
+    )?;
+    let rows = stmt.query_map(params![gid], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<bool>>(2)?,
+        ))
+    })?;
+
+    let mut out: HashMap<i64, Vec<ModerationAction>> = HashMap::new();
+    for row in rows {
+        let (rule_id, type_tag, delete_all_messages) = row?;
+        let action = match type_tag.as_str() {
+            "ModerateMessage" => ModerationAction::ModerateMessage,
+            "SetAuthorObserver" => ModerationAction::SetAuthorObserver,
+            "KickAuthor" => ModerationAction::KickAuthor {
+                delete_all_messages: delete_all_messages.unwrap_or(false),
+            },
+            other => {
+                log::warn!("unknown action type '{other}' on rule {rule_id}, skipping it");
+                continue;
+            }
+        };
+        out.entry(rule_id).or_default().push(action);
     }
+    Ok(out)
 }
 
 /// Load a whole group's rows from a condition subtable (keywords, domains, ...)
@@ -413,6 +413,7 @@ pub(crate) fn load_rules_for_group(
         .collect();
 
     let data = ConditionData::load(&guard, gid)?;
+    let mut actions_by_rule = load_actions(&guard, gid)?;
 
     let mut rules = Vec::with_capacity(rule_ids.len());
     for rule_id in rule_ids {
@@ -422,10 +423,16 @@ pub(crate) fn load_rules_for_group(
             log::warn!("rule {rule_id} has no root condition, skipping it");
             continue;
         };
+        // A rule with no readable action row would detect something and then do
+        // nothing; moderating the message is what such a rule used to mean before
+        // actions were configurable, so it stays the fallback.
+        let actions = actions_by_rule
+            .remove(&rule_id)
+            .unwrap_or_else(|| vec![ModerationAction::ModerateMessage]);
         rules.push(OwnedModerationRule {
             id: rule_id as usize,
             rule: ModerationRule {
-                action: load_action(&guard, rule_id)?,
+                actions,
                 condition: build_condition(*root, &nodes, &children, &data)?,
             },
         });

@@ -2,12 +2,9 @@ use async_trait::async_trait;
 use std::sync::{Arc, OnceLock};
 
 use crate::domain::bot_dm::ports::{
-    DeleteAuthorMessages as BotDmDeleteMessages,
-    DeleteObserverMessages as BotDmDeleteObserverMessages, Group as BotDmGroup,
-    ModerationAction as BotDmAction, ModerationNotificationReceiver,
+    Group as BotDmGroup, ModerationAction as BotDmAction, ModerationNotificationReceiver,
 };
 use crate::domain::moderator::ports::{
-    DeleteAuthorMessages as ModDeleteMessages, DeleteObserverMessages as ModDeleteObserverMessages,
     Err as ModErr, Group as ModGroup, ModerationAction as ModAction, ModerationNotifier,
     UserId as ModUserId,
 };
@@ -42,7 +39,7 @@ impl ModerationNotifier for ModerationNotificationRouter {
         &self,
         user_id: ModUserId,
         group: &ModGroup,
-        action: &ModAction,
+        actions: &[ModAction],
         message: &str,
         reasons: &[String],
     ) -> Result<(), ModErr> {
@@ -56,26 +53,20 @@ impl ModerationNotifier for ModerationNotificationRouter {
             notifications_enabled: group.notifications_enabled,
             dry_mode_enabled: group.dry_mode_enabled,
         };
-        let bot_dm_action = match action {
-            ModAction::ModerateMessage => BotDmAction::ModerateMessage,
-            ModAction::KickAuthor { delete_messages } => BotDmAction::KickAuthor {
-                delete_messages: match delete_messages {
-                    ModDeleteMessages::None => BotDmDeleteMessages::None,
-                    ModDeleteMessages::TriggeredMessage => BotDmDeleteMessages::TriggeredMessage,
-                    ModDeleteMessages::AllMessages => BotDmDeleteMessages::AllMessages,
+        let bot_dm_actions: Vec<BotDmAction> = actions
+            .iter()
+            .map(|action| match action {
+                ModAction::ModerateMessage => BotDmAction::ModerateMessage,
+                ModAction::SetAuthorObserver => BotDmAction::SetAuthorObserver,
+                ModAction::KickAuthor {
+                    delete_all_messages,
+                } => BotDmAction::KickAuthor {
+                    delete_all_messages: *delete_all_messages,
                 },
-            },
-            ModAction::SetAuthorObserver { delete_message } => BotDmAction::SetAuthorObserver {
-                delete_message: match delete_message {
-                    ModDeleteObserverMessages::None => BotDmDeleteObserverMessages::None,
-                    ModDeleteObserverMessages::TriggeredMessage => {
-                        BotDmDeleteObserverMessages::TriggeredMessage
-                    }
-                },
-            },
-        };
+            })
+            .collect();
         receiver
-            .send_moderation_notification(user_id, &bot_dm_group, &bot_dm_action, message, reasons)
+            .send_moderation_notification(user_id, &bot_dm_group, &bot_dm_actions, message, reasons)
             .await
             .map_err(|e| -> ModErr { e.to_string().into() })
     }
