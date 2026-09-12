@@ -12,8 +12,9 @@ body:
 
         ⚠️ **Before posting**, please review what you paste:
         - Redact any private group content you don't want public.
-        - The rules-editor URL hash contains your **entire ruleset** — that's
-          very helpful for reproduction, but remove anything sensitive first.
+        - The rules JSON (like the editor URL hash) contains your **entire
+          ruleset** — that's exactly what makes a bug reproducible, but remove
+          anything sensitive first.
 
   - type: checkboxes
     id: prerequisites
@@ -81,11 +82,26 @@ body:
   - type: textarea
     id: rule-config
     attributes:
-      label: The rule configuration
+      label: The rule configuration (JSON)
       description: >
-        Paste the relevant rule(s). Easiest is the **rules-editor URL** the bot
-        sent you (the `rules=...` part), or type rules manually.
-      placeholder: "`rules=NobwRALgngDgpmAXGAMgSwHYGsDOB1ACzQjgBs0cIAVAexgEYAGRsAXwF0g`"
+        Open the rules-editor link the bot sent you in a direct message. At the
+        **bottom of that page** there is a block called **"JSON sent to the
+        bot"** — press its **Copy JSON** button and paste the result here,
+        inside a ```json code block. It holds every rule of that group, which is
+        what lets us reproduce the bug exactly. If you cannot open the editor,
+        paste the `rules=...` part of the link instead.
+      placeholder: |
+        ```json
+        [
+          {
+            "actions": [{ "type": "ModerateMessage" }],
+            "condition": {
+              "type": "ContainsLinksOutsideTop100",
+              "domains": ["asriyan.me"]
+            }
+          }
+        ]
+        ```
     validations:
       required: true
 
