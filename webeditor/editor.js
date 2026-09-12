@@ -40,8 +40,23 @@ const GROUPS = {
     "✖️": "Combine",
 };
 
+/* Past this many entries a list gets a filter, a bulk-edit mode, and travels to
+   an AI as a placeholder. One number so the three behaviours agree. */
+const BIG_LIST = 20;
+
+/* How many steps back the editor remembers. The rules are plain JSON, so a
+   snapshot is a cheap clone. */
+const UNDO_LIMIT = 20;
+
 const state = {
     rules: [],
+    /* Snapshots of `rules` before each change that actually changed something,
+       and the ones undone out of it, waiting to be redone. */
+    history: [],
+    future: [],
+    /* What the bot has stored: the rules as they arrived in the hash. Every diff
+       is measured against this, whoever made the change. */
+    baseline: [],
     botId: null,
     sel: 0,
     view: "list",
@@ -76,6 +91,46 @@ const md = (t) =>
         .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
 
 const spec = (reg, type) => reg[type] || unknownSpec(type);
+
+const clone = (v) => structuredClone(v);
+
+/* Every change goes through one of the three DOM listeners below, so recording
+   there catches all of them — including the ones that used to be silently
+   destructive, like switching a condition's type. A handler that turns out to
+   change nothing records nothing. */
+function recordUndo(before) {
+    if (canon(before) === canon(state.rules)) return;
+    state.history.push(before);
+    if (state.history.length > UNDO_LIMIT) state.history.shift();
+    /* Editing after undoing forks the history: what was undone is gone. */
+    state.future = [];
+}
+
+/* Undo and redo are the same move in opposite directions: take the last state
+   off one stack, put the current one on the other. */
+function step(from, to, word) {
+    const target = from.pop();
+    if (!target) return;
+    to.push(clone(state.rules));
+    state.rules = target;
+    state.sel = Math.min(state.sel, Math.max(0, state.rules.length - 1));
+    state.focus = null;
+    state.menu = null;
+    render();
+    toast(word);
+}
+
+const undo = () => step(state.history, state.future, "Undone.");
+const redo = () => step(state.future, state.history, "Redone.");
+
+/* Key-order-independent identity, so two rules that differ only in how their
+   JSON was written still count as the same rule. */
+const canon = (v) =>
+    JSON.stringify(v, (k, val) =>
+        val && typeof val === "object" && !Array.isArray(val)
+            ? Object.fromEntries(Object.keys(val).sort().map((k2) => [k2, val[k2]]))
+            : val
+    );
 
 /* A rule saved by a newer bot than this page's schema still has to render, and
    above all has to survive being sent back untouched. */
@@ -171,6 +226,21 @@ function buildRegistry(entries) {
     return reg;
 }
 
+/* Changing a type used to throw the old parameters away, so a stray scroll over
+   the focused select could erase a list of hundreds of words. Anything the new
+   type also has, under the same name and of the same kind, is carried across —
+   which is what keeps the whole subtree when All becomes Any, and the domains
+   when one link condition becomes another. */
+function retype(oldNode, nextType, registry) {
+    const next = { type: nextType, ...clone(spec(registry, nextType).def) };
+    const wasFields = spec(registry, oldNode.type).p;
+    for (const f of spec(registry, nextType).p) {
+        const was = wasFields.find((x) => x.k === f.k);
+        if (was && was.kind === f.kind && oldNode[f.k] !== undefined) next[f.k] = clone(oldNode[f.k]);
+    }
+    return next;
+}
+
 /* ------------------------------ tree walking --------------------------- */
 
 const at = (p) => p.split(".").reduce((o, k) => o[k], state);
@@ -211,8 +281,34 @@ const newRule = () => ({ actions: [{ type: "ModerateMessage" }], condition: newC
 function syncHash() {
     const compressed = LZString.compressToEncodedURIComponent(JSON.stringify(state.rules));
     const parts = (state.botId ? `bot_id=${state.botId}&` : "") + `rules=${compressed}`;
-    history.replaceState(null, "", "#" + parts);
+    /* Keep whatever navigation state this entry carries: on a phone the list and
+       an open rule are two screens, and they live in the history. */
+    history.replaceState(history.state, "", "#" + parts);
 }
+
+/* On a phone the system Back used to leave the page entirely, because the only
+   history entry was the one the link opened with. */
+function goTo(view, sel) {
+    state.view = view;
+    if (sel !== undefined) state.sel = sel;
+    state.focus = null;
+    history.pushState({ v: view, i: state.sel }, "", location.hash);
+}
+
+window.addEventListener("popstate", (e) => {
+    const entry = e.state;
+    state.view = entry && entry.v === "rule" ? "rule" : "list";
+    if (entry && typeof entry.i === "number") state.sel = entry.i;
+    state.focus = null;
+    state.menu = null;
+    render();
+});
+
+/* The draft lives only in this tab: the link in the chat still holds the old
+   rules until the owner sends a new one. */
+window.addEventListener("beforeunload", (e) => {
+    if (canon(state.baseline) !== canon(state.rules)) e.preventDefault();
+});
 
 function parseHash() {
     const out = {};
@@ -283,7 +379,7 @@ function params(s, val, path) {
 
             /* A list of 3 domains and a list of 347 words are the same schema
                kind but need different controls, so size picks the control. */
-            const items = val[f.k] || [], key = `${path}.${f.k}`, n = items.length, big = n > 12;
+            const items = val[f.k] || [], key = `${path}.${f.k}`, n = items.length, big = n > BIG_LIST;
 
             if (state.bulk.has(key))
                 return `<div class="fld" style="flex:1 1 100%">
@@ -298,12 +394,14 @@ function params(s, val, path) {
             const shown = items.map((v, j) => [v, j]).filter(([v]) => !q || String(v).toLowerCase().includes(q));
             return `<div class="fld" style="flex:1 1 100%">
         <span>${esc(f.label)} · ${n}${q ? ` · ${shown.length} shown` : ""}<button class="lnk" data-op="bulk" data-key="${key}">bulk edit</button></span>
+        <div class="listtools">
         ${
             big
                 ? `<input class="qbox" id="f-${key}-q" value="${esc(state.q[key] || "")}" placeholder="filter ${n} entries"
               data-op="q" data-key="${key}" aria-label="Filter ${esc(f.label)}">`
                 : ""
         }
+        <input class="chipin" id="f-${path}-${f.k}" placeholder="add + Enter" data-op="chip" data-p="${path}" data-k="${f.k}"></div>
         <div class="chips ${big ? "cap" : ""}">
         ${
             shown
@@ -312,8 +410,7 @@ function params(s, val, path) {
               data-j="${j}" aria-label="Remove ${esc(v)}">×</button></span>`
                 )
                 .join("") || `<span class="nores">nothing matches &ldquo;${esc(q)}&rdquo;</span>`
-        }
-        <input class="chipin" id="f-${path}-${f.k}" placeholder="add + Enter" data-op="chip" data-p="${path}" data-k="${f.k}"></div></div>`;
+        }</div></div>`;
         })
         .join("");
 }
@@ -341,9 +438,16 @@ function node(n, path, d) {
     const hasParams = s.p.some((f) => f.kind !== "children" && f.kind !== "child");
 
     let kids = "";
-    if (!collapsed && many)
-        kids = `<div class="kids">${(n[many] || []).map((x, j) => node(x, `${path}.${many}.${j}`, d + 1)).join("")}</div>
-      <div class="kidfoot"><button class="btn sm ghost" data-op="addchild" data-p="${path}">+ Add condition</button></div>`;
+    if (!collapsed && many) {
+        /* Two "+ Add condition" buttons at nearly the same indent gave no clue
+           which container they belonged to. The button now lives inside its own
+           rail and borrows the tag from the type's title — "(AND)", "(OR)". */
+        const tag = (s.full.match(/\(([^)]+)\)\s*$/) || [])[1];
+        kids = `<div class="kids">${(n[many] || []).map((x, j) => node(x, `${path}.${many}.${j}`, d + 1)).join("")}
+      <div class="kidfoot"><button class="btn sm ghost" data-op="addchild" data-p="${path}">+ Add to ${
+          tag ? esc(tag) : "this"
+      }</button></div></div>`;
+    }
     if (!collapsed && one && n[one]) kids = `<div class="kids">${node(n[one], `${path}.${one}`, d + 1)}</div>`;
 
     return `<div class="node" data-d="${d}">
@@ -360,6 +464,7 @@ function node(n, path, d) {
         ${
             state.menu === path
                 ? `<div class="pop">
+          ${composite ? `<button data-op="unwrap" data-p="${path}">Unwrap</button>` : ""}
           <button data-op="wrap" data-p="${path}" data-t="Not">Wrap in NOT</button>
           <button data-op="wrap" data-p="${path}" data-t="All">Wrap in AND</button>
           <button data-op="move" data-p="${path}" data-d="-1">Move up</button>
@@ -378,7 +483,7 @@ function actionRows(r, ri) {
     return r.actions
         .map((a, j) => {
             const s = spec(A, a.type), path = `rules.${ri}.actions.${j}`, sum = s.sum(a);
-            const covered = s.coveredBy.some((t) => r.actions.some((x) => x.type === t));
+            const covered = s.coveredBy.some((c) => r.actions.some((x) => coversThis(c, x)));
             return `<div class="arow">
         <span class="ord tnum" title="Execution order chosen by the bot">${order.indexOf(a.type) + 1}</span>
         <span class="glyph" aria-hidden="true">${s.g}</span>
@@ -429,7 +534,9 @@ function renderDetail() {
         <span class="bname">${esc(condDef.title)}</span>
         <span class="tools">
           <button class="ico" data-op="help" data-p="block-if" aria-pressed="${state.helped.has("block-if")}" title="About conditions">ⓘ</button>
-          <button class="btn sm ghost" data-op="foldall">Collapse all</button></span></div>
+          <button class="btn sm ghost" data-op="foldall">${
+              [...state.collapsed].some((x) => x.startsWith(root)) ? "Expand all" : "Collapse all"
+          }</button></span></div>
       ${state.helped.has("block-if") ? `<div class="help">${md(condDef.description)}</div>` : ""}
       ${
           over
@@ -476,6 +583,10 @@ document.getElementById("payload-copy").addEventListener("click", (e) => {
 
 function render() {
     document.getElementById("app").dataset.view = state.view;
+    /* Hidden rather than greyed out: a control that can do nothing is noise, and
+       the phone's action bar has room for three buttons, not five. */
+    document.getElementById("undo").hidden = !state.history.length;
+    document.getElementById("redo").hidden = !state.future.length;
     renderList();
     renderDetail();
     syncHash();
@@ -493,15 +604,20 @@ document.addEventListener("click", (e) => {
         return;
     }
     const op = b.dataset.op, p = b.dataset.p;
+    const before = clone(state.rules);
 
     switch (op) {
+        case "undo":
+            undo();
+            return;
+        case "redo":
+            redo();
+            return;
         case "sel":
-            state.sel = +b.dataset.i;
-            state.view = "rule";
-            state.focus = null;
+            goTo("rule", +b.dataset.i);
             break;
         case "tolist":
-            state.view = "list";
+            goTo("list");
             break;
         case "fold":
             state.collapsed.has(p) ? state.collapsed.delete(p) : state.collapsed.add(p);
@@ -529,6 +645,23 @@ document.addEventListener("click", (e) => {
             const k = b.dataset.key;
             state.bulk.has(k) ? state.bulk.delete(k) : state.bulk.add(k);
             delete state.q[k];
+            break;
+        }
+        /* Wrapping used to be a one-way door: there was no way back out of a
+           container short of deleting everything inside it. */
+        case "unwrap": {
+            const node = at(p);
+            const one = childKeyOf(node), many = childrenKeyOf(node);
+            const kids = one ? [node[one]] : (node[many] || []).slice();
+            if (!kids.length) break;
+            const { o, k } = parentOf(p);
+            if (Array.isArray(o)) o.splice(+k, 1, ...kids);
+            else if (kids.length === 1) o[k] = kids[0];
+            else {
+                toast("This holds several conditions and sits at the top of the rule, which has room for one. Move them out first.");
+                break;
+            }
+            state.focus = null;
             break;
         }
         case "wrap": {
@@ -598,8 +731,9 @@ document.addEventListener("click", (e) => {
             state.sel = state.rules.length - 1;
             state.view = "rule";
             break;
+        /* No confirmation: Undo takes it back, and the Apply dialog shows the
+           deletion before anything reaches the bot. */
         case "ruledel":
-            if (!confirm(`Delete rule ${state.sel + 1}?`)) return;
             state.rules.splice(state.sel, 1);
             state.sel = Math.max(0, state.sel - 1);
             state.focus = null;
@@ -617,6 +751,7 @@ document.addEventListener("click", (e) => {
         default:
             return;
     }
+    recordUndo(before);
     render();
 });
 
@@ -624,6 +759,7 @@ document.addEventListener("change", (e) => {
     const b = e.target.closest("[data-op]");
     if (!b) return;
     const op = b.dataset.op, p = b.dataset.p, key = b.dataset.k;
+    const before = clone(state.rules);
 
     if (op === "num") {
         const f = [...spec(C, at(p).type).p, ...spec(A, at(p).type).p].find((x) => x.k === key) || {};
@@ -631,11 +767,13 @@ document.addEventListener("change", (e) => {
         if (f.min != null) v = Math.max(f.min, v);
         if (f.max != null) v = Math.min(f.max, v);
         at(p)[key] = v;
+        recordUndo(before);
         render();
         return;
     }
     if (op === "bool") {
         at(p)[key] = b.checked;
+        recordUndo(before);
         render();
         return;
     }
@@ -645,14 +783,16 @@ document.addEventListener("change", (e) => {
             if (!seen.has(x)) { seen.add(x); out.push(x); }
         });
         at(p)[key] = out;
+        recordUndo(before);
         render();
         return;
     }
     if (op === "type") {
         const { o, k } = parentOf(p);
-        o[k] = { type: b.value, ...structuredClone(spec(C, b.value).def) };
+        o[k] = retype(o[k], b.value, C);
         state.collapsed.delete(p);
         state.focus = null;
+        recordUndo(before);
         render();
         return;
     }
@@ -663,7 +803,8 @@ document.addEventListener("change", (e) => {
             render();
             return;
         }
-        o[k] = { type: b.value, ...structuredClone(spec(A, b.value).def) };
+        o[k] = retype(o[k], b.value, A);
+        recordUndo(before);
         render();
     }
 });
@@ -688,11 +829,304 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     const v = b.value.trim();
     if (!v) return;
-    at(b.dataset.p)[b.dataset.k].push(v);
+    const list = at(b.dataset.p)[b.dataset.k];
+    if (list.includes(v)) {
+        b.value = "";
+        toast("That entry is already in the list.");
+        return;
+    }
+    const before = clone(state.rules);
+    list.push(v);
+    /* A filter that hides the entry just added looks like nothing happened. */
+    const key = `${b.dataset.p}.${b.dataset.k}`;
+    if (state.q[key] && !v.toLowerCase().includes(state.q[key].toLowerCase())) delete state.q[key];
     const id = b.id;
+    recordUndo(before);
     render();
     const again = document.getElementById(id);
     if (again) again.focus();
+});
+
+/* Ctrl/Cmd+Z and its redo spellings, outside a text field: inside one the
+   browser's own undo wins. */
+document.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const key = e.key.toLowerCase();
+    const isUndo = key === "z" && !e.shiftKey;
+    const isRedo = (key === "z" && e.shiftKey) || key === "y";
+    if (!isUndo && !isRedo) return;
+    if (e.target.closest("input, textarea")) return;
+    e.preventDefault();
+    isUndo ? undo() : redo();
+});
+
+/* --------------------------------- diff --------------------------------- */
+
+/* Rules carry no id, so comparing by position lies: insert one rule at the top
+   and everything below it looks changed. Identical rules are paired first, and
+   only what is left is matched up — by resemblance, not by position, so that
+   deleting one rule and adding an unrelated one does not read as "changed". */
+function diffRules(before, after) {
+    const left = before.map((r, i) => ({ r, i, key: canon(r) }));
+    const right = after.map((r, i) => ({ r, i, key: canon(r) }));
+    const usedL = new Set(), pairs = [];
+    for (const b of right) {
+        const m = left.find((a) => !usedL.has(a.i) && a.key === b.key);
+        if (m) {
+            usedL.add(m.i);
+            pairs.push({ l: m, r: b });
+        }
+    }
+
+    /* Of the untouched rules, the longest run that kept its relative order is
+       what "stayed put"; the rest are what actually moved. Without this, moving
+       one rule to the top marks every rule below it as moved. */
+    const inPlace = longestIncreasing(pairs.map((p) => p.l.i));
+    const rows = pairs.map((p, idx) => ({
+        status: inPlace.has(idx) ? "same" : "moved",
+        index: p.r.i,
+        from: p.l.i,
+        rule: p.r.r,
+    }));
+
+    const usedR = new Set(pairs.map((p) => p.r.i));
+    const restL = left.filter((a) => !usedL.has(a.i));
+    const restR = right.filter((b) => !usedR.has(b.i));
+    const claimed = new Set();
+    for (const b of restR) {
+        let best = -1, score = 0;
+        restL.forEach((a, ix) => {
+            if (claimed.has(ix)) return;
+            const s =
+                (a.r.condition.type === b.r.condition.type ? 3 : 0) + (actionLine(a.r) === actionLine(b.r) ? 2 : 0);
+            if (s > score) {
+                score = s;
+                best = ix;
+            }
+        });
+        /* Same detector or same actions means this is the same rule, edited.
+           Anything less is a different rule that simply took its place. */
+        if (best >= 0 && score >= 2) {
+            claimed.add(best);
+            rows.push({
+                status: "changed",
+                index: b.i,
+                rule: b.r,
+                was: restL[best].r,
+                details: ruleDetails(restL[best].r, b.r),
+            });
+        } else rows.push({ status: "added", index: b.i, rule: b.r });
+    }
+    restL.forEach((a, ix) => {
+        if (!claimed.has(ix)) rows.push({ status: "removed", index: a.i, rule: a.r });
+    });
+
+    rows.sort((a, b) => a.index - b.index);
+    const counts = rows.reduce((c, r) => ((c[r.status] = (c[r.status] || 0) + 1), c), {});
+    return { rows, counts, touched: rows.some((r) => r.status !== "same") };
+}
+
+/* Indices of a longest increasing subsequence, as a Set. */
+function longestIncreasing(seq) {
+    const best = seq.map(() => 1), prev = seq.map(() => -1);
+    let endAt = -1, longest = 0;
+    for (let i = 0; i < seq.length; i++) {
+        for (let j = 0; j < i; j++)
+            if (seq[j] < seq[i] && best[j] + 1 > best[i]) {
+                best[i] = best[j] + 1;
+                prev[i] = j;
+            }
+        if (best[i] > longest) {
+            longest = best[i];
+            endAt = i;
+        }
+    }
+    const out = new Set();
+    for (let i = endAt; i >= 0; i = prev[i]) out.add(i);
+    return out;
+}
+
+/* `covered_by` is either a type name or that name plus the settings that make
+   the coverage true — kicking covers moderating the message only when it takes
+   the author's history with it. */
+function coversThis(cover, action) {
+    const type = typeof cover === "string" ? cover : cover.type;
+    if (action.type !== type) return false;
+    const when = typeof cover === "string" ? null : cover.when;
+    return !when || Object.entries(when).every(([k, v]) => action[k] === v);
+}
+
+function actionLine(r) {
+    return r.actions.map((a) => `${spec(A, a.type).g} ${spec(A, a.type).say(a)}`).join(" · ");
+}
+
+function ruleDetails(a, b) {
+    const out = [];
+    if (actionLine(a) !== actionLine(b)) out.push({ text: `actions: ${actionLine(a)} → ${actionLine(b)}` });
+    conditionDetails(a.condition, b.condition, out);
+    return out;
+}
+
+/* Walks two condition trees side by side. A shrinking list is called out
+   separately: it is the one change that would otherwise slip through. */
+function conditionDetails(a, b, out) {
+    if (!a || !b || out.length > 8) return;
+    if (a.type !== b.type) {
+        out.push({ text: `${spec(C, a.type).t} → ${spec(C, b.type).t}` });
+        return;
+    }
+    for (const f of spec(C, a.type).p) {
+        const x = a[f.k], y = b[f.k];
+        if (f.kind === "child") conditionDetails(x, y, out);
+        else if (f.kind === "children") {
+            const xs = x || [], ys = y || [];
+            if (xs.length !== ys.length) out.push({ text: `${spec(C, a.type).t}: ${xs.length} → ${ys.length} conditions` });
+            for (let i = 0; i < Math.min(xs.length, ys.length); i++) conditionDetails(xs[i], ys[i], out);
+        } else if (f.kind === "strlist") {
+            /* A net "+1" can hide five entries leaving and six arriving, so the
+               two directions are counted separately. Entries disappearing from a
+               list is the dangerous one, whichever way the total moved. */
+            const was = x || [], now = y || [];
+            if (canon(was) === canon(now)) continue;
+            const wasSet = new Set(was), nowSet = new Set(now);
+            const removed = was.filter((v) => !nowSet.has(v));
+            const added = now.filter((v) => !wasSet.has(v));
+            if (!removed.length && !added.length) {
+                out.push({ text: `${f.k}: same ${was.length} entries, reordered` });
+                continue;
+            }
+            const parts = [];
+            if (removed.length) parts.push(`${removed.length} removed`);
+            if (added.length) parts.push(`${added.length} added`);
+            out.push({
+                text: `${f.k}: ${parts.join(", ")} (${was.length} → ${now.length})`,
+                alarm: removed.length > 0,
+                removed,
+                added,
+            });
+        } else if (x !== y) out.push({ text: `${f.k}: ${x} → ${y}` });
+    }
+}
+
+/* ----------------------------- apply dialog ----------------------------- */
+
+const dlg = document.getElementById("applydlg");
+
+/* How many entries one side of a list change shows before it stops listing. */
+const LIST_PREVIEW = 40;
+
+function chipList(items, kind) {
+    return (
+        items
+            .slice(0, LIST_PREVIEW)
+            .map((v) => `<span class="dlchip ${kind}">${esc(v)}</span>`)
+            .join("") +
+        (items.length > LIST_PREVIEW ? `<span class="dlmore">+${items.length - LIST_PREVIEW} more</span>` : "")
+    );
+}
+
+/* A list change is a line like any other until you click it: showing every word
+   of every changed list by default would bury the rest of the diff. */
+function detailHtml(x) {
+    if (!x.removed && !x.added) return `<span class="d${x.alarm ? " alarm" : ""}">${esc(x.text)}</span>`;
+    return `<details class="dlist"><summary class="d${x.alarm ? " alarm" : ""}">${esc(x.text)}</summary>
+    <div class="dlbody">
+      ${
+          x.removed.length
+              ? `<div class="dlgroup"><span class="dlk rm">removed</span><span class="dlchips">${chipList(x.removed, "rm")}</span></div>`
+              : ""
+      }
+      ${
+          x.added.length
+              ? `<div class="dlgroup"><span class="dlk ad">added</span><span class="dlchips">${chipList(x.added, "ad")}</span></div>`
+              : ""
+      }
+    </div></details>`;
+}
+
+function ruleLine(r) {
+    return `<span class="kw if">IF</span> ${esc(say(r.condition))} <span class="kw then">THEN</span> ${esc(actionLine(r))}`;
+}
+
+/* The bot reads the link out of one chat message, so the message is the budget:
+   `MESSAGE_MAX_LENGTH_IN_BYTES` in drivers/simplex/consts.rs, mirrored into the
+   schema. Past it the owner's client truncates, the bot gets a broken hash, and
+   the failure surfaces in the chat with no hint of the cause. */
+function linkWarning() {
+    const limit = (SCHEMA.options && SCHEMA.options.message_max_bytes) || 15000;
+    const bytes = new TextEncoder().encode(`[Rules for group ${state.botId}](${location.href})`).length;
+    if (bytes <= limit * 0.7) return "";
+    const pct = Math.round((bytes / limit) * 100);
+    return bytes > limit
+        ? `<div class="dwarn over">This link is ${bytes.toLocaleString()} bytes — past the ${limit.toLocaleString()} a single
+       chat message can carry. The bot will not be able to read it. Shorten a long list before sending.</div>`
+        : `<div class="dwarn">This link is ${bytes.toLocaleString()} bytes, ${pct}% of what a single chat message can carry.
+       Once it passes ${limit.toLocaleString()}, the bot will no longer be able to read it.</div>`;
+}
+
+function openApplyDialog() {
+    const d = diffRules(state.baseline, state.rules);
+    const body = document.getElementById("applydlg-body");
+    const foot = document.getElementById("applydlg-foot");
+    document.getElementById("applydlg-meta").textContent =
+        `${state.baseline.length} → ${state.rules.length} rules`;
+
+    const shown = d.rows.filter((r) => r.status !== "same");
+    const same = d.rows.filter((r) => r.status === "same").map((r) => r.index + 1);
+
+    body.innerHTML = linkWarning() + (shown.length
+        ? shown
+              .map(
+                  (r) => `<div class="drow">
+        <span class="idx">${r.index + 1}</span>
+        <span class="st ${r.status}">${
+            { changed: "changed", added: "added", removed: "removed", moved: "moved" }[r.status]
+        }</span>
+        <span class="txt">${ruleLine(r.rule)}${
+            r.status === "moved" ? `<span class="d">was rule ${r.from + 1}</span>` : ""
+        }${(r.details || []).map(detailHtml).join("")}</span>
+      </div>`
+              )
+              .join("") + (same.length ? `<div class="dquiet">Unchanged: ${same.join(", ")}</div>` : "")
+        : `<div class="dempty">Nothing has changed since you opened this page. You can still copy the link and send it again.</div>`);
+
+    foot.innerHTML = `<button class="btn" id="applydlg-cancel" type="button">Cancel</button>
+    <button class="btn primary" id="applydlg-ok" type="button">Copy the link</button>`;
+    dlg.showModal();
+}
+
+/* Copying is the last step of the flow, so it is also where the baseline moves:
+   what the owner just sent becomes the new "before". */
+function copyEditorLink() {
+    /* The bot finds this URL anywhere in the message and stops at ")" or a
+       space, which is why a markdown link is safe to paste. */
+    const link = `[Rules for group ${state.botId}](${location.href})`;
+    return navigator.clipboard.writeText(link).then(() => {
+        state.baseline = clone(state.rules);
+    });
+}
+
+dlg.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.id === "applydlg-cancel") {
+        dlg.close();
+        return;
+    }
+    if (b.id === "applydlg-ok") {
+        copyEditorLink()
+            .then(() => {
+                document.getElementById("applydlg-body").innerHTML =
+                    `<div class="dsuccess"><b>Link copied.</b>Paste it into your chat with the bot and send it — that is what applies the rules.</div>`;
+                document.getElementById("applydlg-meta").textContent = "";
+                document.getElementById("applydlg-foot").innerHTML =
+                    `<button class="btn primary" id="applydlg-cancel" type="button">Close</button>`;
+            })
+            .catch(() => {
+                document.getElementById("applydlg-body").innerHTML =
+                    `<div class="dsuccess"><b>Could not reach the clipboard.</b>Copy the whole address from the address bar and send that to the bot.</div>`;
+            });
+    }
 });
 
 /* ------------------------------- startup ------------------------------- */
@@ -707,15 +1141,7 @@ function renderHeader() {
     }
 }
 
-document.getElementById("apply").addEventListener("click", () => {
-    /* The bot finds this URL anywhere in the message and stops at ")" or a
-       space, which is why a markdown link is safe to paste. */
-    const link = `[Rules for group ${state.botId}](${location.href})`;
-    navigator.clipboard
-        .writeText(link)
-        .then(() => alert("The link is copied to clipboard. Send it to the bot to apply the changes."))
-        .catch(() => alert("Please copy the URL from the address bar and send it to the bot."));
-});
+document.getElementById("apply").addEventListener("click", openApplyDialog);
 
 async function init() {
     if (typeof LZString === "undefined") throw new Error("lz-string failed to load");
@@ -741,11 +1167,15 @@ async function init() {
         }
     }
 
+    state.baseline = clone(state.rules);
+
     renderHeader();
     document.getElementById("boot").hidden = true;
     document.getElementById("app").hidden = false;
     document.getElementById("payload").hidden = false;
     render();
+    /* ai.js waits for this: the registry and the rules have to exist first. */
+    document.dispatchEvent(new CustomEvent("editor:ready"));
 }
 
 init().catch((err) => {

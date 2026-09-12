@@ -24,8 +24,20 @@
                 <p class="err" id="nobot" hidden>No bot ID found in the URL. Open the link the bot sent you in a direct
                     message — a link opened by hand cannot be applied.</p>
             </div>
-            <button class="btn primary" id="apply" hidden>Apply changes</button>
+            <div class="hactions">
+                <button class="btn" id="undo" type="button" data-op="undo" hidden
+                    title="Undo the last change (Ctrl+Z)">Undo</button>
+                <button class="btn" id="redo" type="button" data-op="redo" hidden
+                    title="Redo (Ctrl+Shift+Z)">Redo</button>
+                <button class="btn primary" id="apply" hidden>Apply changes</button>
+            </div>
         </header>
+
+        <!-- Clipboard handoff to whatever AI chat the owner already uses: the
+             editor writes the prompt, the owner carries it there and back. -->
+        <div class="aitoggle">
+            <button class="btn" id="ai-open" type="button" aria-haspopup="dialog">Ask an AI</button>
+        </div>
 
         <div class="boot" id="boot">Loading editor…</div>
 
@@ -55,8 +67,62 @@
         </details>
     </div>
 
+    <dialog id="aidlg" aria-labelledby="aidlg-title">
+        <div class="dlg-head">
+            <b id="aidlg-title">Ask an AI about your rules</b>
+            <button class="dlg-x" id="aidlg-x" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="dlg-body">
+            <div class="aistep">
+                <span class="sn">1</span>
+                <div class="sbody">
+                    <h3>Copy the question</h3>
+                    <p>Paste it into ChatGPT, Gemini, Claude or any other AI chat. It will explain your
+                        rules in plain language and can change them for you.</p>
+                    <div class="slists" id="ai-lists"></div>
+                    <p class="privacy">This sends the rules of this group and nothing else — no messages,
+                        no members, not even the group id.</p>
+                    <button class="btn primary" id="ai-copy" type="button">Copy the prompt</button>
+                </div>
+            </div>
+            <div class="aistep">
+                <span class="sn">2</span>
+                <div class="sbody">
+                    <h3>Paste what it answers</h3>
+                    <p>Only needed if you asked for a change. Paste the whole reply — the editor finds the
+                        rules in it.</p>
+                    <textarea id="ai-paste" rows="4" spellcheck="false"
+                        placeholder="Paste the AI's reply here"></textarea>
+                    <div class="airesult" id="ai-result" hidden></div>
+                    <div class="aibtns">
+                        <button class="btn primary" id="ai-load" type="button">Load into the editor</button>
+                        <button class="btn" id="ai-clear" type="button" hidden>Clear</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="dlg-foot">
+            <button class="btn" id="ai-undo" type="button" hidden>Undo the load</button>
+            <button class="btn" id="aidlg-close" type="button">Close</button>
+        </div>
+    </dialog>
+
+    <!-- Everything that changed since the page opened, shown before the link is copied. -->
+    <dialog id="applydlg" aria-labelledby="applydlg-title">
+        <div class="dlg-head">
+            <b id="applydlg-title">Changes before you send them</b>
+            <span class="dlg-meta" id="applydlg-meta"></span>
+        </div>
+        <div class="dlg-body" id="applydlg-body"></div>
+        <div class="dlg-foot" id="applydlg-foot">
+            <button class="btn" id="applydlg-cancel" type="button">Cancel</button>
+            <button class="btn primary" id="applydlg-ok" type="button">Copy the link</button>
+        </div>
+    </dialog>
+
     <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
     <script src="editor.js"></script>
+    <script src="ai.js"></script>
 </body>
 
 </html>

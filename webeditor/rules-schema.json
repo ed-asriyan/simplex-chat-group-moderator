@@ -31,7 +31,15 @@
                     },
                     "options": {
                         "execution_rank": 2,
-                        "phrase": "moderate"
+                        "phrase": "moderate",
+                        "covered_by": [
+                            {
+                                "type": "KickAuthor",
+                                "when": {
+                                    "delete_all_messages": true
+                                }
+                            }
+                        ]
                     }
                 },
                 {
@@ -76,7 +84,7 @@
                 {
                     "type": "object",
                     "title": "🚪 Kick the author",
-                    "description": "Kicks the author from the group. The bot must have the **Owner** role in the group to perform this action. _The message that triggered the rule stays in the group — add the 🗑 *Moderate the message* action next to this one if it should be removed too._",
+                    "description": "Kicks the author from the group. The bot must have the **Owner** role in the group to perform this action. _With **Also delete every message** left off, the message that triggered the rule stays in the group — add the 🗑 Moderate the message action next to this one if it should be removed too. With it on, the author's messages are deleted, that one included, and adding 🗑 Moderate the message changes nothing: the bot drops it as already covered._",
                     "required": [
                         "type",
                         "delete_all_messages"
@@ -96,7 +104,7 @@
                             "title": "Also delete every message the author has ever sent in this group",
                             "format": "checkbox",
                             "default": false,
-                            "description": "Deletes the author's whole history in this group, not just the message that triggered the rule."
+                            "description": "Deletes the author's whole history in this group, the message that triggered the rule included. Left off, the author leaves and their messages stay."
                         }
                     },
                     "options": {
@@ -120,7 +128,7 @@
                 {
                     "type": "object",
                     "title": "💬 Message Contains Any of These Words",
-                    "description": "Matches when the message contains any of the listed words or phrases. It automatically catches different capitalizations and common tricks used to obfuscate words (like writing `b@dw0rd` instead of `badword`). _Ready-to-use lists of profanity: [🔞 List of Dirty, Naughty, Obscene Words](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words), [☕ Google Profanity Words](https://github.com/coffee-and-fun/google-profanity-words/tree/main/data), [💬 Comment Blocklist](https://github.com/splorp/wordpress-comment-blocklist)_",
+                    "description": "Matches when the message contains any of the listed words or phrases. **Whole words only, never a substring** — the keyword `ass` does not match `classic`, `assume` or `embassy`, and `anal` does not match `analysis`. It still sees through capitalisation, leet-speak (`b@dw0rd`), Latin/Cyrillic look-alikes, letters spaced out (`s.p.a.m`), flooded letters (`spaaaam`), `@mentions`, and English plurals and endings (`spam` also catches `spams`, `sex` also catches `sexy` and `sexual`). A phrase matches when its words come one after another, and a keyword of five letters or more also matches when written split or joined (`blowjob` ⇄ `blow job`). _Ready-to-use lists of profanity: [🔞 List of Dirty, Naughty, Obscene Words](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words), [☕ Google Profanity Words](https://github.com/coffee-and-fun/google-profanity-words/tree/main/data), [💬 Comment Blocklist](https://github.com/splorp/wordpress-comment-blocklist)_",
                     "required": [
                         "type",
                         "keywords"
@@ -151,7 +159,8 @@
                     },
                     "options": {
                         "summary": "{keywords|list}",
-                        "phrase": "contains one of {keywords|n} words"
+                        "phrase": "contains one of {keywords|n} words",
+                        "short": "Contains a listed word"
                     }
                 },
                 {
@@ -195,7 +204,8 @@
                     },
                     "options": {
                         "summary": "{messages|n} texts · {case_sensitive?case-sensitive:any case}",
-                        "phrase": "exactly matches one of {messages|n} texts"
+                        "phrase": "exactly matches one of {messages|n} texts",
+                        "short": "Exactly matches a listed text"
                     }
                 },
                 {
@@ -232,7 +242,8 @@
                     },
                     "options": {
                         "summary": "{patterns|n} patterns",
-                        "phrase": "matches a regex pattern"
+                        "phrase": "matches a regex pattern",
+                        "short": "Matches a regex pattern"
                     }
                 },
                 {
@@ -272,13 +283,14 @@
                     },
                     "options": {
                         "summary": "≥{min_repeats}× of ≥{min_length} chars",
-                        "phrase": "contains a repeated sequence"
+                        "phrase": "contains a repeated sequence",
+                        "short": "Contains a repeated sequence"
                     }
                 },
                 {
                     "type": "object",
                     "title": "🔗 Message Contains a Link to Any of These Websites",
-                    "description": "Matches when the message contains a link to one of the listed websites or domains (including obfuscated links like `spam [dot] com` or `hxxp://`).",
+                    "description": "Matches when the message contains a link to one of the listed websites or domains (including obfuscated links like `spam [dot] com` or `hxxp://`). A link written without `http://` or `www.` is only recognised when it ends in one of the common domain endings (`.com`, `.ru`, `.io`, `.me`, `.chat`, `.xyz`, …), so `example.pizza` on its own is not seen as a link.",
                     "required": [
                         "type",
                         "domains"
@@ -310,13 +322,14 @@
                     },
                     "options": {
                         "summary": "{domains|list}",
-                        "phrase": "contains a link to a listed website"
+                        "phrase": "contains a link to a listed website",
+                        "short": "Link to a listed website"
                     }
                 },
                 {
                     "type": "object",
                     "title": "🔗 Message Contains a Link to a Website Outside This List",
-                    "description": "Matches when the message contains a link to a website that is NOT in the list (including obfuscated links like `spam [dot] com` or `hxxp://`). Leave the list empty to match ALL links.",
+                    "description": "Matches when the message contains a link to a website that is NOT in the list (including obfuscated links like `spam [dot] com` or `hxxp://`). A link written without `http://` or `www.` is only recognised when it ends in one of the common domain endings (`.com`, `.ru`, `.io`, `.me`, `.chat`, `.xyz`, …), so `example.pizza` on its own is not seen as a link. Leave the list empty to match ALL links.",
                     "required": [
                         "type",
                         "domains"
@@ -346,13 +359,14 @@
                     },
                     "options": {
                         "summary": "outside {domains|n} domains",
-                        "phrase": "contains a link to a website outside the list"
+                        "phrase": "contains a link to a website outside the list",
+                        "short": "Link outside this list"
                     }
                 },
                 {
                     "type": "object",
                     "title": "🔗 Message Contains a Link Outside Top 100 Websites",
-                    "description": "Matches when the message contains a link to a website that is neither in the built-in list of the top 100 websites (**Google**, **GitHub**, **Wikipedia**, **YouTube**, **Reddit**, etc.) nor in your extra list (including obfuscated links like `spam [dot] com` or `hxxp://`).",
+                    "description": "Matches when the message contains a link to a website that is neither in the built-in list of the top 100 websites (**Google**, **GitHub**, **Wikipedia**, **YouTube**, **Reddit**, etc.) nor in your extra list (including obfuscated links like `spam [dot] com` or `hxxp://`). A link written without `http://` or `www.` is only recognised when it ends in one of the common domain endings (`.com`, `.ru`, `.io`, `.me`, `.chat`, `.xyz`, …), so `example.pizza` on its own is not seen as a link.",
                     "required": [
                         "type",
                         "domains"
@@ -382,7 +396,8 @@
                     },
                     "options": {
                         "summary": "top 100 + {domains|n} extra",
-                        "phrase": "contains a link outside the top 100 websites"
+                        "phrase": "contains a link outside the top 100 websites",
+                        "short": "Link outside top 100"
                     }
                 },
                 {
@@ -457,7 +472,8 @@
                     },
                     "options": {
                         "summary": "> {max_characters} chars",
-                        "phrase": "has more than {max_characters} characters"
+                        "phrase": "has more than {max_characters} characters",
+                        "short": "Exceeds max characters"
                     }
                 },
                 {
@@ -488,7 +504,8 @@
                     },
                     "options": {
                         "summary": "> {max_words} words",
-                        "phrase": "has more than {max_words} words"
+                        "phrase": "has more than {max_words} words",
+                        "short": "Exceeds max words"
                     }
                 },
                 {
@@ -527,7 +544,8 @@
                     },
                     "options": {
                         "summary": "> {max_lines} lines @ {chars_per_line} cpl",
-                        "phrase": "has more than {max_lines} lines"
+                        "phrase": "has more than {max_lines} lines",
+                        "short": "Exceeds max lines"
                     }
                 },
                 {
@@ -567,13 +585,14 @@
                     },
                     "options": {
                         "summary": "{message_count} msg / {time_window_minutes} min",
-                        "phrase": "author sent at least {message_count} messages in {time_window_minutes} min"
+                        "phrase": "author sent at least {message_count} messages in {time_window_minutes} min",
+                        "short": "Message rate limit"
                     }
                 },
                 {
                     "type": "object",
                     "title": "👤 Author Hits Moderation Rate Limit",
-                    "description": "Matches when at least the given number of the author's messages were moderated by the bot within the time window. The current message counts too if another rule moderates it.",
+                    "description": "Matches when the given number of the author's messages have **already** been moderated by the bot within the time window. The message being checked right now joins that tally only after the decision is made, so it counts from the author's next message on: with a threshold of 2, the rule fires on their third moderated message.",
                     "required": [
                         "type",
                         "message_count",
@@ -592,7 +611,7 @@
                         "message_count": {
                             "type": "integer",
                             "title": "Number of Moderated Messages",
-                            "description": "Matches when the number of the author's messages moderated by the bot in the time window reaches this number.",
+                            "description": "Matches when the number of the author's messages already moderated by the bot in the time window reaches this number. The message being checked is not part of that count yet.",
                             "minimum": 1,
                             "default": 3
                         },
@@ -607,7 +626,9 @@
                     },
                     "options": {
                         "summary": "{message_count} moderated / {time_window_minutes} min",
-                        "phrase": "author had at least {message_count} messages moderated in {time_window_minutes} min"
+                        "phrase": "author had at least {message_count} messages moderated in {time_window_minutes} min",
+                        "never_under_not": true,
+                        "short": "Moderation rate limit"
                     }
                 },
                 {
@@ -638,7 +659,8 @@
                     },
                     "options": {
                         "summary": "< {time_window_minutes} min ago",
-                        "phrase": "author joined less than {time_window_minutes} min ago"
+                        "phrase": "author joined less than {time_window_minutes} min ago",
+                        "short": "Joined recently"
                     }
                 },
                 {
@@ -673,7 +695,8 @@
                     },
                     "options": {
                         "summary": "{conditions|n} conditions",
-                        "phrase": "all of ({conditions|phrases})"
+                        "phrase": "all of ({conditions|phrases})",
+                        "short": "All of these (AND)"
                     }
                 },
                 {
@@ -708,7 +731,8 @@
                     },
                     "options": {
                         "summary": "{conditions|n} conditions",
-                        "phrase": "any of ({conditions|phrases})"
+                        "phrase": "any of ({conditions|phrases})",
+                        "short": "Any of these (OR)"
                     }
                 },
                 {
@@ -734,7 +758,8 @@
                         }
                     },
                     "options": {
-                        "phrase": "not ({condition|phrase})"
+                        "phrase": "not ({condition|phrase})",
+                        "short": "Does not match"
                     }
                 }
             ]
@@ -743,7 +768,8 @@
     "type": "array",
     "format": "tabs",
     "options": {
-        "disable_collapse": true
+        "disable_collapse": true,
+        "message_max_bytes": 15000
     },
     "items": {
         "type": "object",
