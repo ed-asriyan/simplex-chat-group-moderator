@@ -1,7 +1,7 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Moderation Rules",
-    "description": "**1️⃣ Click the gray button above to add a rule. 2️⃣ For each rule set the ⚡ Actions — what the bot does when a message matches — and the 🔎 Condition — what to detect. 3️⃣ When you're done, click the red \"Apply Changes\" button above and send the copied link back to the bot.**",
+    "description": "**1️⃣ Pick a rule in the list, or add a new one. 2️⃣ For each rule set the 🔎 Condition — what to detect — and the ⚡ Actions — what the bot does when a message matches. 3️⃣ When you're done, press \"Apply changes\" and send the copied link back to the bot.**",
     "definitions": {
         "action": {
             "type": "object",
@@ -28,6 +28,10 @@
                                 "hidden": true
                             }
                         }
+                    },
+                    "options": {
+                        "execution_rank": 2,
+                        "phrase": "moderate"
                     }
                 },
                 {
@@ -54,8 +58,19 @@
                             "default": 0,
                             "minimum": 0,
                             "maximum": 43200,
-                            "description": "0 keeps the author an observer until you change their role by hand. The maximum is 43200 minutes (30 days)."
+                            "description": "0 keeps the author an observer until you change their role by hand. The maximum is 43200 minutes (30 days).",
+                            "options": {
+                                "label": "Restore author to member after (minutes)"
+                            }
                         }
+                    },
+                    "options": {
+                        "execution_rank": 1,
+                        "covered_by": [
+                            "KickAuthor"
+                        ],
+                        "summary": "{duration_minutes?$ min:indefinitely}",
+                        "phrase": "observer"
                     }
                 },
                 {
@@ -83,6 +98,11 @@
                             "default": false,
                             "description": "Deletes the author's whole history in this group, not just the message that triggered the rule."
                         }
+                    },
+                    "options": {
+                        "execution_rank": 3,
+                        "summary": "{delete_all_messages?+ delete history:}",
+                        "phrase": "kick"
                     }
                 }
             ]
@@ -92,7 +112,9 @@
             "title": "🔎 Condition",
             "description": "What the bot looks for in a message.",
             "options": {
-                "disable_collapse": true
+                "disable_collapse": true,
+                "max_depth": 8,
+                "max_nodes": 64
             },
             "oneOf": [
                 {
@@ -126,6 +148,10 @@
                             },
                             "maxItems": 10000
                         }
+                    },
+                    "options": {
+                        "summary": "{keywords|list}",
+                        "phrase": "contains one of {keywords|n} words"
                     }
                 },
                 {
@@ -166,6 +192,10 @@
                             },
                             "maxItems": 10000
                         }
+                    },
+                    "options": {
+                        "summary": "{messages|n} texts · {case_sensitive?case-sensitive:any case}",
+                        "phrase": "exactly matches one of {messages|n} texts"
                     }
                 },
                 {
@@ -199,6 +229,10 @@
                             },
                             "maxItems": 100
                         }
+                    },
+                    "options": {
+                        "summary": "{patterns|n} patterns",
+                        "phrase": "matches a regex pattern"
                     }
                 },
                 {
@@ -235,6 +269,10 @@
                             "maximum": 50,
                             "default": 1
                         }
+                    },
+                    "options": {
+                        "summary": "≥{min_repeats}× of ≥{min_length} chars",
+                        "phrase": "contains a repeated sequence"
                     }
                 },
                 {
@@ -269,6 +307,10 @@
                             },
                             "maxItems": 10000
                         }
+                    },
+                    "options": {
+                        "summary": "{domains|list}",
+                        "phrase": "contains a link to a listed website"
                     }
                 },
                 {
@@ -301,6 +343,10 @@
                                 "title": "Domain"
                             }
                         }
+                    },
+                    "options": {
+                        "summary": "outside {domains|n} domains",
+                        "phrase": "contains a link to a website outside the list"
                     }
                 },
                 {
@@ -333,6 +379,10 @@
                                 "title": "Domain"
                             }
                         }
+                    },
+                    "options": {
+                        "summary": "top 100 + {domains|n} extra",
+                        "phrase": "contains a link outside the top 100 websites"
                     }
                 },
                 {
@@ -352,6 +402,9 @@
                                 "hidden": true
                             }
                         }
+                    },
+                    "options": {
+                        "phrase": "is empty or blank"
                     }
                 },
                 {
@@ -371,6 +424,9 @@
                                 "hidden": true
                             }
                         }
+                    },
+                    "options": {
+                        "phrase": "contains invisible characters"
                     }
                 },
                 {
@@ -398,6 +454,10 @@
                             "minimum": 1,
                             "default": 1000
                         }
+                    },
+                    "options": {
+                        "summary": "> {max_characters} chars",
+                        "phrase": "has more than {max_characters} characters"
                     }
                 },
                 {
@@ -425,6 +485,10 @@
                             "minimum": 1,
                             "default": 150
                         }
+                    },
+                    "options": {
+                        "summary": "> {max_words} words",
+                        "phrase": "has more than {max_words} words"
                     }
                 },
                 {
@@ -460,6 +524,10 @@
                             "minimum": 0,
                             "default": 40
                         }
+                    },
+                    "options": {
+                        "summary": "> {max_lines} lines @ {chars_per_line} cpl",
+                        "phrase": "has more than {max_lines} lines"
                     }
                 },
                 {
@@ -496,6 +564,10 @@
                             "maximum": 60,
                             "default": 1
                         }
+                    },
+                    "options": {
+                        "summary": "{message_count} msg / {time_window_minutes} min",
+                        "phrase": "author sent at least {message_count} messages in {time_window_minutes} min"
                     }
                 },
                 {
@@ -532,6 +604,10 @@
                             "maximum": 60,
                             "default": 60
                         }
+                    },
+                    "options": {
+                        "summary": "{message_count} moderated / {time_window_minutes} min",
+                        "phrase": "author had at least {message_count} messages moderated in {time_window_minutes} min"
                     }
                 },
                 {
@@ -559,6 +635,10 @@
                             "minimum": 1,
                             "default": 60
                         }
+                    },
+                    "options": {
+                        "summary": "< {time_window_minutes} min ago",
+                        "phrase": "author joined less than {time_window_minutes} min ago"
                     }
                 },
                 {
@@ -590,6 +670,10 @@
                                 "$ref": "#/definitions/condition"
                             }
                         }
+                    },
+                    "options": {
+                        "summary": "{conditions|n} conditions",
+                        "phrase": "all of ({conditions|phrases})"
                     }
                 },
                 {
@@ -621,6 +705,10 @@
                                 "$ref": "#/definitions/condition"
                             }
                         }
+                    },
+                    "options": {
+                        "summary": "{conditions|n} conditions",
+                        "phrase": "any of ({conditions|phrases})"
                     }
                 },
                 {
@@ -644,6 +732,9 @@
                         "condition": {
                             "$ref": "#/definitions/condition"
                         }
+                    },
+                    "options": {
+                        "phrase": "not ({condition|phrase})"
                     }
                 }
             ]
