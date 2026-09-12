@@ -40,7 +40,9 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
             },
         },
         ModerationRule {
-            actions: vec![ModerationAction::SetAuthorObserver],
+            actions: vec![ModerationAction::SetAuthorObserver {
+                duration_minutes: 0,
+            }],
             condition: ModerationCondition::ContainsLinksInList {
                 domains: vec!["spam.com".to_string()],
             },
@@ -61,7 +63,9 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
         },
         ModerationRule {
             actions: vec![
-                ModerationAction::SetAuthorObserver,
+                ModerationAction::SetAuthorObserver {
+                    duration_minutes: 0,
+                },
                 ModerationAction::ModerateMessage,
             ],
             condition: ModerationCondition::Any {
@@ -419,7 +423,9 @@ async fn test_preserves_action_order_within_a_rule() {
     let (repo, group_id) = repo_with_group(2008).await;
     let rules = vec![ModerationRule {
         actions: vec![
-            ModerationAction::SetAuthorObserver,
+            ModerationAction::SetAuthorObserver {
+                duration_minutes: 0,
+            },
             ModerationAction::ModerateMessage,
             ModerationAction::KickAuthor {
                 delete_all_messages: false,
@@ -465,4 +471,42 @@ async fn test_replacing_rules_leaves_no_orphan_actions() {
             .unwrap();
         assert_eq!(count, 1, "{table} should hold exactly one row");
     }
+}
+
+#[tokio::test]
+async fn test_round_trips_observer_duration() {
+    let (repo, group_id) = repo_with_group(2008).await;
+    let rules = vec![
+        ModerationRule {
+            actions: vec![ModerationAction::SetAuthorObserver {
+                duration_minutes: 90,
+            }],
+            condition: ModerationCondition::ContainsWords {
+                keywords: vec!["alpha".to_string()],
+            },
+        },
+        ModerationRule {
+            actions: vec![ModerationAction::SetAuthorObserver {
+                duration_minutes: 0,
+            }],
+            condition: ModerationCondition::ContainsWords {
+                keywords: vec!["beta".to_string()],
+            },
+        },
+    ];
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+
+    let loaded = repo.get_group_rules(&group_id).await.unwrap();
+    let actions: Vec<Vec<ModerationAction>> = loaded.into_iter().map(|r| r.rule.actions).collect();
+    assert_eq!(
+        actions,
+        vec![
+            vec![ModerationAction::SetAuthorObserver {
+                duration_minutes: 90
+            }],
+            vec![ModerationAction::SetAuthorObserver {
+                duration_minutes: 0
+            }],
+        ]
+    );
 }

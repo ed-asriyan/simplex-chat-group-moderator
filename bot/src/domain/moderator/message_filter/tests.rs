@@ -70,7 +70,12 @@ fn test_deserialize_rule_with_set_author_observer_action() {
         }
     }"#;
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
-    assert_eq!(rule.actions, vec![ModerationAction::SetAuthorObserver]);
+    assert_eq!(
+        rule.actions,
+        vec![ModerationAction::SetAuthorObserver {
+            duration_minutes: 0
+        }]
+    );
 }
 
 #[test]
@@ -89,7 +94,9 @@ fn test_deserialize_rule_with_several_actions_keeps_their_order() {
     assert_eq!(
         rule.actions,
         vec![
-            ModerationAction::SetAuthorObserver,
+            ModerationAction::SetAuthorObserver {
+                duration_minutes: 0
+            },
             ModerationAction::ModerateMessage
         ]
     );
@@ -116,8 +123,12 @@ fn test_normalize_and_validate_canonicalizes_the_action_list() {
             },
             ModerationAction::ModerateMessage,
             // Already implied by the kick, and listed twice on top of that.
-            ModerationAction::SetAuthorObserver,
-            ModerationAction::SetAuthorObserver,
+            ModerationAction::SetAuthorObserver {
+                duration_minutes: 0,
+            },
+            ModerationAction::SetAuthorObserver {
+                duration_minutes: 0,
+            },
         ],
         condition: ModerationCondition::ContainsWords {
             keywords: vec!["spam".to_string()],

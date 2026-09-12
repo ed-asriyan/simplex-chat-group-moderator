@@ -6,18 +6,20 @@ use crate::domain::bot_dm::ports::{
     GroupOperations, JoinError, UserId as BotDmUserId,
 };
 use crate::domain::moderator::ports::{
-    GroupInvitation as ModGroupInvitation, MessengerGroup, ModerationEngine, ModerationRule,
+    GroupAdministration, GroupInvitation as ModGroupInvitation, MessengerGroup, ModerationRule,
 };
 
 /// Bridges the `bot_dm` bounded context to the `moderator` bounded context by
-/// implementing `bot_dm::GroupOperations` on top of `moderator::ModerationEngine`.
+/// implementing `bot_dm::GroupOperations` on top of `moderator::GroupAdministration`.
 pub struct CrossDomainRouter {
-    moderator: Arc<dyn ModerationEngine>,
+    group_administration: Arc<dyn GroupAdministration>,
 }
 
 impl CrossDomainRouter {
-    pub fn new(moderator: Arc<dyn ModerationEngine>) -> Self {
-        Self { moderator }
+    pub fn new(group_administration: Arc<dyn GroupAdministration>) -> Self {
+        Self {
+            group_administration,
+        }
     }
 }
 
@@ -36,7 +38,7 @@ impl GroupOperations for CrossDomainRouter {
             is_moderator: invitation.is_moderator,
         };
         let group_id = self
-            .moderator
+            .group_administration
             .try_join_group(user_id, &mod_invitation)
             .await
             .map_err(|e| -> JoinError { e.to_string().into() })?;
@@ -49,7 +51,7 @@ impl GroupOperations for CrossDomainRouter {
     }
 
     async fn get_groups(&self, user_id: BotDmUserId) -> Result<Vec<Group>, BotDmErr> {
-        self.moderator
+        self.group_administration
             .get_groups_by_owner_id(&user_id)
             .await
             .map_err(|e| -> BotDmErr { e.to_string().into() })
@@ -74,7 +76,7 @@ impl GroupOperations for CrossDomainRouter {
     ) -> Result<(), BotDmErr> {
         let rules: Vec<ModerationRule> =
             serde_json::from_str(json).map_err(|e| -> BotDmErr { e.to_string().into() })?;
-        self.moderator
+        self.group_administration
             .set_group_rules(user_id, group_id, rules)
             .await
             .map_err(|e| -> BotDmErr { e.to_string().into() })
@@ -86,7 +88,7 @@ impl GroupOperations for CrossDomainRouter {
         group_id: BotDmGroupId,
     ) -> Result<Option<String>, BotDmErr> {
         let rules = self
-            .moderator
+            .group_administration
             .get_group_rules(user_id, group_id)
             .await
             .map_err(|e| -> BotDmErr { e.to_string().into() })?;
@@ -103,7 +105,7 @@ impl GroupOperations for CrossDomainRouter {
         group_id: BotDmGroupId,
         enabled: bool,
     ) -> Result<(), BotDmErr> {
-        self.moderator
+        self.group_administration
             .set_notifications(user_id, group_id, enabled)
             .await
             .map_err(|e| -> BotDmErr { e.to_string().into() })
@@ -115,7 +117,7 @@ impl GroupOperations for CrossDomainRouter {
         group_id: BotDmGroupId,
         enabled: bool,
     ) -> Result<(), BotDmErr> {
-        self.moderator
+        self.group_administration
             .set_dry_mode(user_id, group_id, enabled)
             .await
             .map_err(|e| -> BotDmErr { e.to_string().into() })

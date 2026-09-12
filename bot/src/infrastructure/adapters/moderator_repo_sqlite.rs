@@ -25,7 +25,7 @@ fn insert_actions(
     for (rank, action) in actions.iter().enumerate() {
         let type_tag = match action {
             ModerationAction::ModerateMessage => "ModerateMessage",
-            ModerationAction::SetAuthorObserver => "SetAuthorObserver",
+            ModerationAction::SetAuthorObserver { .. } => "SetAuthorObserver",
             ModerationAction::KickAuthor { .. } => "KickAuthor",
         };
         tx.execute(
@@ -42,10 +42,10 @@ fn insert_actions(
                 )
                 .map_err(|e| -> Err { e.to_string().into() })?;
             }
-            ModerationAction::SetAuthorObserver => {
+            ModerationAction::SetAuthorObserver { duration_minutes } => {
                 tx.execute(
-                    "INSERT INTO moderation_action__set_author_observer (action_id) VALUES (?1)",
-                    params![action_id],
+                    "INSERT INTO moderation_action__set_author_observer (action_id, duration_minutes) VALUES (?1, ?2)",
+                    params![action_id, duration_minutes],
                 )
                 .map_err(|e| -> Err { e.to_string().into() })?;
             }

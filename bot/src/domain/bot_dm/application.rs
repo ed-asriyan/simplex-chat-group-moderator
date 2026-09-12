@@ -407,37 +407,51 @@ impl BotDmReceiver for BotDmApplication {
 /// The actions arrive already merged and in execution order, so the phrases are
 /// joined in the order they are given. Dry mode only switches the tense.
 fn describe_actions(actions: &[ModerationAction], dry_mode: bool) -> String {
-    let phrases: Vec<&str> = actions
+    let phrases: Vec<String> = actions
         .iter()
         .map(|action| match (action, dry_mode) {
-            (ModerationAction::ModerateMessage, false) => "moderated the message",
-            (ModerationAction::ModerateMessage, true) => "moderate the message",
+            (ModerationAction::ModerateMessage, false) => "moderated the message".to_owned(),
+            (ModerationAction::ModerateMessage, true) => "moderate the message".to_owned(),
             // "set" reads the same in both tenses.
-            (ModerationAction::SetAuthorObserver, _) => "set the author as observer",
+            (
+                ModerationAction::SetAuthorObserver {
+                    duration_minutes: 0,
+                },
+                _,
+            ) => "set the author as observer".to_owned(),
+            (
+                ModerationAction::SetAuthorObserver {
+                    duration_minutes: 1,
+                },
+                _,
+            ) => "set the author as observer for 1 minute".to_owned(),
+            (ModerationAction::SetAuthorObserver { duration_minutes }, _) => {
+                format!("set the author as observer for {duration_minutes} minutes")
+            }
             (
                 ModerationAction::KickAuthor {
                     delete_all_messages: false,
                 },
                 false,
-            ) => "kicked the author",
+            ) => "kicked the author".to_owned(),
             (
                 ModerationAction::KickAuthor {
                     delete_all_messages: false,
                 },
                 true,
-            ) => "kick the author",
+            ) => "kick the author".to_owned(),
             (
                 ModerationAction::KickAuthor {
                     delete_all_messages: true,
                 },
                 false,
-            ) => "kicked the author and deleted all their messages",
+            ) => "kicked the author and deleted all their messages".to_owned(),
             (
                 ModerationAction::KickAuthor {
                     delete_all_messages: true,
                 },
                 true,
-            ) => "kick the author and delete all their messages",
+            ) => "kick the author and delete all their messages".to_owned(),
         })
         .collect();
 
@@ -446,7 +460,7 @@ fn describe_actions(actions: &[ModerationAction], dry_mode: bool) -> String {
     let joined = match phrases.split_last() {
         None if dry_mode => "take no action".to_owned(),
         None => "took no action".to_owned(),
-        Some((last, [])) => (*last).to_owned(),
+        Some((last, [])) => last.clone(),
         Some((last, rest)) => format!("{} and {}", rest.join(", "), last),
     };
 

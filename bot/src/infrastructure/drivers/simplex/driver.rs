@@ -26,6 +26,13 @@ pub type UserId = i64;
 pub type MessageId = i64;
 pub type GroupId = i64;
 
+/// The group roles the driver can move a member between.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemberRole {
+    Member,
+    Observer,
+}
+
 pub enum SimplexEvent {
     Message {
         user_id: UserId,
@@ -202,13 +209,18 @@ impl SimplexDriver {
         Ok(())
     }
 
-    pub async fn set_group_member_observer(
+    pub async fn set_group_member_role(
         &self,
         group_id: GroupId,
         user_id: UserId,
+        role: MemberRole,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let role = match role {
+            MemberRole::Member => GroupMemberRole::Member,
+            MemberRole::Observer => GroupMemberRole::Observer,
+        };
         self.client
-            .api_members_role(group_id, vec![user_id], GroupMemberRole::Observer)
+            .api_members_role(group_id, vec![user_id], role)
             .await?;
         Ok(())
     }

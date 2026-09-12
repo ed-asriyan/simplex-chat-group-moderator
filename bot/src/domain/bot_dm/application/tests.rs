@@ -15,7 +15,12 @@ fn test_describes_a_single_action() {
         "🛡 I moderated the message"
     );
     assert_eq!(
-        describe_actions(&[ModerationAction::SetAuthorObserver], false),
+        describe_actions(
+            &[ModerationAction::SetAuthorObserver {
+                duration_minutes: 0
+            }],
+            false
+        ),
         "🛡 I set the author as observer"
     );
     assert_eq!(describe_actions(&[KICK], false), "🛡 I kicked the author");
@@ -34,7 +39,9 @@ fn test_describes_several_actions_as_one_sentence() {
     assert_eq!(
         describe_actions(
             &[
-                ModerationAction::SetAuthorObserver,
+                ModerationAction::SetAuthorObserver {
+                    duration_minutes: 0
+                },
                 ModerationAction::ModerateMessage,
                 KICK
             ],
@@ -53,5 +60,27 @@ fn test_dry_mode_switches_to_what_would_have_happened() {
     assert_eq!(
         describe_actions(&[KICK_ALL], true),
         "🛡 I would kick the author and delete all their messages"
+    );
+}
+
+#[test]
+fn test_describes_a_timed_observer_restriction() {
+    assert_eq!(
+        describe_actions(
+            &[ModerationAction::SetAuthorObserver {
+                duration_minutes: 30
+            }],
+            false
+        ),
+        "🛡 I set the author as observer for 30 minutes"
+    );
+    assert_eq!(
+        describe_actions(
+            &[ModerationAction::SetAuthorObserver {
+                duration_minutes: 1
+            }],
+            true
+        ),
+        "🛡 I would set the author as observer for 1 minute"
     );
 }

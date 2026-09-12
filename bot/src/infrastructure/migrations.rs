@@ -81,7 +81,7 @@ mod tests {
         let version: i64 = guard
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 26);
+        assert_eq!(version, 27);
     }
 
     /// 0022 rebuilds every rule as a `moderation_rules` row plus a condition
@@ -477,10 +477,17 @@ mod tests {
                     delete_all_messages: true
                 }],
                 // SetAuthorObserver / None.
-                vec![SetAuthorObserver],
+                vec![SetAuthorObserver {
+                    duration_minutes: 0
+                }],
                 // SetAuthorObserver / TriggeredMessage: observer first, then the
                 // message is moderated.
-                vec![SetAuthorObserver, ModerateMessage],
+                vec![
+                    SetAuthorObserver {
+                        duration_minutes: 0
+                    },
+                    ModerateMessage
+                ],
                 // An out-of-range setting keeps the meaning the old reader gave
                 // it, which was the same as TriggeredMessage.
                 vec![
@@ -568,6 +575,16 @@ mod tests {
         .await
         .unwrap();
 
+        // Pending restores hang off the group rather than off the rules, so the
+        // cascade has to reach them from here too.
+        use crate::domain::moderator::ports::MemberRestoreRepository;
+        crate::infrastructure::adapters::member_restore_repo_sqlite::SqliteMemberRestoreRepository::new(
+            conn.clone(),
+        )
+        .save(&800, &81, chrono::Utc::now())
+        .await
+        .unwrap();
+
         let guard = conn.lock().unwrap();
         guard
             .execute(
@@ -598,5 +615,43 @@ mod tests {
                 "{table} should be empty after the group is deleted"
             );
         }
+    }
+
+    /// 0027 gives `SetAuthorObserver` a duration. Restrictions saved before it
+    /// were indefinite, so they have to come out as `duration_minutes = 0`.
+    #[tokio::test]
+    async fn test_0027_keeps_existing_observer_restrictions_indefinite() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        apply_through(&mut conn, 26).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name)
+                  VALUES (12, 1200, 120, 'Observer Group');
+             INSERT INTO moderation_rules (id, group_id, rank) VALUES (1, 12, 0);
+             INSERT INTO moderation_conditions (id, rule_id, parent_id, rank, type)
+                  VALUES (1, 1, NULL, 0, 'ContainsWords');
+             INSERT INTO moderation_condition__contains_words__keywords VALUES (1, 'alpha');
+             INSERT INTO moderation_actions (id, rule_id, rank, type)
+                  VALUES (1, 1, 0, 'SetAuthorObserver');
+             INSERT INTO moderation_action__set_author_observer (action_id) VALUES (1);",
+        )
+        .unwrap();
+
+        apply(&mut conn).unwrap();
+
+        let conn = Arc::new(Mutex::new(conn));
+        let repo =
+            crate::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository::new(
+                conn.clone(),
+            );
+        use crate::domain::moderator::ports::{ModerationAction, ModerationRepository};
+        let loaded = repo.get_group_rules(&12).await.unwrap();
+        assert_eq!(
+            loaded[0].rule.actions,
+            vec![ModerationAction::SetAuthorObserver {
+                duration_minutes: 0
+            }]
+        );
     }
 }

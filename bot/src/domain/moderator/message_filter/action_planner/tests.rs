@@ -2,7 +2,9 @@ use super::planner::*;
 use crate::domain::moderator::ports::ModerationAction;
 
 const MODERATE: ModerationAction = ModerationAction::ModerateMessage;
-const OBSERVER: ModerationAction = ModerationAction::SetAuthorObserver;
+const OBSERVER: ModerationAction = ModerationAction::SetAuthorObserver {
+    duration_minutes: 0,
+};
 const KICK: ModerationAction = ModerationAction::KickAuthor {
     delete_all_messages: false,
 };
@@ -140,4 +142,43 @@ fn test_stronger_rule_upgrades_an_existing_plan() {
         plan_next_actions(&[KICK], &[KICK_ALL]),
         Some(vec![KICK_ALL])
     );
+}
+
+const OBSERVER_10M: ModerationAction = ModerationAction::SetAuthorObserver {
+    duration_minutes: 10,
+};
+const OBSERVER_30M: ModerationAction = ModerationAction::SetAuthorObserver {
+    duration_minutes: 30,
+};
+
+#[test]
+fn test_longer_observer_restriction_covers_a_shorter_one() {
+    assert_eq!(
+        normalize_actions(&[OBSERVER_10M, OBSERVER_30M]),
+        vec![OBSERVER_30M]
+    );
+    assert_eq!(
+        normalize_actions(&[OBSERVER_30M, OBSERVER_10M]),
+        vec![OBSERVER_30M]
+    );
+    assert_eq!(plan_next_actions(&[OBSERVER_30M], &[OBSERVER_10M]), None);
+    assert_eq!(
+        plan_next_actions(&[OBSERVER_10M], &[OBSERVER_30M]),
+        Some(vec![OBSERVER_30M])
+    );
+}
+
+#[test]
+fn test_indefinite_observer_restriction_covers_every_timed_one() {
+    assert_eq!(normalize_actions(&[OBSERVER_30M, OBSERVER]), vec![OBSERVER]);
+    assert_eq!(plan_next_actions(&[OBSERVER], &[OBSERVER_30M]), None);
+    assert_eq!(
+        plan_next_actions(&[OBSERVER_30M], &[OBSERVER]),
+        Some(vec![OBSERVER])
+    );
+}
+
+#[test]
+fn test_kick_still_covers_a_timed_observer_restriction() {
+    assert_eq!(normalize_actions(&[OBSERVER_10M, KICK]), vec![KICK]);
 }

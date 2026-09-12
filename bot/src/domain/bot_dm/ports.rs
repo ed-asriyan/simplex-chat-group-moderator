@@ -14,7 +14,7 @@ pub type JoinError = Box<dyn Error + Send + Sync>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModerationAction {
     ModerateMessage,
-    SetAuthorObserver,
+    SetAuthorObserver { duration_minutes: u32 },
     KickAuthor { delete_all_messages: bool },
 }
 

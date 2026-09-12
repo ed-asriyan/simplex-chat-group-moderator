@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use crate::domain::bot_dm::ports::{BotMessenger, Err as BotDmErr, UserId as BotDmUserId};
 use crate::domain::moderator::ports::{
-    Err as ModeratorErr, GroupId as ModGroupId, GroupModerator, MessageId as ModMessageId,
-    MessengerGroupId, UserId as ModUserId,
+    Err as ModeratorErr, GroupId as ModGroupId, GroupMemberRole, GroupModerator,
+    MessageId as ModMessageId, MessengerGroupId, UserId as ModUserId,
 };
-use crate::infrastructure::drivers::simplex::SimplexDriver;
+use crate::infrastructure::drivers::simplex::{MemberRole, SimplexDriver};
 
 /// Adapter that bridges the driver onto the per-domain outbound ports
 /// (`bot_dm::BotMessenger` and `moderator::GroupModerator`).
@@ -59,13 +59,18 @@ impl GroupModerator for SimplexAdapter {
         Ok(())
     }
 
-    async fn set_member_observer(
+    async fn set_member_role(
         &self,
         group_id: &ModGroupId,
         user_id: &ModUserId,
+        role: GroupMemberRole,
     ) -> Result<(), ModeratorErr> {
+        let role = match role {
+            GroupMemberRole::Member => MemberRole::Member,
+            GroupMemberRole::Observer => MemberRole::Observer,
+        };
         self.driver
-            .set_group_member_observer(*group_id, *user_id)
+            .set_group_member_role(*group_id, *user_id, role)
             .await
             .map_err(|e| -> ModeratorErr { e.to_string().into() })?;
         Ok(())

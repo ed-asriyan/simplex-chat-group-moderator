@@ -57,7 +57,11 @@ impl ModerationNotifier for ModerationNotificationRouter {
             .iter()
             .map(|action| match action {
                 ModAction::ModerateMessage => BotDmAction::ModerateMessage,
-                ModAction::SetAuthorObserver => BotDmAction::SetAuthorObserver,
+                ModAction::SetAuthorObserver { duration_minutes } => {
+                    BotDmAction::SetAuthorObserver {
+                        duration_minutes: *duration_minutes,
+                    }
+                }
                 ModAction::KickAuthor {
                     delete_all_messages,
                 } => BotDmAction::KickAuthor {

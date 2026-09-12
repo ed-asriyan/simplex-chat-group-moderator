@@ -35,7 +35,8 @@
                     "title": "👁 Set author as observer",
                     "description": "Sets the author to the observer role, so they can read the group but not write to it. The bot must have the **Admin or higher** role in the group to perform this action. _The message that triggered the rule stays in the group — add the 🗑 *Moderate the message* action next to this one if it should be removed too._",
                     "required": [
-                        "type"
+                        "type",
+                        "duration_minutes"
                     ],
                     "additionalProperties": false,
                     "properties": {
@@ -46,6 +47,14 @@
                             "options": {
                                 "hidden": true
                             }
+                        },
+                        "duration_minutes": {
+                            "type": "integer",
+                            "title": "Restore the author to member after this many minutes",
+                            "default": 0,
+                            "minimum": 0,
+                            "maximum": 43200,
+                            "description": "0 keeps the author an observer until you change their role by hand. The maximum is 43200 minutes (30 days)."
                         }
                     }
                 },

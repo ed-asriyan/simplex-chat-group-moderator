@@ -2,12 +2,16 @@ use bot::domain::bot_dm::BotDmApplication;
 use bot::domain::bot_dm::ports::{
     BotDmReceiver, BotMessenger, GroupOperations, Message, ModerationNotificationReceiver,
 };
-use bot::domain::moderator::ModeratorApplication;
 use bot::domain::moderator::ports::{
-    GroupMessage, GroupModerator, MessengerGroup, ModerationEngine, ModerationNotifier,
+    GroupAdministration, GroupMessage, GroupModerator, MemberRestoreRepository,
+    MemberRestoreRunner, MessengerGroup, ModerationEngine, ModerationNotifier,
     ModerationRepository, UserActivityRepository, UserModerationActivityRepository,
 };
+use bot::domain::moderator::{
+    GroupAdministrationApplication, MemberRestoreApplication, MessageModerationApplication,
+};
 use bot::infrastructure::adapters::cross_domain_router::CrossDomainRouter;
+use bot::infrastructure::adapters::member_restore_repo_sqlite::SqliteMemberRestoreRepository;
 use bot::infrastructure::adapters::moderation_notification_router::ModerationNotificationRouter;
 use bot::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository;
 use bot::infrastructure::adapters::simplex_adapter::SimplexAdapter;
@@ -15,7 +19,7 @@ use bot::infrastructure::adapters::user_activity_repo_in_memory::InMemoryUserAct
 use bot::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
 use bot::infrastructure::drivers::simplex::{SimpleXConfig, SimplexDriver, SimplexEvent};
 use bot::infrastructure::migrations;
-use chrono::Local;
+use chrono::{Local, Utc};
 use clap::{Arg, Command};
 use env_logger::Builder;
 use futures::StreamExt;
@@ -24,11 +28,18 @@ use rusqlite::Connection;
 use std::error::Error;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tokio::time::interval;
+
+/// How often the bot looks for members whose observer time is up. Restores are
+/// coarse by nature — a minute of slack is not worth a tighter loop.
+const MEMBER_RESTORE_TICK: Duration = Duration::from_secs(60);
 
 async fn handle_event(
     event: SimplexEvent,
     dm_receiver: Arc<dyn BotDmReceiver>,
     moderator: Arc<dyn ModerationEngine>,
+    group_administration: Arc<dyn GroupAdministration>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     match event {
         SimplexEvent::Message {
@@ -103,7 +114,7 @@ async fn handle_event(
                 .await?;
         }
         SimplexEvent::RemovedFromGroup { group_id } => {
-            moderator.remove_group(group_id).await?;
+            group_administration.remove_group(group_id).await?;
         }
     }
 
@@ -214,6 +225,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Arc::new(InMemoryUserActivityRepository::new());
     let user_moderation_activity_repo: Arc<dyn UserModerationActivityRepository> =
         Arc::new(InMemoryUserModerationActivityRepository::new());
+    let member_restore_repo: Arc<dyn MemberRestoreRepository> =
+        Arc::new(SqliteMemberRestoreRepository::new(conn.clone()));
 
     let simplex_adapter = Arc::new(SimplexAdapter::new(simplex_driver.clone()));
     let bot_messenger: Arc<dyn BotMessenger> = simplex_adapter.clone();
@@ -223,19 +236,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let notification_router = Arc::new(ModerationNotificationRouter::new());
     let moderation_notifier: Arc<dyn ModerationNotifier> = notification_router.clone();
 
-    // ---- moderator bounded context (inbound port) ----
-    let moderator_app = Arc::new(ModeratorApplication::new(
-        moderation_repo,
-        group_moderator,
+    // ---- moderator bounded context (inbound ports) ----
+    let moderator_engine: Arc<dyn ModerationEngine> = Arc::new(MessageModerationApplication::new(
+        moderation_repo.clone(),
+        group_moderator.clone(),
         moderation_notifier,
         user_activity_repo,
         user_moderation_activity_repo,
+        member_restore_repo.clone(),
     ));
-    let moderator_engine: Arc<dyn ModerationEngine> = moderator_app.clone();
+    let group_administration: Arc<dyn GroupAdministration> = Arc::new(
+        GroupAdministrationApplication::new(moderation_repo, group_moderator.clone()),
+    );
+    let member_restore_runner: Arc<dyn MemberRestoreRunner> = Arc::new(
+        MemberRestoreApplication::new(member_restore_repo, group_moderator),
+    );
 
-    // ---- cross-domain adapter (bot_dm::GroupOperations -> moderator engine) ----
+    // ---- cross-domain adapter (bot_dm::GroupOperations -> group administration) ----
     let group_operations: Arc<dyn GroupOperations> =
-        Arc::new(CrossDomainRouter::new(moderator_engine.clone()));
+        Arc::new(CrossDomainRouter::new(group_administration.clone()));
 
     // ---- bot_dm bounded context ----
     let bot_dm_app = Arc::new(BotDmApplication::new(
@@ -252,11 +271,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // ---- driver event loop ----
     let dm_receiver = bot_dm_app.clone();
     let moderator = moderator_engine.clone();
+    let groups = group_administration.clone();
     let polling_task = tokio::spawn(async move {
         let mut stream = Box::pin(simplex_stream);
         while let Some(event) = stream.next().await {
-            if let Err(err) = handle_event(event, dm_receiver.clone(), moderator.clone()).await {
+            if let Err(err) = handle_event(
+                event,
+                dm_receiver.clone(),
+                moderator.clone(),
+                groups.clone(),
+            )
+            .await
+            {
                 eprintln!("Error handling event: {:#?}", err);
+            }
+        }
+    });
+
+    // ---- restores whose time has come ----
+    let restore_task = tokio::spawn(async move {
+        let mut ticks = interval(MEMBER_RESTORE_TICK);
+        loop {
+            ticks.tick().await;
+            if let Err(err) = member_restore_runner.run_due_restores(Utc::now()).await {
+                eprintln!("Error restoring members: {:#?}", err);
             }
         }
     });
@@ -265,6 +303,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     tokio::signal::ctrl_c().await?;
     polling_task.abort();
+    restore_task.abort();
     info!("Shutdown signal received.");
 
     Ok(())

@@ -11,7 +11,7 @@ use crate::domain::moderator::ports::ModerationAction;
 /// place that decides how a set of actions is carried out.
 fn execution_rank(action: &ModerationAction) -> u8 {
     match action {
-        ModerationAction::SetAuthorObserver => 0,
+        ModerationAction::SetAuthorObserver { .. } => 0,
         ModerationAction::ModerateMessage => 1,
         ModerationAction::KickAuthor { .. } => 2,
     }
@@ -43,7 +43,18 @@ fn covers(action: &ModerationAction, other: &ModerationAction) -> bool {
             ModerateMessage,
         ) => true,
         // Kicking the author covers restricting them to observer (read-only).
-        (KickAuthor { .. }, SetAuthorObserver) => true,
+        (KickAuthor { .. }, SetAuthorObserver { .. }) => true,
+        // Between two observer restrictions the stricter one wins: holding the
+        // author indefinitely (0) covers every timed restriction, and a longer
+        // timer covers a shorter one.
+        (
+            SetAuthorObserver {
+                duration_minutes: held,
+            },
+            SetAuthorObserver {
+                duration_minutes: other_held,
+            },
+        ) => *held == 0 || (*other_held != 0 && held >= other_held),
         _ => false,
     }
 }

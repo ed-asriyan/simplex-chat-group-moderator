@@ -58,6 +58,7 @@ body:
       options:
         - "Moderate the message"
         - "Set author as observer"
+        - "Set author as observer — restored to member after a set number of minutes"
         - "Kick the author"
         - "Kick the author — also delete every message the author has sent in this group"
         - "Several actions"

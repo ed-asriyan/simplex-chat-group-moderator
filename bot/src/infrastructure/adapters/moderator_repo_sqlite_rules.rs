@@ -19,17 +19,19 @@ use std::sync::{Arc, Mutex};
 /// and kept in `rank` order — the execution order the planner fixed when the
 /// rules were saved.
 ///
-/// The only action carrying settings is `KickAuthor`, so its subtable is joined
-/// in directly instead of being fetched per action.
+/// The settings tables of the actions that have any (`KickAuthor`,
+/// `SetAuthorObserver`) are joined in directly instead of being fetched per
+/// action.
 fn load_actions(
     guard: &rusqlite::Connection,
     gid: i64,
 ) -> Result<HashMap<i64, Vec<ModerationAction>>, Err> {
     let mut stmt = guard.prepare(
-        "SELECT a.rule_id, a.type, k.delete_all_messages
+        "SELECT a.rule_id, a.type, k.delete_all_messages, o.duration_minutes
            FROM moderation_actions a
            JOIN moderation_rules r ON r.id = a.rule_id
            LEFT JOIN moderation_action__kick_author k ON k.action_id = a.id
+           LEFT JOIN moderation_action__set_author_observer o ON o.action_id = a.id
           WHERE r.group_id = ?1
           ORDER BY a.rule_id, a.rank, a.id",
     )?;
@@ -38,15 +40,18 @@ fn load_actions(
             row.get::<_, i64>(0)?,
             row.get::<_, String>(1)?,
             row.get::<_, Option<bool>>(2)?,
+            row.get::<_, Option<u32>>(3)?,
         ))
     })?;
 
     let mut out: HashMap<i64, Vec<ModerationAction>> = HashMap::new();
     for row in rows {
-        let (rule_id, type_tag, delete_all_messages) = row?;
+        let (rule_id, type_tag, delete_all_messages, duration_minutes) = row?;
         let action = match type_tag.as_str() {
             "ModerateMessage" => ModerationAction::ModerateMessage,
-            "SetAuthorObserver" => ModerationAction::SetAuthorObserver,
+            "SetAuthorObserver" => ModerationAction::SetAuthorObserver {
+                duration_minutes: duration_minutes.unwrap_or(0),
+            },
             "KickAuthor" => ModerationAction::KickAuthor {
                 delete_all_messages: delete_all_messages.unwrap_or(false),
             },

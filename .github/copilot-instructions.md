@@ -31,11 +31,16 @@ The composition root is `bot/src/bin/bot.rs` — it constructs every concrete ad
 2. **`moderator`** (`domain/moderator/`) — the moderation engine: joining groups, storing/loading rules, evaluating each incoming group message against the rules, deleting violating messages, and emitting moderation notifications. The actual matching logic lives in `domain/moderator/message_filter/`. 
 
 Each bounded context follows the same internal shape:
-- `ports.rs` — trait definitions and the domain types they exchange.
-  - **Inbound ports**: (also called driving ports) how the outside world drives this context (e.g `ModerationEngine`, `BotDmReceiver`). Implemented by this context's application.
+- `ports` — trait definitions and the domain types they exchange.
+  - **Inbound ports**: (also called driving ports) how the outside world drives this context (e.g `ModerationEngine`, `GroupAdministration`, `BotDmReceiver`). Implemented by this context's applications.
   - **Outbound ports**: (also called driven ports) what this context needs from the outside (e.g `ModerationRepository`, `GroupModerator`, `BotMessenger`, `ModerationNotifier`). Implemented by adapters in `infrastructure/`.
-- `application.rs` — the use-case implementation (`ModeratorApplication`, `BotDmApplication`). Depends only on ports, never on concrete adapters.
+- `application` — the use-case implementations (`MessageModerationApplication`, `GroupAdministrationApplication`, `BotDmApplication`). Depend only on ports, never on concrete adapters.
 - additional pure-domain submodules (e.g. `message_filter/`).
+
+`bot_dm` keeps both as single files (`ports.rs`, `application.rs`). `moderator` has outgrown that and splits each into a module, **one inbound port and one application per use case**:
+- `ports/types.rs` — the value types both sides exchange; `ports/inbound.rs` — one trait per use case; `ports/outbound.rs` — what the context needs from outside. `ports.rs` re-exports all three, so callers keep writing `domain::moderator::ports::X` no matter which file `X` lives in.
+- `application/moderation.rs` — `MessageModerationApplication`, implementing `ModerationEngine` (moderate one incoming group message); `application/groups.rs` — `GroupAdministrationApplication`, implementing `GroupAdministration` (join/remove/list groups, read and save rules, notification and dry-mode toggles); `application/member_restore.rs` — `MemberRestoreApplication`, implementing `MemberRestoreRunner` (restore the members whose timed observer restriction has expired). `application.rs` only declares and re-exports them, and its own `application/tests.rs` holds the port fakes shared by the use-case test modules below it (a fake used by one of them lives in that module's `tests.rs` instead).
+- The restore runner is driven by a clock, not by a messenger event: `bin/bot.rs` ticks it once a minute and passes `Utc::now()` in, so the domain never reads a clock of its own — the same way `GroupMessage.timestamp` is the "now" of the moderation path.
 
 ### Infrastructure (`infrastructure/`)
 - `adapters/` — implementations of **outbound ports** (driven adapters) and the **cross-context routers**:
@@ -44,7 +49,7 @@ Each bounded context follows the same internal shape:
   - `simplex_adapter.rs` — implements messenger/group actions on top of the
     SimpleX driver (`BotMessenger`, `GroupModerator`).
   - `cross_domain_router.rs` — lets `bot_dm` call into `moderator` by
-    implementing `bot_dm::GroupOperations` on top of `moderator::ModerationEngine`.
+    implementing `bot_dm::GroupOperations` on top of `moderator::GroupAdministration`.
   - `moderation_notification_router.rs` — lets `moderator` notify `bot_dm` by
     implementing `moderator::ModerationNotifier` on top of
     `bot_dm::ModerationNotificationReceiver`. The receiver is injected *after*
@@ -58,8 +63,8 @@ Each bounded context follows the same internal shape:
 | You are adding… | Put it in… |
 |-----------------|------------|
 | New business rule / decision logic | `domain/<context>/` (pure, no I/O)|
-| A new capability the domain needs from outside | a new **outbound port** trait in `domain/<context>/ports.rs` |
-| A new way the outside drives the domain | a new **inbound port** trait in `domain/<context>/ports.rs` |
+| A new capability the domain needs from outside | a new **outbound port** trait in that context's ports (`domain/moderator/ports/outbound.rs`, `domain/bot_dm/ports.rs`) |
+| A new way the outside drives the domain | a new **inbound port** trait in that context's ports (`domain/moderator/ports/inbound.rs`, `domain/bot_dm/ports.rs`) + its own application module |
 | DB query / persistence | `infrastructure/adapters/` (a repo adapter) |
 | Talking to SimpleX or another external system | `infrastructure/drivers/` (+ a thin adapter) |
 | Letting one bounded context call another | a router in `infrastructure/adapters/` |
@@ -95,6 +100,8 @@ moderation_groups
         └── moderation_actions    (rule_id, rank, type)
               └── moderation_action__<name> (action_id)
 ```
+
+Beside the rules hangs the bot's own runtime state, a direct child of the group rather than of a rule: `moderation_set_author_observer_restores(id, group_id, member_id, execute_at)`, one row per member a timed `SetAuthorObserver` is still holding. It is deliberately *not* anchored to the action that scheduled it — saving rules deletes and reinserts every `moderation_rules` row of a group, which would cascade the obligation away and strand that member as an observer forever. Anything else the bot owes a member later belongs at this level too, for the same reason.
 
 The invariant that follows is worth protecting: `DELETE FROM moderation_groups WHERE group_id = ?` removes every row belonging to that group, and **no adapter deletes anything by hand**. If a change makes some table reachable only through a link pointing the other way, that invariant breaks silently — a test in `infrastructure/migrations.rs` enumerates `moderation%` tables from `sqlite_master` after deleting a group and asserts all are empty, so add tables inside this tree, not beside it.
 
@@ -135,11 +142,11 @@ A rule's condition is a **tree**, not a single predicate: besides the leaves the
 Stored rules are the only thing that has to survive: the bot always sends the owner a freshly generated editor link, so old type tags never come back through a link. Do **not** add `#[serde(alias = ...)]`s or compatibility deserializers for old shapes. Instead, add a migration that rewrites the stored rows — update `moderation_conditions.type` and rename the condition's tables (`ALTER TABLE ... RENAME TO`) for a rename, or rebuild the affected nodes for a condition replaced by differently shaped ones. Precedent: `0025_neutral_condition_names.sql`.
 
 ## Adding a new moderation action type (do all of these)
-`ModerationAction` (in `domain/moderator/message_filter/moderation_action.rs`) is the **single source of truth** for actions: a `#[serde(tag = "type")]` enum (`ModerateMessage`, `SetAuthorObserver`, `KickAuthor { delete_all_messages: bool }`). Like conditions, the PascalCase variant name is the serde `type` tag (URL hash, `rules-schema.json`, and the `moderation_actions.type` column), and its snake_case form is the `<name>` used for the `moderation_action__<name>` settings table.
+`ModerationAction` (in `domain/moderator/message_filter/moderation_action.rs`) is the **single source of truth** for actions: a `#[serde(tag = "type")]` enum (`ModerateMessage`, `SetAuthorObserver { duration_minutes: u32 }`, `KickAuthor { delete_all_messages: bool }`). Like conditions, the PascalCase variant name is the serde `type` tag (URL hash, `rules-schema.json`, and the `moderation_actions.type` column), and its snake_case form is the `<name>` used for the `moderation_action__<name>` settings table.
 
 A rule carries a **list** of actions, and every variant must stay one indivisible thing the bot can do. Do **not** add a setting to an action that means "and also do that other action" (a kick used to carry "...and moderate the message"): the owner combines actions by listing them, and a bundled sub-action cannot be deduplicated against the same action coming from another rule. The list is a **set**, not a sequence: `action_planner` drops actions a stronger one already covers (`covers`) and orders the rest by `execution_rank` — observer, then moderate, then kick, so the author is kicked last. A new variant therefore needs an arm in both of those, plus the same merge applied to a single rule's list by `ModerationRule::normalize_and_validate` when an owner saves it.
 
-1. **Domain:** add a variant to `ModerationAction` and execute it in `ModeratorApplication::process_group_message` (`domain/moderator/application.rs`) via the `GroupModerator` outbound port. If the action needs a capability the messenger doesn't expose yet, add a method to `GroupModerator` in `domain/moderator/ports.rs` and implement it in `infrastructure/adapters/simplex_adapter.rs` (+ the `drivers/simplex` driver).
+1. **Domain:** add a variant to `ModerationAction`, give it an arm in `ModerationAction::normalize_and_validate` so its own parameters are checked when an owner saves the rule (the arms are listed one by one, with no catch-all, so a new variant cannot skip validation), and execute it in `MessageModerationApplication::process_group_message` (`domain/moderator/application/moderation.rs`) via the `GroupModerator` outbound port. If the action needs a capability the messenger doesn't expose yet, add a method to `GroupModerator` in `domain/moderator/ports/outbound.rs` and implement it in `infrastructure/adapters/simplex_adapter.rs` (+ the `drivers/simplex` driver).
 2. **Cross-context (owner notifications):** mirror the variant in `bot_dm::ModerationAction` (`domain/bot_dm/ports.rs`), map it in `infrastructure/adapters/moderation_notification_router.rs`, and render its notification text in `domain/bot_dm/application.rs`.
 3. **Migration:** add `infrastructure/migrations/NNNN_*.sql` creating `moderation_action__<name>` (keyed by `action_id` FK → `moderation_actions(id) ON DELETE CASCADE`) with one column per setting.
 4. **Repository read/write:** resolve the new action in `load_actions` (one group-wide query, keyed by `rule_id` and ordered by `rank`) and persist it in `insert_actions` (both in the `moderator_repo_sqlite*` adapters).
