@@ -180,6 +180,53 @@ fn should_moderate_table() {
             &["дешёвые таблетки"],
             Some("дешёвые таблетки"),
         ),
+        // --- bypass: styled / full-width letter variants (NFKC) ---
+        (
+            &[
+                "𝓼𝓹𝓪𝓶",          // mathematical script
+                "𝐬𝐩𝐚𝐦",          // mathematical bold
+                "𝕤𝕡𝕒𝕞",          // double-struck
+                "ｓｐａｍ",      // full-width
+                "ＳＰＡＭ",      // full-width, upper case
+                "ⓢⓟⓐⓜ",          // circled
+                "ˢᵖᵃᵐ",          // superscript
+                "buy 𝐬𝐩𝐚𝐦s now", // + plural, mid-sentence
+            ],
+            &["spam"],
+            Some("spam"),
+        ),
+        // --- bypass: upside-down text ---
+        (
+            &[
+                "ɯɐds",      // "spam" flipped
+                "ɯɐds ɯɐds", // twice
+                "ɯɐɐɐds",    // + flooded letter
+            ],
+            &["spam"],
+            Some("spam"),
+        ),
+        // The real message this was found on. The flip reverses the *words*
+        // too, so the phrase only matches if the whole text is turned around.
+        (
+            &["卐 ¡sɐƃƃıu llıʞ ¡ɹǝlʇıɥ lıǝɥ 卐"],
+            &["heil hitler"],
+            Some("heil hitler"),
+        ),
+        (&["¡ɹǝlʇıɥ lıǝɥ"], &["hitler"], Some("hitler")),
+        // Only text that carries the marks of a flip is read upside down —
+        // otherwise every ordinary message would also be matched backwards.
+        (&["the raw steak"], &["war"], None),
+        (&["this loop is fine"], &["pool"], None),
+        (&["the war is over"], &["raw"], None),
+        // A single flip mark is not enough: one IPA symbol in a linguistics
+        // discussion must not turn the message around. ("ɯads" reads
+        // "spam" upside down, but carries only one mark.)
+        (&["ɯads"], &["spam"], None),
+        (
+            &["the schwa ǝ and the turned r ɹ are IPA symbols"],
+            &["spam", "ass", "sex"],
+            None,
+        ),
         // --- negatives that must NOT be flagged ---
         (&["I am at my own home"], &["spam"], None), // legit short words must not merge
         (&["spam"], &["spamster"], None),            // partial overlap

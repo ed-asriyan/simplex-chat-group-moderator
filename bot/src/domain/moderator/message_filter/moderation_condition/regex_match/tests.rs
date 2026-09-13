@@ -22,9 +22,12 @@ fn test_matches_repeated_spaces() {
 
 #[test]
 fn test_ignores_normalization_tricks_that_keywords_would_catch() {
-    // Unlike the keywords filter, raw regex does not fold look-alikes.
+    // Unlike the keywords filter, raw regex does not fold look-alikes,
+    // compatibility letter variants, or upside-down text.
     let patterns = vec!["spam".to_string()];
     assert!(should_moderate("sp4m", &patterns).is_none());
+    assert!(should_moderate("𝐬𝐩𝐚𝐦", &patterns).is_none());
+    assert!(should_moderate("ɯɐds", &patterns).is_none());
     assert!(should_moderate("this is spam", &patterns).is_some());
 }
 

@@ -12,6 +12,11 @@
 //!   while a `@` inside a word is still read as the letter `a`;
 //! - cyrillic look-alikes mixed into latin and vice versa (`sраm` with
 //!   cyrillic `р`+`а`, `спам` vs `spam`);
+//! - styled and full-width letter variants (`𝓼𝓹𝓪𝓶`, `ｓｐａｍ`, `ⓢⓟⓐⓜ`) — the
+//!   text is `NFKC`-normalised first, which folds the mathematical,
+//!   full-width, circled, superscript and ligature forms of a letter onto the
+//!   letter itself;
+//! - upside-down text (`ɯɐds`) — see [`upside_down`];
 //! - separators inserted between letters (`s p a m`, `s.p.a.m`, `s-p-a-m`,
 //!   `с_п_а_м`);
 //! - flooded characters (`spaaaaam`, `goooal`) — runs of three or more
@@ -36,32 +41,70 @@
 //! **not** match inside `"classic"` (no separators/look-alikes are present
 //! so the merging heuristic is not applied to that token).
 
+use icu_normalizer::ComposingNormalizerBorrowed;
+use std::sync::LazyLock;
+
+use super::upside_down;
+
 /// Returns the first keyword found in `text`, given the list of `keywords`,
 /// or `None` if no keyword matches.
 /// Empty / whitespace-only keywords are ignored.
 pub fn should_moderate(text: &str, keywords: &[String]) -> Option<String> {
-    let tokens = normalize_and_tokenize(text);
-    if tokens.is_empty() {
+    let views = views_of(text);
+    if views.is_empty() {
         return None;
     }
-    let merged = merge_short_runs(&tokens);
 
     keywords.iter().find_map(|kw| {
         let needle = normalize_and_tokenize(kw);
         if needle.is_empty() {
             return None;
         }
-        if needle_present(&tokens, &merged, &needle) || compound_present(&tokens, &needle) {
-            return Some(kw.clone());
-        }
-        None
+        views
+            .iter()
+            .any(|view| view.contains(&needle))
+            .then(|| kw.clone())
     })
 }
 
-/// True iff `needle` appears in either the plain or the short-run-merged view
-/// of the text tokens.
-fn needle_present(tokens: &[String], merged: &[String], needle: &[String]) -> bool {
-    contains_subsequence(tokens, needle) || contains_subsequence(merged, needle)
+/// One reading of the message: its tokens, plus the short-run-merged view of
+/// them that sees through `s.p.a.m`.
+struct View {
+    tokens: Vec<String>,
+    merged: Vec<String>,
+}
+
+impl View {
+    fn new(text: &str) -> Self {
+        let tokens = normalize_and_tokenize(text);
+        let merged = merge_short_runs(&tokens);
+        Self { tokens, merged }
+    }
+
+    /// True iff `needle` appears in either the plain or the short-run-merged
+    /// view of the tokens, or as a join/split compound.
+    fn contains(&self, needle: &[String]) -> bool {
+        contains_subsequence(&self.tokens, needle)
+            || contains_subsequence(&self.merged, needle)
+            || compound_present(&self.tokens, needle)
+    }
+}
+
+/// Every reading a message has to be checked against: the text as written and,
+/// when it carries the marks of a flip, the same text read upside down.
+///
+/// The flipped reading is a whole second view rather than another character
+/// folding because it reverses the order of the words as well as the letters,
+/// and because its alphabet reuses ordinary letters with a different meaning —
+/// see [`upside_down`].
+fn views_of(text: &str) -> Vec<View> {
+    let flipped = upside_down::decode(text);
+    [Some(text), flipped.as_deref()]
+        .into_iter()
+        .flatten()
+        .map(View::new)
+        .filter(|view| !view.tokens.is_empty())
+        .collect()
 }
 
 /// Generic join/split compound matcher. Glues the keyword tokens into one
@@ -119,13 +162,24 @@ fn fuzzy_compound(s: &str) -> String {
 // internals
 // ---------------------------------------------------------------------------
 
-/// Lowercase + canonicalise + split on non-alphanumerics. Repeated characters
-/// are *not* collapsed here — their run lengths are preserved so that matching
-/// can be run-length-aware (a flooded `"booooob"` still carries enough `o`s to
-/// satisfy a doubled-letter keyword like `"boob"`).
+/// Unicode compatibility normalisation (`NFKC`). It folds the decorative
+/// letter variants a keyword list can never enumerate — mathematical
+/// (`𝓼𝓹𝓪𝓶`, `𝐬𝐩𝐚𝐦`), full-width (`ｓｐａｍ`), circled, squared, superscript,
+/// ligature — onto the plain letters they are compatibility-equivalent to.
+static NFKC: LazyLock<ComposingNormalizerBorrowed<'static>> =
+    LazyLock::new(ComposingNormalizerBorrowed::new_nfkc);
+
+/// Compatibility-normalise + lowercase + canonicalise + split on
+/// non-alphanumerics. Repeated characters are *not* collapsed here — their run
+/// lengths are preserved so that matching can be run-length-aware (a flooded
+/// `"booooob"` still carries enough `o`s to satisfy a doubled-letter keyword
+/// like `"boob"`).
 fn normalize_and_tokenize(s: &str) -> Vec<String> {
-    // Lower-case first so positional checks below see the final characters.
-    let lowered: Vec<char> = s.chars().flat_map(|c| c.to_lowercase()).collect();
+    // NFKC before lower-casing: the styled letter forms have no case mapping
+    // of their own, so `𝐇` only becomes `h` if it is folded to `H` first.
+    let folded = NFKC.normalize(s);
+    // Lower-case next so positional checks below see the final characters.
+    let lowered: Vec<char> = folded.chars().flat_map(|c| c.to_lowercase()).collect();
 
     let mut normalized = String::with_capacity(lowered.len());
     for (i, &c) in lowered.iter().enumerate() {

@@ -1,4 +1,5 @@
 mod filter;
+mod upside_down;
 
 #[cfg(test)]
 mod tests;
