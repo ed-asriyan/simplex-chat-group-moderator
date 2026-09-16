@@ -34,12 +34,27 @@ pub struct GroupInvitation {
     pub is_moderator: bool,
 }
 
+/// What a message carries besides its text. The messenger sends one attachment
+/// per message, with the caption as the message text, so this is one kind and
+/// not a list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MessageAttachment {
+    Image,
+    Video,
+    Voice,
+    File,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct GroupMessage {
     pub group: MessengerGroup,
     pub message_id: MessageId,
     pub author_id: UserId,
     pub text: String,
+    /// What the message carries besides its text; `None` for a plain text
+    /// message. An attachment's caption is the `text` above, so a picture with
+    /// no caption is a message with an attachment and blank text.
+    pub attachment: Option<MessageAttachment>,
     pub timestamp: DateTime<Utc>,
     /// When the author joined the group, if known. Only members who joined
     /// after the bot have a known join time; for everyone who was already there

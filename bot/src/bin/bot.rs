@@ -4,7 +4,7 @@ use bot::domain::bot_dm::ports::{
 };
 use bot::domain::moderator::ports::{
     GroupAdministration, GroupMessage, GroupModerator, MemberRestoreRepository,
-    MemberRestoreRunner, MessengerGroup, ModerationEngine, ModerationNotifier,
+    MemberRestoreRunner, MessageAttachment, MessengerGroup, ModerationEngine, ModerationNotifier,
     ModerationRepository, UserActivityRepository, UserModerationActivityRepository,
 };
 use bot::domain::moderator::{
@@ -17,7 +17,9 @@ use bot::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationReposi
 use bot::infrastructure::adapters::simplex_adapter::SimplexAdapter;
 use bot::infrastructure::adapters::user_activity_repo_in_memory::InMemoryUserActivityRepository;
 use bot::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
-use bot::infrastructure::drivers::simplex::{SimpleXConfig, SimplexDriver, SimplexEvent};
+use bot::infrastructure::drivers::simplex::{
+    MessageAttachment as DriverAttachment, SimpleXConfig, SimplexDriver, SimplexEvent,
+};
 use bot::infrastructure::migrations;
 use chrono::{Local, Utc};
 use clap::{Arg, Command};
@@ -65,6 +67,7 @@ async fn handle_event(
             message_id,
             timestamp,
             text,
+            attachment,
             author_joined_at,
         } => {
             let group_message = GroupMessage {
@@ -75,6 +78,12 @@ async fn handle_event(
                 message_id,
                 author_id,
                 text,
+                attachment: attachment.map(|attachment| match attachment {
+                    DriverAttachment::Image => MessageAttachment::Image,
+                    DriverAttachment::Video => MessageAttachment::Video,
+                    DriverAttachment::Voice => MessageAttachment::Voice,
+                    DriverAttachment::File => MessageAttachment::File,
+                }),
                 timestamp,
                 author_joined_at,
             };

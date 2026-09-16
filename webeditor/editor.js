@@ -27,13 +27,14 @@
 
 const EDITOR_URL_BASE = location.href.split("#")[0];
 
-/* Emoji is the subject taxonomy (💬 text, 🔗 links, 📏 shape, 👤 author), so it
-   also groups the type picker. An unknown emoji falls into "Other" rather than
-   breaking the list. */
+/* Emoji is the subject taxonomy (💬 text, 🔗 links, 📏 shape, 📎 attachments,
+   👤 author), so it also groups the type picker. An unknown emoji falls into
+   "Other" rather than breaking the list. */
 const GROUPS = {
     "💬": "Message text",
     "🔗": "Links",
     "📏": "Size & shape",
+    "📎": "Attachments",
     "👤": "Author",
     "🧩": "Combine",
     "🔀": "Combine",

@@ -323,6 +323,10 @@ fn build_condition(
         }),
         "IsBlank" => Ok(ModerationCondition::IsBlank),
         "ContainsInvisibleCharacters" => Ok(ModerationCondition::ContainsInvisibleCharacters),
+        "ContainsImage" => Ok(ModerationCondition::ContainsImage),
+        "ContainsVideo" => Ok(ModerationCondition::ContainsVideo),
+        "ContainsVoiceMessage" => Ok(ModerationCondition::ContainsVoiceMessage),
+        "ContainsFile" => Ok(ModerationCondition::ContainsFile),
         "ExceedsMaxCharacters" => Ok(ModerationCondition::ExceedsMaxCharacters {
             max_characters: data.max_characters.get(&id).copied().unwrap_or(0),
         }),

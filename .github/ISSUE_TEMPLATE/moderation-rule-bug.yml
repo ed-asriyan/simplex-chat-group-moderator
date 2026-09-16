@@ -38,6 +38,10 @@ body:
         - Message Contains a Link Outside Top 100 Websites
         - Message Is Empty or Blank
         - Message Contains Invisible Characters
+        - Message Contains an Image
+        - Message Contains a Video
+        - Message Contains a Voice Message
+        - Message Contains a File
         - Message Exceeds Max Characters
         - Message Exceeds Max Words
         - Message Exceeds Max Lines

@@ -268,6 +268,24 @@ async fn test_round_trips_every_message_shape_condition() {
 }
 
 #[tokio::test]
+async fn test_round_trips_every_attachment_condition() {
+    // None of them has parameters, so the type tag in the registry is all
+    // there is to tell the four apart.
+    assert_round_trips(
+        2012,
+        ModerationCondition::Any {
+            conditions: vec![
+                ModerationCondition::ContainsImage,
+                ModerationCondition::ContainsVideo,
+                ModerationCondition::ContainsVoiceMessage,
+                ModerationCondition::ContainsFile,
+            ],
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn test_round_trips_every_link_condition() {
     assert_round_trips(
         2009,

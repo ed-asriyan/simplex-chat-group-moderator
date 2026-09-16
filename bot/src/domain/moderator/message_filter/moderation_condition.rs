@@ -27,6 +27,7 @@
 #[cfg(test)]
 mod tests;
 
+mod attachment;
 mod exact_message;
 mod invisible_chars;
 mod joined_recently;
@@ -108,10 +109,22 @@ pub enum ModerationCondition {
         domains: Vec<String>,
     },
     /// The message consists only of whitespace, line breaks and invisible
-    /// characters, or has no characters at all.
+    /// characters, or has no characters at all — and carries nothing else. A
+    /// message with an attachment is never blank, however empty its caption
+    /// is: a picture is not an empty message, it is a picture.
     IsBlank,
     /// The message contains at least one invisible character.
     ContainsInvisibleCharacters,
+    /// The message carries a picture. Its caption, if any, is the message text,
+    /// so the text conditions describe the caption.
+    ContainsImage,
+    /// The message carries a video.
+    ContainsVideo,
+    /// The message carries a voice message.
+    ContainsVoiceMessage,
+    /// The message carries a file that is not a picture, video or voice
+    /// message — those have conditions of their own.
+    ContainsFile,
     ExceedsMaxCharacters {
         max_characters: u32,
     },
@@ -255,8 +268,12 @@ impl ModerationCondition {
             Self::ContainsLinksOutsideTop100 { .. } => {
                 "contains a link outside the top 100 websites".into()
             }
-            Self::IsBlank => "is empty or blank".into(),
+            Self::IsBlank => "is empty or blank and carries no attachment".into(),
             Self::ContainsInvisibleCharacters => "contains invisible characters".into(),
+            Self::ContainsImage => "contains an image".into(),
+            Self::ContainsVideo => "contains a video".into(),
+            Self::ContainsVoiceMessage => "contains a voice message".into(),
+            Self::ContainsFile => "contains a file".into(),
             Self::ExceedsMaxCharacters { max_characters } => {
                 format!("has more than {max_characters} characters")
             }
@@ -433,6 +450,10 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
         ),
         ModerationCondition::IsBlank
         | ModerationCondition::ContainsInvisibleCharacters
+        | ModerationCondition::ContainsImage
+        | ModerationCondition::ContainsVideo
+        | ModerationCondition::ContainsVoiceMessage
+        | ModerationCondition::ContainsFile
         | ModerationCondition::AuthorHitsMessageRateLimit { .. }
         | ModerationCondition::AuthorHitsModerationRateLimit { .. } => Ok(()),
         ModerationCondition::All { .. }
@@ -649,7 +670,6 @@ fn should_moderate_by_condition(message: &str, condition: &ModerationCondition) 
         }
         // The shape conditions see the raw message: leading and trailing
         // whitespace is exactly what they are measuring.
-        ModerationCondition::IsBlank => invisible_chars::should_moderate_blank(message),
         ModerationCondition::ContainsInvisibleCharacters => {
             invisible_chars::should_moderate_invisible(message)
         }
@@ -663,9 +683,15 @@ fn should_moderate_by_condition(message: &str, condition: &ModerationCondition) 
             max_lines,
             chars_per_line,
         } => message_length::should_moderate_lines(message, *max_lines, *chars_per_line),
-        // Repository-backed, author-based and composite conditions never reach
-        // here; they are handled by `evaluate` because they need the context.
-        ModerationCondition::AuthorHitsMessageRateLimit { .. }
+        // Repository-backed, attachment-based, author-based and composite
+        // conditions never reach here; they are handled by `evaluate` because
+        // they need more of the message than its text, or the context.
+        ModerationCondition::IsBlank
+        | ModerationCondition::ContainsImage
+        | ModerationCondition::ContainsVideo
+        | ModerationCondition::ContainsVoiceMessage
+        | ModerationCondition::ContainsFile
+        | ModerationCondition::AuthorHitsMessageRateLimit { .. }
         | ModerationCondition::AuthorHitsModerationRateLimit { .. }
         | ModerationCondition::AuthorJoinedRecently { .. }
         | ModerationCondition::All { .. }
@@ -800,6 +826,19 @@ async fn evaluate(
             )
             .await
         }
+        // A message that carries something is not an empty message, whatever
+        // its caption says, so the attachment is checked before the text.
+        ModerationCondition::IsBlank if ctx.group_message.attachment.is_some() => Ok(None),
+        ModerationCondition::IsBlank => Ok(invisible_chars::should_moderate_blank(
+            &ctx.group_message.text,
+        )),
+        ModerationCondition::ContainsImage
+        | ModerationCondition::ContainsVideo
+        | ModerationCondition::ContainsVoiceMessage
+        | ModerationCondition::ContainsFile => Ok(attachment::should_moderate(
+            ctx.group_message.attachment,
+            condition,
+        )),
         ModerationCondition::AuthorJoinedRecently {
             time_window_minutes,
         } => Ok(joined_recently::should_moderate(

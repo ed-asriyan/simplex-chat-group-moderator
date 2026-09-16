@@ -166,6 +166,7 @@ async fn test_process_group_message_moderate_message_action() {
         message_id: 42,
         author_id: 555,
         text: "Contains badword here".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -239,6 +240,7 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
         message_id: 42,
         author_id: 777,
         text: "Contains danger here".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -315,6 +317,7 @@ async fn test_process_group_message_kick_author_without_deleting_messages() {
         message_id: 42,
         author_id: 777,
         text: "Contains danger here".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -388,6 +391,7 @@ async fn test_process_group_message_kick_author_deleting_all_messages() {
         message_id: 42,
         author_id: 777,
         text: "Contains danger here".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -464,6 +468,7 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
         message_id: 42,
         author_id: 555,
         text: "Contains danger here".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -527,6 +532,7 @@ async fn test_process_group_message_no_match_does_nothing() {
         message_id: 42,
         author_id: 555,
         text: "Clean friendly message".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -604,6 +610,7 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
         message_id: 42,
         author_id: 888,
         text: "first and second in the same message".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -688,6 +695,7 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
         message_id: 42,
         author_id: 777,
         text: "Contains danger here".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -776,6 +784,7 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
         message_id: 42,
         author_id: 777,
         text: "Contains danger here".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -854,6 +863,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
         message_id: 42,
         author_id: 777,
         text: "Contains danger here".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -924,6 +934,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
         message_id: 42,
         author_id: 777,
         text: "Contains danger here".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -993,6 +1004,7 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
         message_id: 42,
         author_id: 777,
         text: "Contains danger here".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -1062,6 +1074,7 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
         message_id: 42,
         author_id: 777,
         text: "Contains danger here".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -1149,6 +1162,7 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
         message_id: 42,
         author_id: 888,
         text: "first and second in the same message".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -1235,6 +1249,7 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
         message_id: 42,
         author_id: 888,
         text: "first and second in the same message".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -1315,6 +1330,7 @@ async fn test_process_group_message_message_rate_limit_triggers_on_threshold() {
         message_id: msg_id,
         author_id: 42,
         text: format!("Message {msg_id}"),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -1396,6 +1412,7 @@ async fn test_process_group_message_message_rate_limit_kick_author() {
         message_id: msg_id,
         author_id,
         text: "hello".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -1473,6 +1490,7 @@ async fn test_process_group_message_message_rate_limit_dry_mode() {
         message_id: 1,
         author_id: 999,
         text: "hi".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -1535,6 +1553,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         message_id: 1,
         author_id: 123,
         text: "first".to_string(),
+        attachment: None,
         timestamp: base_time,
         author_joined_at: None,
     })
@@ -1550,6 +1569,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         message_id: 2,
         author_id: 123,
         text: "second".to_string(),
+        attachment: None,
         timestamp: base_time + chrono::Duration::minutes(10),
         author_joined_at: None,
     })
@@ -1568,6 +1588,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         message_id: 3,
         author_id: 123,
         text: "third".to_string(),
+        attachment: None,
         timestamp: base_time + chrono::Duration::minutes(12),
         author_joined_at: None,
     })
@@ -1620,6 +1641,7 @@ async fn test_track_user_message_called_when_message_rate_limit_rule_configured(
         message_id: 1,
         author_id: 42,
         text: "hello".to_string(),
+        attachment: None,
         timestamp: msg_time,
         author_joined_at: None,
     };
@@ -1700,6 +1722,7 @@ async fn test_track_user_message_uses_max_window_across_multiple_message_rate_li
         message_id: 1,
         author_id: 55,
         text: "hello".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -1764,6 +1787,7 @@ async fn test_track_user_message_not_called_when_no_message_rate_limit_rules() {
         message_id: 1,
         author_id: 55,
         text: "clean message".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -1808,6 +1832,7 @@ async fn test_track_user_message_not_called_when_group_has_empty_rules() {
         message_id: 1,
         author_id: 55,
         text: "hello".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -1861,6 +1886,7 @@ async fn test_track_user_message_not_called_when_message_rate_limit_window_is_ze
         message_id: 1,
         author_id: 55,
         text: "hello".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -1914,6 +1940,7 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
         message_id: 1,
         author_id: 55,
         text: "hello".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -1998,6 +2025,7 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
         message_id: msg_id,
         author_id: 777,
         text: text.to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -2089,6 +2117,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         message_id: 1,
         author_id: 42,
         text: "clean message".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -2109,6 +2138,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         message_id: 2,
         author_id: 42,
         text: "contains badword here".to_string(),
+        attachment: None,
         timestamp: bad_time,
         author_joined_at: None,
     };
@@ -2164,6 +2194,7 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
         message_id: 1,
         author_id: 42,
         text: "contains badword here".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -2222,6 +2253,7 @@ fn triggering_message(timestamp: chrono::DateTime<Utc>) -> GroupMessage {
         message_id: 42,
         author_id: 777,
         text: "Contains danger here".to_string(),
+        attachment: None,
         timestamp,
         author_joined_at: None,
     }

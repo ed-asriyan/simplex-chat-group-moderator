@@ -685,6 +685,22 @@ fn test_parameterless_conditions_round_trip_through_json() {
             ModerationCondition::ContainsInvisibleCharacters,
             r#"{"type":"ContainsInvisibleCharacters"}"#,
         ),
+        (
+            ModerationCondition::ContainsImage,
+            r#"{"type":"ContainsImage"}"#,
+        ),
+        (
+            ModerationCondition::ContainsVideo,
+            r#"{"type":"ContainsVideo"}"#,
+        ),
+        (
+            ModerationCondition::ContainsVoiceMessage,
+            r#"{"type":"ContainsVoiceMessage"}"#,
+        ),
+        (
+            ModerationCondition::ContainsFile,
+            r#"{"type":"ContainsFile"}"#,
+        ),
     ] {
         assert_eq!(serde_json::to_string(&condition).unwrap(), json);
         assert_eq!(

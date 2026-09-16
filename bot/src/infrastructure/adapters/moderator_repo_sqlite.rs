@@ -107,6 +107,10 @@ fn insert_condition(
         ModerationCondition::ContainsLinksOutsideTop100 { .. } => "ContainsLinksOutsideTop100",
         ModerationCondition::IsBlank => "IsBlank",
         ModerationCondition::ContainsInvisibleCharacters => "ContainsInvisibleCharacters",
+        ModerationCondition::ContainsImage => "ContainsImage",
+        ModerationCondition::ContainsVideo => "ContainsVideo",
+        ModerationCondition::ContainsVoiceMessage => "ContainsVoiceMessage",
+        ModerationCondition::ContainsFile => "ContainsFile",
         ModerationCondition::ExceedsMaxCharacters { .. } => "ExceedsMaxCharacters",
         ModerationCondition::ExceedsMaxWords { .. } => "ExceedsMaxWords",
         ModerationCondition::ExceedsMaxLines { .. } => "ExceedsMaxLines",
@@ -195,7 +199,12 @@ fn insert_condition(
             domains,
         )?,
         // No parameters, so nothing beyond the registry row.
-        ModerationCondition::IsBlank | ModerationCondition::ContainsInvisibleCharacters => {}
+        ModerationCondition::IsBlank
+        | ModerationCondition::ContainsInvisibleCharacters
+        | ModerationCondition::ContainsImage
+        | ModerationCondition::ContainsVideo
+        | ModerationCondition::ContainsVoiceMessage
+        | ModerationCondition::ContainsFile => {}
         ModerationCondition::ExceedsMaxCharacters { max_characters } => {
             tx.execute(
                 "INSERT INTO moderation_condition__exceeds_max_characters (condition_id, max_characters) VALUES (?1, ?2)",

@@ -3,5 +3,6 @@ mod driver;
 mod message_split;
 
 pub use driver::{
-    GroupId, MemberRole, MessageId, SimpleXConfig, SimplexDriver, SimplexEvent, UserId,
+    GroupId, MemberRole, MessageAttachment, MessageId, SimpleXConfig, SimplexDriver, SimplexEvent,
+    UserId,
 };

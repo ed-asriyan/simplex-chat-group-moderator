@@ -26,6 +26,17 @@ pub type UserId = i64;
 pub type MessageId = i64;
 pub type GroupId = i64;
 
+/// What a message carries besides its text. SimpleX sends one attachment per
+/// message, with the caption in the message text, so this is one kind and not
+/// a list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MessageAttachment {
+    Image,
+    Video,
+    Voice,
+    File,
+}
+
 /// The group roles the driver can move a member between.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MemberRole {
@@ -47,6 +58,8 @@ pub enum SimplexEvent {
         message_id: MessageId,
         timestamp: DateTime<Utc>,
         text: String,
+        /// What the message carries besides its text, if anything.
+        attachment: Option<MessageAttachment>,
         /// When the author joined the group; `None` if unknown (see `member_joined_at`).
         author_joined_at: Option<DateTime<Utc>>,
     },
@@ -348,12 +361,30 @@ fn member_joined_at(member: &GroupMember) -> Option<DateTime<Utc>> {
         .map(|dt| dt.with_timezone(&Utc))
 }
 
-fn extract_message_text(chat_content: &MsgContent) -> Option<String> {
-    match chat_content {
-        MsgContent::Text { text, .. } => Some(text.clone()),
-        MsgContent::Link { preview, .. } => Some(format!("[{}]({})", preview.title, preview.uri)),
-        _ => None,
-    }
+/// A received message reduced to what moderation looks at: its text and the
+/// kind of attachment it carries.
+struct MessageContent {
+    text: String,
+    attachment: Option<MessageAttachment>,
+}
+
+/// `None` for content the bot has no reading of at all (reports, chat links,
+/// anything a newer client invents); those messages are ignored entirely.
+///
+/// An attachment's caption is its text, empty string included: a picture with
+/// no caption is a message whose text is blank, which is what lets the shape
+/// conditions describe "a picture and nothing else".
+fn extract_message_content(chat_content: &MsgContent) -> Option<MessageContent> {
+    let (text, attachment) = match chat_content {
+        MsgContent::Text { text, .. } => (text.clone(), None),
+        MsgContent::Link { preview, .. } => (format!("[{}]({})", preview.title, preview.uri), None),
+        MsgContent::Image { text, .. } => (text.clone(), Some(MessageAttachment::Image)),
+        MsgContent::Video { text, .. } => (text.clone(), Some(MessageAttachment::Video)),
+        MsgContent::Voice { text, .. } => (text.clone(), Some(MessageAttachment::Voice)),
+        MsgContent::File { text, .. } => (text.clone(), Some(MessageAttachment::File)),
+        _ => return None,
+    };
+    Some(MessageContent { text, attachment })
 }
 
 async fn handle_event(
@@ -392,17 +423,24 @@ async fn handle_event(
                     if let CIContent::RcvMsgContent { msg_content, .. } =
                         &chat_item.chat_item.content
                     {
-                        extract_message_text(msg_content).map(|text| SimplexEvent::Message {
-                            user_id: contact.contact_id,
-                            message_id: chat_item.chat_item.meta.item_id,
-                            text,
-                            reply_message_text: chat_item.chat_item.quoted_item.clone().and_then(
-                                |item| match item.content {
-                                    MsgContent::Text { text, .. } => Some(text),
-                                    _ => None,
-                                },
-                            ),
-                        })
+                        extract_message_content(msg_content)
+                            // Direct messages are a text conversation with the
+                            // bot: an attachment carries no command it could act
+                            // on, so it is ignored rather than read as its caption.
+                            .filter(|content| content.attachment.is_none())
+                            .map(|content| SimplexEvent::Message {
+                                user_id: contact.contact_id,
+                                message_id: chat_item.chat_item.meta.item_id,
+                                text: content.text,
+                                reply_message_text: chat_item
+                                    .chat_item
+                                    .quoted_item
+                                    .clone()
+                                    .and_then(|item| match item.content {
+                                        MsgContent::Text { text, .. } => Some(text),
+                                        _ => None,
+                                    }),
+                            })
                     } else if let CIContent::RcvGroupInvitation {
                         group_invitation,
                         member_role,
@@ -437,13 +475,14 @@ async fn handle_event(
                     {
                         match group_chat_scope {
                             None | Some(GroupChatScopeInfo::Undocumented(_)) => {
-                                extract_message_text(msg_content).map(|text| {
+                                extract_message_content(msg_content).map(|content| {
                                     SimplexEvent::GroupMessage {
                                         group_id: group_info.group_id,
                                         author_id: group_member.group_member_id,
                                         group_name: group_info.group_profile.display_name.clone(),
                                         message_id: chat_item.chat_item.meta.item_id,
-                                        text,
+                                        text: content.text,
+                                        attachment: content.attachment,
                                         timestamp: parse_utc_time(
                                             &chat_item.chat_item.meta.created_at,
                                         ),
@@ -468,13 +507,14 @@ async fn handle_event(
                 && let CIDirection::GroupRcv { group_member, .. } =
                     &chat_item.chat_item.chat_item.chat_dir
             {
-                Ok(extract_message_text(msg_content)
-                    .map(|text| SimplexEvent::GroupMessage {
+                Ok(extract_message_content(msg_content)
+                    .map(|content| SimplexEvent::GroupMessage {
                         group_id: group_info.group_id,
                         author_id: group_member.group_member_id,
                         group_name: group_info.group_profile.display_name.clone(),
                         message_id: chat_item.chat_item.chat_item.meta.item_id,
-                        text,
+                        text: content.text,
+                        attachment: content.attachment,
                         timestamp: parse_utc_time(&chat_item.chat_item.chat_item.meta.created_at),
                         author_joined_at: member_joined_at(group_member),
                     })

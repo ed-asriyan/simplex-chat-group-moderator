@@ -1,6 +1,7 @@
 use super::*;
 use crate::domain::moderator::ports::{
-    GroupMessage, MessengerGroup, MessengerGroupId, UserId, UserModerationActivityRepository,
+    GroupMessage, MessageAttachment, MessengerGroup, MessengerGroupId, UserId,
+    UserModerationActivityRepository,
 };
 use crate::infrastructure::adapters::user_activity_repo_in_memory::InMemoryUserActivityRepository;
 use crate::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
@@ -417,6 +418,7 @@ async fn test_should_moderate_with_message_rate_limit() {
         message_id: 10,
         author_id: 2,
         text: "hello".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -472,6 +474,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
         message_id: 10,
         author_id: 2,
         text: "hello".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -638,6 +641,7 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
         message_id: 10,
         author_id: 2,
         text: "this has badword".to_string(),
+        attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
     };
@@ -1184,6 +1188,7 @@ async fn matched_from(
     let now = Utc::now();
     let msg = GroupMessage {
         text: text.to_string(),
+        attachment: None,
         timestamp: now,
         author_joined_at: joined_minutes_ago.map(|m| now - chrono::Duration::minutes(m)),
         ..Default::default()
@@ -1282,5 +1287,70 @@ async fn test_not_joined_recently_matches_members_from_before_the_bot() {
     assert_eq!(
         hit.reasons,
         vec!["does not match: author joined less than 10 min ago".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn test_moderates_pictures_and_leaves_them_out_of_is_blank() {
+    let rules = vec![
+        ModerationRule {
+            actions: vec![ModerationAction::ModerateMessage],
+            condition: ModerationCondition::ContainsImage,
+        },
+        ModerationRule {
+            actions: vec![ModerationAction::ModerateMessage],
+            condition: ModerationCondition::IsBlank,
+        },
+    ];
+
+    let message = |text: &str, attachment: Option<MessageAttachment>| GroupMessage {
+        group: MessengerGroup {
+            id: 1,
+            name: "Test Group".to_string(),
+        },
+        message_id: 10,
+        author_id: 2,
+        text: text.to_string(),
+        attachment,
+        timestamp: Utc::now(),
+        author_joined_at: None,
+    };
+
+    let activity_repo = InMemoryUserActivityRepository::new();
+    let moderation_repo = InMemoryUserModerationActivityRepository::new();
+    let matched = async |message: &GroupMessage| {
+        should_moderate(message, &rules, &activity_repo, &moderation_repo)
+            .await
+            .unwrap()
+    };
+
+    // A picture is caught by the picture condition, captioned or not.
+    let captionless = message("", Some(MessageAttachment::Image));
+    assert_eq!(
+        matched(&captionless).await.unwrap().reasons,
+        vec!["contains an image".to_string()]
+    );
+    let captioned = message("look at this", Some(MessageAttachment::Image));
+    assert_eq!(
+        matched(&captioned).await.unwrap().reasons,
+        vec!["contains an image".to_string()]
+    );
+
+    // ...and never by "is empty or blank": a message that carries something is
+    // not an empty message, however empty its caption is. Only the picture rule
+    // reports, so a single reason means the blank rule stayed out of it.
+    let blank_caption = message("   ", Some(MessageAttachment::Image));
+    assert_eq!(
+        matched(&blank_caption).await.unwrap().reasons,
+        vec!["contains an image".to_string()]
+    );
+    let captionless_file = message("", Some(MessageAttachment::File));
+    assert!(matched(&captionless_file).await.is_none());
+
+    // A text message with nothing in it is still blank.
+    let blank_text = message("   ", None);
+    assert_eq!(
+        matched(&blank_text).await.unwrap().reasons,
+        vec!["empty message".to_string()]
     );
 }

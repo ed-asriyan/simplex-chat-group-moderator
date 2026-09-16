@@ -403,7 +403,7 @@
                 {
                     "type": "object",
                     "title": "📏 Message Is Empty or Blank",
-                    "description": "Matches when the message consists only of whitespace, line breaks, or invisible/special characters.",
+                    "description": "Matches when the message consists only of whitespace, line breaks, or invisible/special characters. Messages with attachments are never considered as blank.",
                     "required": [
                         "type"
                     ],
@@ -419,7 +419,7 @@
                         }
                     },
                     "options": {
-                        "phrase": "is empty or blank"
+                        "phrase": "is empty or blank and carries no attachment"
                     }
                 },
                 {
@@ -442,6 +442,98 @@
                     },
                     "options": {
                         "phrase": "contains invisible characters"
+                    }
+                },
+                {
+                    "type": "object",
+                    "title": "📎 Message Contains an Image",
+                    "description": "Matches any message that carries a picture, with or without a caption. A caption sent with it is the message text.",
+                    "required": [
+                        "type"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "ContainsImage",
+                            "default": "ContainsImage",
+                            "options": {
+                                "hidden": true
+                            }
+                        }
+                    },
+                    "options": {
+                        "phrase": "contains an image",
+                        "short": "Contains an image"
+                    }
+                },
+                {
+                    "type": "object",
+                    "title": "📎 Message Contains a Video",
+                    "description": "Matches any message that carries a video. A caption sent with it is the message text.",
+                    "required": [
+                        "type"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "ContainsVideo",
+                            "default": "ContainsVideo",
+                            "options": {
+                                "hidden": true
+                            }
+                        }
+                    },
+                    "options": {
+                        "phrase": "contains a video",
+                        "short": "Contains a video"
+                    }
+                },
+                {
+                    "type": "object",
+                    "title": "📎 Message Contains a Voice Message",
+                    "description": "Matches any message that carries a voice recording.",
+                    "required": [
+                        "type"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "ContainsVoiceMessage",
+                            "default": "ContainsVoiceMessage",
+                            "options": {
+                                "hidden": true
+                            }
+                        }
+                    },
+                    "options": {
+                        "phrase": "contains a voice message",
+                        "short": "Contains a voice message"
+                    }
+                },
+                {
+                    "type": "object",
+                    "title": "📎 Message Contains a File",
+                    "description": "Matches any message that carries a file attachment other than a picture, video or voice message \u2014 those have conditions of their own. A caption sent with it is the message text.",
+                    "required": [
+                        "type"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "ContainsFile",
+                            "default": "ContainsFile",
+                            "options": {
+                                "hidden": true
+                            }
+                        }
+                    },
+                    "options": {
+                        "phrase": "contains a file",
+                        "short": "Contains a file"
                     }
                 },
                 {
