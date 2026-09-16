@@ -132,8 +132,8 @@ pub trait ModerationRepository: Send + Sync {
 
 /// Outbound port: persistence for user activity and rate limit state.
 #[async_trait]
-pub trait UserActivityRepository: Send + Sync {
-    async fn record_user_message(
+pub trait UserMessageActivityRepository: Send + Sync {
+    async fn record_message(
         &self,
         group_id: &MessengerGroupId,
         user_id: &UserId,

@@ -82,9 +82,16 @@ Each bounded context follows the same internal shape:
     implementing `moderator::ModerationNotifier` on top of
     `bot_dm::ModerationNotificationReceiver`. The receiver is injected *after*
     construction (`set_receiver`) to break the wiring cycle between the contexts.
-- `drivers/` — low-level clients for external systems. `drivers/simplex/` is the
-  SimpleX Chat websocket client that produces `SimplexEvent`s and exposes raw
-  operations. Drivers know nothing about domain types.
+- `drivers/` — low-level clients for the systems state lives in, external or
+  local. `drivers/simplex/` is the SimpleX Chat websocket client that produces
+  `SimplexEvent`s and exposes raw operations. `drivers/sliding_window_counter.rs`
+  is the per-key counter with TTL eviction that every "how much did this member
+  do recently" adapter is built on — it is generic over its key and knows
+  nothing about members, messages or groups. What makes something a driver is
+  not that it is remote but that it holds no domain type: a driver is where the
+  storage could be swapped (memory for Redis) without any port or adapter
+  moving. Retention policy is *not* the driver's — the counter honours whatever
+  TTL it is handed, and each adapter caps its own.
 - `migrations/` — sequential SQL schema migrations (see DB section below).
 
 ### Where do I put new code? (decision table)
@@ -95,6 +102,7 @@ Each bounded context follows the same internal shape:
 | A new way the outside drives the domain | a new **inbound port** trait in that context's ports (`domain/moderator/ports/inbound.rs`, `domain/bot_dm/ports.rs`) + its own application module |
 | DB query / persistence | `infrastructure/adapters/` (a repo adapter) |
 | Talking to SimpleX or another external system | `infrastructure/drivers/` (+ a thin adapter) |
+| A low-level storage mechanism several adapters share | `infrastructure/drivers/` (generic, no domain types; the adapters keep the policy) |
 | Letting one bounded context call another | a router in `infrastructure/adapters/` |
 | Schema change | a new file in `infrastructure/migrations/` |
 | Constructing/wiring concrete types | `bin/bot.rs` only |

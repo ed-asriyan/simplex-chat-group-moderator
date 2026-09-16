@@ -11,12 +11,12 @@ use std::collections::HashMap;
 
 use super::ModerationCondition;
 use crate::domain::moderator::ports::{
-    GroupMessage, UserActivityRepository, UserModerationActivityRepository,
+    GroupMessage, UserMessageActivityRepository, UserModerationActivityRepository,
 };
 
 pub(in crate::domain::moderator::message_filter) struct ConditionContext<'a> {
     pub group_message: &'a GroupMessage,
-    pub activity_repo: &'a dyn UserActivityRepository,
+    pub activity_repo: &'a dyn UserMessageActivityRepository,
     pub moderation_activity_repo: &'a dyn UserModerationActivityRepository,
 
     /// Whether this message is moderated by a rule that does not itself depend
@@ -38,7 +38,7 @@ pub(in crate::domain::moderator::message_filter) struct ConditionContext<'a> {
 impl<'a> ConditionContext<'a> {
     pub fn new(
         group_message: &'a GroupMessage,
-        activity_repo: &'a dyn UserActivityRepository,
+        activity_repo: &'a dyn UserMessageActivityRepository,
         moderation_activity_repo: &'a dyn UserModerationActivityRepository,
     ) -> Self {
         Self {

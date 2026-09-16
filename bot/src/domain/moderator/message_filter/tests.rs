@@ -3,7 +3,7 @@ use crate::domain::moderator::ports::{
     GroupMessage, MessageAttachment, MessengerGroup, MessengerGroupId, UserId,
     UserModerationActivityRepository,
 };
-use crate::infrastructure::adapters::user_activity_repo_in_memory::InMemoryUserActivityRepository;
+use crate::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
 use crate::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
 use chrono::{DateTime, Utc};
 
@@ -182,7 +182,7 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
         text: "This is a danger message".to_string(),
         ..Default::default()
     };
-    let repo = InMemoryUserActivityRepository::new();
+    let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
     let result = should_moderate(&msg, &rules, &repo, &mod_repo)
         .await
@@ -224,7 +224,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
         text: "first and second both match".to_string(),
         ..Default::default()
     };
-    let repo = InMemoryUserActivityRepository::new();
+    let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
 
     // When ModerateMessage is first, KickAuthor is stronger (covers ModerateMessage),
@@ -294,7 +294,7 @@ async fn test_no_rules_match_returns_none() {
         text: "all good here".to_string(),
         ..Default::default()
     };
-    let repo = InMemoryUserActivityRepository::new();
+    let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
 
     assert!(
@@ -350,8 +350,8 @@ struct MockActivityRepoForFilter {
 }
 
 #[async_trait::async_trait]
-impl UserActivityRepository for MockActivityRepoForFilter {
-    async fn record_user_message(
+impl UserMessageActivityRepository for MockActivityRepoForFilter {
+    async fn record_message(
         &self,
         _group_id: &MessengerGroupId,
         _user_id: &UserId,
@@ -479,7 +479,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
         author_joined_at: None,
     };
 
-    let activity_repo = InMemoryUserActivityRepository::new();
+    let activity_repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo_under = MockActivityRepoForFilter { count: 2 };
     let res = should_moderate(&msg, &rules, &activity_repo, &mod_repo_under)
         .await
@@ -530,7 +530,7 @@ async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_mess
         text: "spam and malware in same message".to_string(),
         ..Default::default()
     };
-    let repo = InMemoryUserActivityRepository::new();
+    let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
 
     let res = should_moderate(&msg, &rules, &repo, &mod_repo)
@@ -577,7 +577,7 @@ async fn test_independent_rules_combine_and_order_deletion_before_kick() {
         text: "spam and kickme in same message".to_string(),
         ..Default::default()
     };
-    let repo = InMemoryUserActivityRepository::new();
+    let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
 
     let res = should_moderate(&msg, &rules, &repo, &mod_repo)
@@ -646,7 +646,7 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
         author_joined_at: None,
     };
 
-    let activity_repo = InMemoryUserActivityRepository::new();
+    let activity_repo = InMemoryUserMessageActivityRepository::new();
     // 2 moderated messages in DB: alone, Rule 2 would NOT trigger (2 < 3).
     // But since Rule 1 matches ("badword"), effective count becomes 2 + 1 = 3 >= 3!
     let mod_repo = MockActivityRepoForFilter { count: 2 };
@@ -702,7 +702,7 @@ async fn test_moderation_rate_limit_is_order_independent() {
         ..Default::default()
     };
 
-    let activity_repo = InMemoryUserActivityRepository::new();
+    let activity_repo = InMemoryUserMessageActivityRepository::new();
     let moderation_activity_repo = MockActivityRepoForFilter { count: 2 };
     let result = should_moderate(&msg, &rules, &activity_repo, &moderation_activity_repo)
         .await
@@ -748,7 +748,7 @@ async fn matched(text: &str, condition: ModerationCondition) -> Option<Moderatio
         text: text.to_string(),
         ..Default::default()
     };
-    let repo = InMemoryUserActivityRepository::new();
+    let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
     should_moderate(&msg, &rule_with(condition), &repo, &mod_repo)
         .await
@@ -882,7 +882,7 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
         ..Default::default()
     };
 
-    let activity_repo = InMemoryUserActivityRepository::new();
+    let activity_repo = InMemoryUserMessageActivityRepository::new();
     // Two earlier moderated messages plus this one reaches the limit of three.
     let moderation_activity_repo = MockActivityRepoForFilter { count: 2 };
     let result = should_moderate(&msg, &rules, &activity_repo, &moderation_activity_repo)
@@ -936,7 +936,7 @@ async fn test_moderation_rate_limit_in_a_tree_ignores_its_own_rule() {
         ..Default::default()
     };
 
-    let activity_repo = InMemoryUserActivityRepository::new();
+    let activity_repo = InMemoryUserMessageActivityRepository::new();
     let moderation_activity_repo = MockActivityRepoForFilter { count: 2 };
     let result = should_moderate(&msg, &rules, &activity_repo, &moderation_activity_repo)
         .await
@@ -1058,7 +1058,7 @@ async fn moderates(rules: &[ModerationRule], text: &str) -> bool {
         text: text.to_string(),
         ..Default::default()
     };
-    let repo = InMemoryUserActivityRepository::new();
+    let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
     should_moderate(&msg, rules, &repo, &mod_repo)
         .await
@@ -1193,7 +1193,7 @@ async fn matched_from(
         author_joined_at: joined_minutes_ago.map(|m| now - chrono::Duration::minutes(m)),
         ..Default::default()
     };
-    let repo = InMemoryUserActivityRepository::new();
+    let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
     should_moderate(&msg, &rule_with(condition), &repo, &mod_repo)
         .await
@@ -1316,7 +1316,7 @@ async fn test_moderates_pictures_and_leaves_them_out_of_is_blank() {
         author_joined_at: None,
     };
 
-    let activity_repo = InMemoryUserActivityRepository::new();
+    let activity_repo = InMemoryUserMessageActivityRepository::new();
     let moderation_repo = InMemoryUserModerationActivityRepository::new();
     let matched = async |message: &GroupMessage| {
         should_moderate(message, &rules, &activity_repo, &moderation_repo)

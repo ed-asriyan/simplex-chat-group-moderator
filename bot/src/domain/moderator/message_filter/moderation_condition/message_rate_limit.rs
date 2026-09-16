@@ -1,4 +1,6 @@
-use crate::domain::moderator::ports::{Err, MessengerGroupId, UserActivityRepository, UserId};
+use crate::domain::moderator::ports::{
+    Err, MessengerGroupId, UserId, UserMessageActivityRepository,
+};
 use chrono::{DateTime, Duration, Utc};
 
 /// Evaluates if the author sent at least `message_count` messages in the window.
@@ -12,9 +14,9 @@ pub fn should_moderate(count: u32, message_count: u32, time_window_minutes: u32)
     }
 }
 
-/// Helper that queries the `UserActivityRepository` and evaluates the condition.
+/// Helper that queries the `UserMessageActivityRepository` and evaluates the condition.
 pub async fn check(
-    activity_repo: &dyn UserActivityRepository,
+    activity_repo: &dyn UserMessageActivityRepository,
     group_id: &MessengerGroupId,
     user_id: &UserId,
     message_count: u32,

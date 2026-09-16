@@ -5,10 +5,10 @@ use crate::domain::moderator::application::tests::{
 use crate::domain::moderator::message_filter::ModerationCondition;
 use crate::domain::moderator::ports::{
     Err, Group, GroupId, GroupMessage, MessengerGroup, MessengerGroupId, ModerationAction,
-    ModerationEngine, ModerationNotifier, ModerationRule, OwnedModerationRule,
-    UserActivityRepository, UserId, UserModerationActivityRepository,
+    ModerationEngine, ModerationNotifier, ModerationRule, OwnedModerationRule, UserId,
+    UserMessageActivityRepository, UserModerationActivityRepository,
 };
-use crate::infrastructure::adapters::user_activity_repo_in_memory::InMemoryUserActivityRepository;
+use crate::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
 use crate::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -57,8 +57,8 @@ pub struct MockActivityRecorder {
 }
 
 #[async_trait]
-impl UserActivityRepository for MockActivityRecorder {
-    async fn record_user_message(
+impl UserMessageActivityRepository for MockActivityRecorder {
+    async fn record_message(
         &self,
         group_id: &MessengerGroupId,
         user_id: &UserId,
@@ -153,7 +153,7 @@ async fn test_process_group_message_moderate_message_action() {
             notifications: notifications.clone(),
             ..Default::default()
         }),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -227,7 +227,7 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
             notifications: notifications.clone(),
             ..Default::default()
         }),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -304,7 +304,7 @@ async fn test_process_group_message_kick_author_without_deleting_messages() {
             notifications: notifications.clone(),
             ..Default::default()
         }),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -378,7 +378,7 @@ async fn test_process_group_message_kick_author_deleting_all_messages() {
             notifications: notifications.clone(),
             ..Default::default()
         }),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -455,7 +455,7 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
             notifications: notifications.clone(),
             ..Default::default()
         }),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -519,7 +519,7 @@ async fn test_process_group_message_no_match_does_nothing() {
             notifications: notifications.clone(),
             ..Default::default()
         }),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -597,7 +597,7 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
             notifications: notifications.clone(),
             ..Default::default()
         }),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -682,7 +682,7 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
             call_log: call_log.clone(),
             fail_notification: false,
         }),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -771,7 +771,7 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
             call_log: call_log.clone(),
             fail_notification: false,
         }),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -850,7 +850,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
             call_log: call_log.clone(),
             ..Default::default()
         }),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -921,7 +921,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
             call_log: call_log.clone(),
             ..Default::default()
         }),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -991,7 +991,7 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
             call_log: call_log.clone(),
             ..Default::default()
         }),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1061,7 +1061,7 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
             fail_notification: true,
             ..Default::default()
         }),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1149,7 +1149,7 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
             call_log: call_log.clone(),
             ..Default::default()
         }),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1236,7 +1236,7 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
             call_log: call_log.clone(),
             ..Default::default()
         }),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1301,7 +1301,7 @@ async fn test_process_group_message_message_rate_limit_triggers_on_threshold() {
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
     let kicked_members = Arc::new(Mutex::new(Vec::new()));
     let notifications = Arc::new(Mutex::new(Vec::new()));
-    let activity_repo = Arc::new(InMemoryUserActivityRepository::new());
+    let activity_repo = Arc::new(InMemoryUserMessageActivityRepository::new());
 
     let app = MessageModerationApplication::new(
         Arc::new(MockModerationRepository {
@@ -1383,7 +1383,7 @@ async fn test_process_group_message_message_rate_limit_kick_author() {
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
     let kicked_members = Arc::new(Mutex::new(Vec::new()));
     let notifications = Arc::new(Mutex::new(Vec::new()));
-    let activity_repo = Arc::new(InMemoryUserActivityRepository::new());
+    let activity_repo = Arc::new(InMemoryUserMessageActivityRepository::new());
 
     let app = MessageModerationApplication::new(
         Arc::new(MockModerationRepository {
@@ -1461,7 +1461,7 @@ async fn test_process_group_message_message_rate_limit_dry_mode() {
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
     let kicked_members = Arc::new(Mutex::new(Vec::new()));
     let notifications = Arc::new(Mutex::new(Vec::new()));
-    let activity_repo = Arc::new(InMemoryUserActivityRepository::new());
+    let activity_repo = Arc::new(InMemoryUserMessageActivityRepository::new());
 
     let app = MessageModerationApplication::new(
         Arc::new(MockModerationRepository {
@@ -1525,7 +1525,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
     };
 
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
-    let activity_repo = Arc::new(InMemoryUserActivityRepository::new());
+    let activity_repo = Arc::new(InMemoryUserMessageActivityRepository::new());
 
     let app = MessageModerationApplication::new(
         Arc::new(MockModerationRepository {
@@ -1652,7 +1652,7 @@ async fn test_track_user_message_called_when_message_rate_limit_rule_configured(
     assert_eq!(
         recorded.len(),
         1,
-        "record_user_message must be called exactly once"
+        "record_message must be called exactly once"
     );
     assert_eq!(recorded[0].0, 10, "group_id must match");
     assert_eq!(recorded[0].1, 42, "user_id must match");
@@ -1794,10 +1794,10 @@ async fn test_track_user_message_not_called_when_no_message_rate_limit_rules() {
 
     app.process_group_message(msg).await.unwrap();
 
-    // When there are no RateLimit rules, record_user_message must NOT be called
+    // When there are no RateLimit rules, record_message must NOT be called
     assert!(
         recorder.recorded.lock().unwrap().is_empty(),
-        "record_user_message must not be called when group has no rate limit rules"
+        "record_message must not be called when group has no rate limit rules"
     );
 }
 
@@ -1841,7 +1841,7 @@ async fn test_track_user_message_not_called_when_group_has_empty_rules() {
 
     assert!(
         recorder.recorded.lock().unwrap().is_empty(),
-        "record_user_message must not be called when group has empty rules"
+        "record_message must not be called when group has empty rules"
     );
 }
 
@@ -1895,7 +1895,7 @@ async fn test_track_user_message_not_called_when_message_rate_limit_window_is_ze
 
     assert!(
         recorder.recorded.lock().unwrap().is_empty(),
-        "record_user_message must not be called when time_window_minutes is 0"
+        "record_message must not be called when time_window_minutes is 0"
     );
 }
 
@@ -1995,7 +1995,7 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
     let kicked_members = Arc::new(Mutex::new(Vec::new()));
     let notifications = Arc::new(Mutex::new(Vec::new()));
-    let activity_repo = Arc::new(InMemoryUserActivityRepository::new());
+    let activity_repo = Arc::new(InMemoryUserMessageActivityRepository::new());
     let moderation_activity_repo = Arc::new(InMemoryUserModerationActivityRepository::new());
 
     let app = MessageModerationApplication::new(
@@ -2104,7 +2104,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         }),
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         mod_recorder.clone(),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -2181,7 +2181,7 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
         }),
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         mod_recorder.clone(),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -2238,7 +2238,7 @@ fn app_with_observer_rule(
         }),
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         restores,
     )
@@ -2315,7 +2315,7 @@ async fn test_dry_mode_schedules_nothing() {
         }),
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         restores.clone(),
     );
@@ -2354,7 +2354,7 @@ async fn test_kicking_the_author_cancels_a_scheduled_restore() {
         }),
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         restores.clone(),
     );
@@ -2406,7 +2406,7 @@ async fn test_failed_restore_bookkeeping_still_moderates_and_notifies() {
             notifications: notifications.clone(),
             ..Default::default()
         }),
-        Arc::new(InMemoryUserActivityRepository::new()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         restores,
     );

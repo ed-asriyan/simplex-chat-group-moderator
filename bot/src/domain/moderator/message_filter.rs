@@ -88,7 +88,9 @@ pub use moderation_action::ModerationAction;
 pub use moderation_condition::ModerationCondition;
 pub use moderation_rule::ModerationRule;
 
-use super::ports::{Err, GroupMessage, UserActivityRepository, UserModerationActivityRepository};
+use super::ports::{
+    Err, GroupMessage, UserMessageActivityRepository, UserModerationActivityRepository,
+};
 use moderation_condition::{ConditionContext, check_condition};
 
 /// Result of evaluating message against moderation rules.
@@ -104,7 +106,7 @@ pub struct ModerationMatch {
 pub async fn should_moderate(
     group_message: &GroupMessage,
     rules: &[ModerationRule],
-    activity_repo: &dyn UserActivityRepository,
+    activity_repo: &dyn UserMessageActivityRepository,
     moderation_activity_repo: &dyn UserModerationActivityRepository,
 ) -> Result<Option<ModerationMatch>, Err> {
     let mut ctx = ConditionContext::new(group_message, activity_repo, moderation_activity_repo);

@@ -7,7 +7,7 @@ use crate::domain::moderator::message_filter::should_moderate;
 use crate::domain::moderator::ports::{
     Err, GroupMemberRole, GroupMessage, GroupModerator, MemberRestoreRepository, ModerationAction,
     ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule,
-    UserActivityRepository, UserModerationActivityRepository,
+    UserMessageActivityRepository, UserModerationActivityRepository,
 };
 
 #[cfg(test)]
@@ -17,7 +17,7 @@ pub struct MessageModerationApplication {
     repository: Arc<dyn ModerationRepository>,
     group_moderator: Arc<dyn GroupModerator>,
     notifier: Arc<dyn ModerationNotifier>,
-    activity_repository: Arc<dyn UserActivityRepository>,
+    activity_repository: Arc<dyn UserMessageActivityRepository>,
     moderation_activity_repository: Arc<dyn UserModerationActivityRepository>,
     restores: Arc<dyn MemberRestoreRepository>,
 }
@@ -27,7 +27,7 @@ impl MessageModerationApplication {
         repository: Arc<dyn ModerationRepository>,
         group_moderator: Arc<dyn GroupModerator>,
         notifier: Arc<dyn ModerationNotifier>,
-        activity_repository: Arc<dyn UserActivityRepository>,
+        activity_repository: Arc<dyn UserMessageActivityRepository>,
         moderation_activity_repository: Arc<dyn UserModerationActivityRepository>,
         restores: Arc<dyn MemberRestoreRepository>,
     ) -> Self {
@@ -57,7 +57,7 @@ impl MessageModerationApplication {
         if let Some(max_window_minutes) = max_message_rate_limit_window {
             let ttl = Duration::from_secs(max_window_minutes as u64 * 60);
             self.activity_repository
-                .record_user_message(
+                .record_message(
                     &group_message.group.id,
                     &group_message.author_id,
                     group_message.timestamp,

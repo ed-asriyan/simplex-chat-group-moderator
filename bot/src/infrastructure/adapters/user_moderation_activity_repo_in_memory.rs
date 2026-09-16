@@ -1,32 +1,27 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use std::sync::Arc;
 use std::time::Duration;
 
-use super::user_activity_repo_in_memory::InMemoryUserActivityRepository;
 use crate::domain::moderator::ports::{
-    Err, MessengerGroupId, UserActivityRepository, UserId, UserModerationActivityRepository,
+    Err, MessengerGroupId, UserId, UserModerationActivityRepository,
 };
+use crate::infrastructure::drivers::sliding_window_counter::SlidingWindowCounter;
+
+/// Hard ceiling: no moderated-message record is ever retained in memory longer
+/// than 60 minutes. Retention is this adapter's policy, not the counter's.
+pub const MAX_RETENTION_DURATION: Duration = Duration::from_secs(60 * 60);
 
 /// In-memory implementation of `UserModerationActivityRepository`.
-/// Reuses `InMemoryUserActivityRepository` under the hood to store and evict
-/// timestamps of messages moderated by the bot.
-#[derive(Clone)]
+///
+/// Every moderated message weighs 1, so the counter's total *is* the count.
+#[derive(Default)]
 pub struct InMemoryUserModerationActivityRepository {
-    storage: Arc<InMemoryUserActivityRepository>,
-}
-
-impl Default for InMemoryUserModerationActivityRepository {
-    fn default() -> Self {
-        Self::new()
-    }
+    counter: SlidingWindowCounter<(MessengerGroupId, UserId)>,
 }
 
 impl InMemoryUserModerationActivityRepository {
     pub fn new() -> Self {
-        Self {
-            storage: Arc::new(InMemoryUserActivityRepository::new()),
-        }
+        Self::default()
     }
 }
 
@@ -39,9 +34,12 @@ impl UserModerationActivityRepository for InMemoryUserModerationActivityReposito
         timestamp: DateTime<Utc>,
         ttl: Duration,
     ) -> Result<(), Err> {
-        self.storage
-            .record_user_message(group_id, user_id, timestamp, ttl)
-            .await
+        self.counter.add(
+            (*group_id, *user_id),
+            timestamp,
+            1,
+            ttl.min(MAX_RETENTION_DURATION),
+        )
     }
 
     async fn count_moderated_messages_since(
@@ -51,9 +49,7 @@ impl UserModerationActivityRepository for InMemoryUserModerationActivityReposito
         since: DateTime<Utc>,
         now: DateTime<Utc>,
     ) -> Result<u32, Err> {
-        self.storage
-            .count_messages_since(group_id, user_id, since, now)
-            .await
+        self.counter.total(&(*group_id, *user_id), since, now)
     }
 }
 

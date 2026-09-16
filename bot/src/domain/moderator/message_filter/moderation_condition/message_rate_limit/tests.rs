@@ -34,8 +34,8 @@ struct MockActivityRepo {
 }
 
 #[async_trait]
-impl UserActivityRepository for MockActivityRepo {
-    async fn record_user_message(
+impl UserMessageActivityRepository for MockActivityRepo {
+    async fn record_message(
         &self,
         group_id: &MessengerGroupId,
         user_id: &UserId,
