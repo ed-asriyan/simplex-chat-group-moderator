@@ -596,6 +596,45 @@ fn test_activity_windows_are_found_at_any_depth() {
 }
 
 #[test]
+fn test_character_windows_are_found_at_any_depth() {
+    let condition = ModerationCondition::All {
+        conditions: vec![
+            words("a"),
+            ModerationCondition::Any {
+                conditions: vec![
+                    ModerationCondition::AuthorHitsCharacterRateLimit {
+                        character_count: 300,
+                        time_window_minutes: 7,
+                    },
+                    ModerationCondition::Not {
+                        condition: Box::new(ModerationCondition::AuthorHitsCharacterRateLimit {
+                            character_count: 5000,
+                            time_window_minutes: 30,
+                        }),
+                    },
+                ],
+            },
+        ],
+    };
+    assert_eq!(condition.max_character_rate_limit_window(), Some(30));
+    // The two rate limits are separate logs, so neither window answers for the
+    // other: a tree full of character limits asks for no message tracking.
+    assert_eq!(condition.max_message_rate_limit_window(), None);
+    assert_eq!(condition.max_moderation_rate_limit_window(), None);
+}
+
+#[test]
+fn test_zero_character_windows_are_ignored() {
+    let condition = ModerationCondition::Not {
+        condition: Box::new(ModerationCondition::AuthorHitsCharacterRateLimit {
+            character_count: 300,
+            time_window_minutes: 0,
+        }),
+    };
+    assert_eq!(condition.max_character_rate_limit_window(), None);
+}
+
+#[test]
 fn test_zero_windows_are_ignored() {
     let condition = ModerationCondition::Not {
         condition: Box::new(ModerationCondition::AuthorHitsMessageRateLimit {
@@ -665,6 +704,14 @@ fn test_descriptions_carry_the_thresholds() {
         }
         .describe(),
         "author sent at least 5 messages in 2 min"
+    );
+    assert_eq!(
+        ModerationCondition::AuthorHitsCharacterRateLimit {
+            character_count: 2000,
+            time_window_minutes: 5,
+        }
+        .describe(),
+        "author sent at least 2000 characters in 5 min"
     );
     assert_eq!(
         ModerationCondition::AuthorHitsModerationRateLimit {

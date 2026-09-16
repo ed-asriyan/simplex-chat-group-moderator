@@ -115,6 +115,7 @@ fn insert_condition(
         ModerationCondition::ExceedsMaxWords { .. } => "ExceedsMaxWords",
         ModerationCondition::ExceedsMaxLines { .. } => "ExceedsMaxLines",
         ModerationCondition::AuthorHitsMessageRateLimit { .. } => "AuthorHitsMessageRateLimit",
+        ModerationCondition::AuthorHitsCharacterRateLimit { .. } => "AuthorHitsCharacterRateLimit",
         ModerationCondition::AuthorHitsModerationRateLimit { .. } => {
             "AuthorHitsModerationRateLimit"
         }
@@ -236,6 +237,16 @@ fn insert_condition(
             tx.execute(
                 "INSERT INTO moderation_condition__author_hits_message_rate_limit (condition_id, message_count, time_window_minutes) VALUES (?1, ?2, ?3)",
                 params![condition_id, message_count, time_window_minutes],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
+        }
+        ModerationCondition::AuthorHitsCharacterRateLimit {
+            character_count,
+            time_window_minutes,
+        } => {
+            tx.execute(
+                "INSERT INTO moderation_condition__author_hits_character_rate_limit (condition_id, character_count, time_window_minutes) VALUES (?1, ?2, ?3)",
+                params![condition_id, character_count, time_window_minutes],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }

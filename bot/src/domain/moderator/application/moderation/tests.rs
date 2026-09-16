@@ -5,9 +5,11 @@ use crate::domain::moderator::application::tests::{
 use crate::domain::moderator::message_filter::ModerationCondition;
 use crate::domain::moderator::ports::{
     Err, Group, GroupId, GroupMessage, MessengerGroup, MessengerGroupId, ModerationAction,
-    ModerationEngine, ModerationNotifier, ModerationRule, OwnedModerationRule, UserId,
-    UserMessageActivityRepository, UserModerationActivityRepository,
+    ModerationEngine, ModerationNotifier, ModerationRule, OwnedModerationRule,
+    UserCharacterActivityRepository, UserId, UserMessageActivityRepository,
+    UserModerationActivityRepository,
 };
+use crate::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
 use crate::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
 use crate::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
 use async_trait::async_trait;
@@ -73,6 +75,42 @@ impl UserMessageActivityRepository for MockActivityRecorder {
     }
 
     async fn count_messages_since(
+        &self,
+        _group_id: &MessengerGroupId,
+        _user_id: &UserId,
+        _since: DateTime<Utc>,
+        _now: DateTime<Utc>,
+    ) -> Result<u32, Err> {
+        Ok(0)
+    }
+}
+
+/// Records what the character log was told, so the tests can check both that
+/// it was told and what length it was given.
+#[derive(Default)]
+pub struct MockCharacterActivityRecorder {
+    /// group, user, timestamp, character count, ttl.
+    pub recorded: Arc<Mutex<Vec<(MessengerGroupId, UserId, DateTime<Utc>, u32, Duration)>>>,
+}
+
+#[async_trait]
+impl UserCharacterActivityRepository for MockCharacterActivityRecorder {
+    async fn record_characters(
+        &self,
+        group_id: &MessengerGroupId,
+        user_id: &UserId,
+        timestamp: DateTime<Utc>,
+        character_count: u32,
+        ttl: Duration,
+    ) -> Result<(), Err> {
+        self.recorded
+            .lock()
+            .unwrap()
+            .push((*group_id, *user_id, timestamp, character_count, ttl));
+        Ok(())
+    }
+
+    async fn sum_characters_since(
         &self,
         _group_id: &MessengerGroupId,
         _user_id: &UserId,
@@ -154,6 +192,7 @@ async fn test_process_group_message_moderate_message_action() {
             ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -228,6 +267,7 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
             ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -305,6 +345,7 @@ async fn test_process_group_message_kick_author_without_deleting_messages() {
             ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -379,6 +420,7 @@ async fn test_process_group_message_kick_author_deleting_all_messages() {
             ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -456,6 +498,7 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
             ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -520,6 +563,7 @@ async fn test_process_group_message_no_match_does_nothing() {
             ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -598,6 +642,7 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
             ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -683,6 +728,7 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
             fail_notification: false,
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -772,6 +818,7 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
             fail_notification: false,
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -851,6 +898,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
             ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -922,6 +970,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
             ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -992,6 +1041,7 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
             ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1062,6 +1112,7 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
             ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1150,6 +1201,7 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
             ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1237,6 +1289,7 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
             ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1318,6 +1371,7 @@ async fn test_process_group_message_message_rate_limit_triggers_on_threshold() {
             ..Default::default()
         }),
         activity_repo,
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1400,6 +1454,7 @@ async fn test_process_group_message_message_rate_limit_kick_author() {
             ..Default::default()
         }),
         activity_repo,
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1478,6 +1533,7 @@ async fn test_process_group_message_message_rate_limit_dry_mode() {
             ..Default::default()
         }),
         activity_repo,
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1538,6 +1594,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         }),
         Arc::new(MockModerationNotifier::default()),
         activity_repo,
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1628,6 +1685,7 @@ async fn test_track_user_message_called_when_message_rate_limit_rule_configured(
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         recorder.clone(),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1710,6 +1768,7 @@ async fn test_track_user_message_uses_max_window_across_multiple_message_rate_li
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         recorder.clone(),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1733,6 +1792,191 @@ async fn test_track_user_message_uses_max_window_across_multiple_message_rate_li
     assert_eq!(recorded.len(), 1);
     // TTL must be based on the maximum window among rules: max(5, 25) = 25 minutes
     assert_eq!(recorded[0].3, Duration::from_secs(25 * 60));
+}
+
+/// The character log is written only when a rule asks about characters, and
+/// what it is told is the length of the message being processed.
+#[tokio::test]
+async fn test_track_characters_called_when_character_rate_limit_rule_configured() {
+    let group = Group {
+        id: 10,
+        owner_id: 100,
+        name: "Test Group".to_string(),
+        notifications_enabled: true,
+        dry_mode_enabled: false,
+    };
+    let rule = OwnedModerationRule {
+        id: 1,
+        rule: ModerationRule {
+            actions: vec![ModerationAction::ModerateMessage],
+            condition: ModerationCondition::AuthorHitsCharacterRateLimit {
+                character_count: 2000,
+                time_window_minutes: 10,
+            },
+        },
+    };
+
+    let messages = Arc::new(MockActivityRecorder::default());
+    let characters = Arc::new(MockCharacterActivityRecorder::default());
+    let app = MessageModerationApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(group),
+            rules: vec![rule],
+        }),
+        Arc::new(MockGroupModerator::default()),
+        Arc::new(MockModerationNotifier::default()),
+        messages.clone(),
+        characters.clone(),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(MockMemberRestoreRepository::default()),
+    );
+
+    let msg_time = Utc::now();
+    // Cyrillic on purpose: 6 characters, 12 UTF-8 bytes. The limit is on what
+    // the author wrote, not on how it happens to be encoded.
+    app.process_group_message(GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id: 1,
+        author_id: 42,
+        text: "Привет".to_string(),
+        attachment: None,
+        timestamp: msg_time,
+        author_joined_at: None,
+    })
+    .await
+    .unwrap();
+
+    let recorded = characters.recorded.lock().unwrap();
+    assert_eq!(recorded.len(), 1, "the character log must be written once");
+    assert_eq!(recorded[0].0, 10, "group_id must match");
+    assert_eq!(recorded[0].1, 42, "user_id must match");
+    assert_eq!(recorded[0].2, msg_time, "the message timestamp is the now");
+    assert_eq!(recorded[0].3, 6, "six characters, not twelve bytes");
+    assert_eq!(
+        recorded[0].4,
+        Duration::from_secs(10 * 60),
+        "ttl is the window"
+    );
+
+    assert!(
+        messages.recorded.lock().unwrap().is_empty(),
+        "a character rule must not start message tracking"
+    );
+}
+
+/// A group with only a message rate limit pays nothing for characters.
+#[tokio::test]
+async fn test_track_characters_not_called_without_a_character_rate_limit_rule() {
+    let group = Group {
+        id: 10,
+        owner_id: 100,
+        name: "Test Group".to_string(),
+        notifications_enabled: true,
+        dry_mode_enabled: false,
+    };
+    let rule = OwnedModerationRule {
+        id: 1,
+        rule: ModerationRule {
+            actions: vec![ModerationAction::ModerateMessage],
+            condition: ModerationCondition::AuthorHitsMessageRateLimit {
+                message_count: 5,
+                time_window_minutes: 10,
+            },
+        },
+    };
+
+    let messages = Arc::new(MockActivityRecorder::default());
+    let characters = Arc::new(MockCharacterActivityRecorder::default());
+    let app = MessageModerationApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(group),
+            rules: vec![rule],
+        }),
+        Arc::new(MockGroupModerator::default()),
+        Arc::new(MockModerationNotifier::default()),
+        messages.clone(),
+        characters.clone(),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(MockMemberRestoreRepository::default()),
+    );
+
+    app.process_group_message(GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id: 1,
+        author_id: 42,
+        text: "hello".to_string(),
+        attachment: None,
+        timestamp: Utc::now(),
+        author_joined_at: None,
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(messages.recorded.lock().unwrap().len(), 1);
+    assert!(
+        characters.recorded.lock().unwrap().is_empty(),
+        "the character log must not be written without a character rule"
+    );
+}
+
+/// A zero window disables the condition, so nothing needs recording — same as
+/// the message rate limit.
+#[tokio::test]
+async fn test_track_characters_not_called_when_window_is_zero() {
+    let group = Group {
+        id: 10,
+        owner_id: 100,
+        name: "Test Group".to_string(),
+        notifications_enabled: true,
+        dry_mode_enabled: false,
+    };
+    let rule = OwnedModerationRule {
+        id: 1,
+        rule: ModerationRule {
+            actions: vec![ModerationAction::ModerateMessage],
+            condition: ModerationCondition::AuthorHitsCharacterRateLimit {
+                character_count: 2000,
+                time_window_minutes: 0,
+            },
+        },
+    };
+
+    let characters = Arc::new(MockCharacterActivityRecorder::default());
+    let app = MessageModerationApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(group),
+            rules: vec![rule],
+        }),
+        Arc::new(MockGroupModerator::default()),
+        Arc::new(MockModerationNotifier::default()),
+        Arc::new(MockActivityRecorder::default()),
+        characters.clone(),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(MockMemberRestoreRepository::default()),
+    );
+
+    app.process_group_message(GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id: 1,
+        author_id: 42,
+        text: "hello".to_string(),
+        attachment: None,
+        timestamp: Utc::now(),
+        author_joined_at: None,
+    })
+    .await
+    .unwrap();
+
+    assert!(characters.recorded.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -1775,6 +2019,7 @@ async fn test_track_user_message_not_called_when_no_message_rate_limit_rules() {
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         recorder.clone(),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1820,6 +2065,7 @@ async fn test_track_user_message_not_called_when_group_has_empty_rules() {
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         recorder.clone(),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1874,6 +2120,7 @@ async fn test_track_user_message_not_called_when_message_rate_limit_window_is_ze
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         recorder.clone(),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -1928,6 +2175,7 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         recorder.clone(),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -2013,6 +2261,7 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
             ..Default::default()
         }),
         activity_repo,
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         moderation_activity_repo,
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -2105,6 +2354,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         mod_recorder.clone(),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -2182,6 +2432,7 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         mod_recorder.clone(),
         Arc::new(MockMemberRestoreRepository::default()),
     );
@@ -2239,6 +2490,7 @@ fn app_with_observer_rule(
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         restores,
     )
@@ -2316,6 +2568,7 @@ async fn test_dry_mode_schedules_nothing() {
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         restores.clone(),
     );
@@ -2355,6 +2608,7 @@ async fn test_kicking_the_author_cancels_a_scheduled_restore() {
         Arc::new(MockGroupModerator::default()),
         Arc::new(MockModerationNotifier::default()),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         restores.clone(),
     );
@@ -2407,6 +2661,7 @@ async fn test_failed_restore_bookkeeping_still_moderates_and_notifies() {
             ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         restores,
     );

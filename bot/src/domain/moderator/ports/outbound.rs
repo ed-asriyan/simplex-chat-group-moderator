@@ -150,6 +150,33 @@ pub trait UserMessageActivityRepository: Send + Sync {
     ) -> Result<u32, Err>;
 }
 
+/// Outbound port: persistence for how much a user wrote and the character rate
+/// limit state.
+///
+/// Separate from [`UserMessageActivityRepository`] because it answers a
+/// different question about the same traffic: not how often a member posts, but
+/// how much they write. A group that configures only one of the two pays for
+/// only one.
+#[async_trait]
+pub trait UserCharacterActivityRepository: Send + Sync {
+    async fn record_characters(
+        &self,
+        group_id: &MessengerGroupId,
+        user_id: &UserId,
+        timestamp: DateTime<Utc>,
+        character_count: u32,
+        ttl: Duration,
+    ) -> Result<(), Err>;
+
+    async fn sum_characters_since(
+        &self,
+        group_id: &MessengerGroupId,
+        user_id: &UserId,
+        since: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<u32, Err>;
+}
+
 /// Outbound port: persistence for user moderation activity (moderated messages history) and moderation rate limit state.
 #[async_trait]
 pub trait UserModerationActivityRepository: Send + Sync {

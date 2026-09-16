@@ -5,7 +5,8 @@ use bot::domain::bot_dm::ports::{
 use bot::domain::moderator::ports::{
     GroupAdministration, GroupMessage, GroupModerator, MemberRestoreRepository,
     MemberRestoreRunner, MessageAttachment, MessengerGroup, ModerationEngine, ModerationNotifier,
-    ModerationRepository, UserMessageActivityRepository, UserModerationActivityRepository,
+    ModerationRepository, UserCharacterActivityRepository, UserMessageActivityRepository,
+    UserModerationActivityRepository,
 };
 use bot::domain::moderator::{
     GroupAdministrationApplication, MemberRestoreApplication, MessageModerationApplication,
@@ -15,6 +16,7 @@ use bot::infrastructure::adapters::member_restore_repo_sqlite::SqliteMemberResto
 use bot::infrastructure::adapters::moderation_notification_router::ModerationNotificationRouter;
 use bot::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository;
 use bot::infrastructure::adapters::simplex_adapter::SimplexAdapter;
+use bot::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
 use bot::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
 use bot::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
 use bot::infrastructure::drivers::simplex::{
@@ -232,6 +234,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let moderation_repo: Arc<dyn ModerationRepository> = Arc::new(moderation_repo);
     let user_activity_repo: Arc<dyn UserMessageActivityRepository> =
         Arc::new(InMemoryUserMessageActivityRepository::new());
+    let user_character_activity_repo: Arc<dyn UserCharacterActivityRepository> =
+        Arc::new(InMemoryUserCharacterActivityRepository::new());
     let user_moderation_activity_repo: Arc<dyn UserModerationActivityRepository> =
         Arc::new(InMemoryUserModerationActivityRepository::new());
     let member_restore_repo: Arc<dyn MemberRestoreRepository> =
@@ -251,6 +255,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         group_moderator.clone(),
         moderation_notifier,
         user_activity_repo,
+        user_character_activity_repo,
         user_moderation_activity_repo,
         member_restore_repo.clone(),
     ));

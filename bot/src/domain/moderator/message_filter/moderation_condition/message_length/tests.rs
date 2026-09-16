@@ -215,10 +215,12 @@ async fn test_integration_with_message_filter_rules() {
         should_moderate as top_level_moderate,
     };
     use crate::domain::moderator::ports::GroupMessage;
+    use crate::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
     use crate::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
     use crate::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
 
     let repo = InMemoryUserMessageActivityRepository::new();
+    let char_repo = InMemoryUserCharacterActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
     let msg = |text: &str| GroupMessage {
         text: text.to_string(),
@@ -243,7 +245,7 @@ async fn test_integration_with_message_filter_rules() {
     }];
 
     let matches = async |text: &str, rules: &[ModerationRule]| {
-        top_level_moderate(&msg(text), rules, &repo, &mod_repo)
+        top_level_moderate(&msg(text), rules, &repo, &char_repo, &mod_repo)
             .await
             .unwrap()
             .is_some()

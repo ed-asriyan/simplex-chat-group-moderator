@@ -683,6 +683,47 @@
                 },
                 {
                     "type": "object",
+                    "title": "👤 Author Hits Character Rate Limit",
+                    "description": "Matches when the author writes at least the given number of characters within the time window, counting this message. Characters are counted across all of the author's messages in the window, so ten 200-character messages and one 2000-character message both reach 2000. An attachment's caption counts as the message text. This is the limit that catches a wall of text, where **Author Hits Message Rate Limit** catches rapid-fire posting.",
+                    "required": [
+                        "type",
+                        "character_count",
+                        "time_window_minutes"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "AuthorHitsCharacterRateLimit",
+                            "default": "AuthorHitsCharacterRateLimit",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "character_count": {
+                            "type": "integer",
+                            "title": "Number of Characters",
+                            "description": "Matches when the characters the author wrote in the time window, this message included, reach this number.",
+                            "minimum": 1,
+                            "default": 2000
+                        },
+                        "time_window_minutes": {
+                            "type": "integer",
+                            "title": "Time Window (Minutes)",
+                            "description": "The time window in minutes over which the characters accumulate (maximum 60 minutes).",
+                            "minimum": 1,
+                            "maximum": 60,
+                            "default": 1
+                        }
+                    },
+                    "options": {
+                        "summary": "{character_count} chars / {time_window_minutes} min",
+                        "phrase": "author sent at least {character_count} characters in {time_window_minutes} min",
+                        "short": "Character rate limit"
+                    }
+                },
+                {
+                    "type": "object",
                     "title": "👤 Author Hits Moderation Rate Limit",
                     "description": "Matches when the given number of the author's messages have **already** been moderated by the bot within the time window. The message being checked right now joins that tally only after the decision is made, so it counts from the author's next message on: with a threshold of 2, the rule fires on their third moderated message.",
                     "required": [

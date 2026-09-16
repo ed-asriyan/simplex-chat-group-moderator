@@ -7,7 +7,8 @@ use crate::domain::moderator::message_filter::should_moderate;
 use crate::domain::moderator::ports::{
     Err, GroupMemberRole, GroupMessage, GroupModerator, MemberRestoreRepository, ModerationAction,
     ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule,
-    UserMessageActivityRepository, UserModerationActivityRepository,
+    UserCharacterActivityRepository, UserMessageActivityRepository,
+    UserModerationActivityRepository,
 };
 
 #[cfg(test)]
@@ -18,6 +19,7 @@ pub struct MessageModerationApplication {
     group_moderator: Arc<dyn GroupModerator>,
     notifier: Arc<dyn ModerationNotifier>,
     activity_repository: Arc<dyn UserMessageActivityRepository>,
+    character_activity_repository: Arc<dyn UserCharacterActivityRepository>,
     moderation_activity_repository: Arc<dyn UserModerationActivityRepository>,
     restores: Arc<dyn MemberRestoreRepository>,
 }
@@ -28,6 +30,7 @@ impl MessageModerationApplication {
         group_moderator: Arc<dyn GroupModerator>,
         notifier: Arc<dyn ModerationNotifier>,
         activity_repository: Arc<dyn UserMessageActivityRepository>,
+        character_activity_repository: Arc<dyn UserCharacterActivityRepository>,
         moderation_activity_repository: Arc<dyn UserModerationActivityRepository>,
         restores: Arc<dyn MemberRestoreRepository>,
     ) -> Self {
@@ -36,6 +39,7 @@ impl MessageModerationApplication {
             group_moderator,
             notifier,
             activity_repository,
+            character_activity_repository,
             moderation_activity_repository,
             restores,
         }
@@ -61,6 +65,36 @@ impl MessageModerationApplication {
                     &group_message.group.id,
                     &group_message.author_id,
                     group_message.timestamp,
+                    ttl,
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn track_user_characters_if_needed(
+        &self,
+        group_message: &GroupMessage,
+        rules: &[ModerationRule],
+    ) -> Result<(), Err> {
+        let max_character_rate_limit_window = rules
+            .iter()
+            .filter_map(|r| r.condition.max_character_rate_limit_window())
+            .map(|window| window.min(60))
+            .max();
+
+        if let Some(max_window_minutes) = max_character_rate_limit_window {
+            let ttl = Duration::from_secs(max_window_minutes as u64 * 60);
+            self.character_activity_repository
+                .record_characters(
+                    &group_message.group.id,
+                    &group_message.author_id,
+                    group_message.timestamp,
+                    // Saturating: a message longer than u32::MAX characters
+                    // cannot reach the bot, and a wrapped count would read as
+                    // a short message.
+                    group_message.text.chars().count().min(u32::MAX as usize) as u32,
                     ttl,
                 )
                 .await?;
@@ -109,11 +143,14 @@ impl ModerationEngine for MessageModerationApplication {
 
         self.track_user_message_if_needed(&group_message, &rules_list)
             .await?;
+        self.track_user_characters_if_needed(&group_message, &rules_list)
+            .await?;
 
         if let Some(matched) = should_moderate(
             &group_message,
             &rules_list,
             self.activity_repository.as_ref(),
+            self.character_activity_repository.as_ref(),
             self.moderation_activity_repository.as_ref(),
         )
         .await?

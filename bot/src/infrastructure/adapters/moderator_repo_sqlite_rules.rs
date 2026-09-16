@@ -137,6 +137,7 @@ struct ConditionData {
     max_words: HashMap<i64, u32>,
     max_lines: HashMap<i64, (u32, u32)>,
     message_rate_limit: HashMap<i64, (u32, u32)>,
+    character_rate_limit: HashMap<i64, (u32, u32)>,
     moderation_rate_limit: HashMap<i64, (u32, u32)>,
     joined_recently: HashMap<i64, u32>,
 }
@@ -219,6 +220,13 @@ impl ConditionData {
                 guard,
                 "s.message_count, s.time_window_minutes",
                 "moderation_condition__author_hits_message_rate_limit",
+                gid,
+                |row| Ok((row.get::<_, i64>(1)? as u32, row.get::<_, i64>(2)? as u32)),
+            )?,
+            character_rate_limit: load_condition_settings(
+                guard,
+                "s.character_count, s.time_window_minutes",
+                "moderation_condition__author_hits_character_rate_limit",
                 gid,
                 |row| Ok((row.get::<_, i64>(1)? as u32, row.get::<_, i64>(2)? as u32)),
             )?,
@@ -345,6 +353,17 @@ fn build_condition(
                 data.message_rate_limit.get(&id).copied().unwrap_or((0, 0));
             Ok(ModerationCondition::AuthorHitsMessageRateLimit {
                 message_count,
+                time_window_minutes,
+            })
+        }
+        "AuthorHitsCharacterRateLimit" => {
+            let (character_count, time_window_minutes) = data
+                .character_rate_limit
+                .get(&id)
+                .copied()
+                .unwrap_or((0, 0));
+            Ok(ModerationCondition::AuthorHitsCharacterRateLimit {
+                character_count,
                 time_window_minutes,
             })
         }

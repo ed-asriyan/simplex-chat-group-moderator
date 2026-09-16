@@ -89,7 +89,8 @@ pub use moderation_condition::ModerationCondition;
 pub use moderation_rule::ModerationRule;
 
 use super::ports::{
-    Err, GroupMessage, UserMessageActivityRepository, UserModerationActivityRepository,
+    Err, GroupMessage, UserCharacterActivityRepository, UserMessageActivityRepository,
+    UserModerationActivityRepository,
 };
 use moderation_condition::{ConditionContext, check_condition};
 
@@ -107,9 +108,15 @@ pub async fn should_moderate(
     group_message: &GroupMessage,
     rules: &[ModerationRule],
     activity_repo: &dyn UserMessageActivityRepository,
+    character_activity_repo: &dyn UserCharacterActivityRepository,
     moderation_activity_repo: &dyn UserModerationActivityRepository,
 ) -> Result<Option<ModerationMatch>, Err> {
-    let mut ctx = ConditionContext::new(group_message, activity_repo, moderation_activity_repo);
+    let mut ctx = ConditionContext::new(
+        group_message,
+        activity_repo,
+        character_activity_repo,
+        moderation_activity_repo,
+    );
 
     // Only pay for the pre-pass when some rule actually asks how many of the
     // author's messages were moderated.

@@ -316,9 +316,35 @@ async fn test_round_trips_author_activity_conditions() {
                     message_count: 5,
                     time_window_minutes: 2,
                 },
+                ModerationCondition::AuthorHitsCharacterRateLimit {
+                    character_count: 2000,
+                    time_window_minutes: 5,
+                },
                 ModerationCondition::AuthorHitsModerationRateLimit {
                     message_count: 3,
                     time_window_minutes: 60,
+                },
+            ],
+        },
+    )
+    .await;
+}
+
+/// The two rate limits are different conditions with different tables: a rule
+/// using both must come back with both, not with one read into the other.
+#[tokio::test]
+async fn test_round_trips_both_rate_limits_side_by_side() {
+    assert_round_trips(
+        2011,
+        ModerationCondition::Any {
+            conditions: vec![
+                ModerationCondition::AuthorHitsMessageRateLimit {
+                    message_count: 10,
+                    time_window_minutes: 1,
+                },
+                ModerationCondition::AuthorHitsCharacterRateLimit {
+                    character_count: 10,
+                    time_window_minutes: 1,
                 },
             ],
         },

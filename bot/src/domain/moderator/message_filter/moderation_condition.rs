@@ -28,6 +28,7 @@
 mod tests;
 
 mod attachment;
+mod character_rate_limit;
 mod exact_message;
 mod invisible_chars;
 mod joined_recently;
@@ -145,6 +146,15 @@ pub enum ModerationCondition {
         #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
         time_window_minutes: u32,
     },
+    /// The author wrote at least `character_count` characters in the last
+    /// `time_window_minutes`, this message's own characters included. 0 in
+    /// either disables it.
+    AuthorHitsCharacterRateLimit {
+        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
+        character_count: u32,
+        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
+        time_window_minutes: u32,
+    },
     /// At least `message_count` of the author's messages were moderated in the
     /// last `time_window_minutes`, this one included if another rule moderates
     /// it. 0 in either disables it.
@@ -205,6 +215,23 @@ impl ModerationCondition {
         let mut max: Option<u32> = None;
         self.walk(&mut |condition| {
             if let Self::AuthorHitsMessageRateLimit {
+                time_window_minutes,
+                ..
+            } = condition
+                && *time_window_minutes > 0
+            {
+                max = Some(max.map_or(*time_window_minutes, |m: u32| m.max(*time_window_minutes)));
+            }
+        });
+        max
+    }
+
+    /// Longest non-zero `time_window_minutes` over every
+    /// [`Self::AuthorHitsCharacterRateLimit`] in this tree.
+    pub fn max_character_rate_limit_window(&self) -> Option<u32> {
+        let mut max: Option<u32> = None;
+        self.walk(&mut |condition| {
+            if let Self::AuthorHitsCharacterRateLimit {
                 time_window_minutes,
                 ..
             } = condition
@@ -284,6 +311,12 @@ impl ModerationCondition {
                 time_window_minutes,
             } => format!(
                 "author sent at least {message_count} messages in {time_window_minutes} min"
+            ),
+            Self::AuthorHitsCharacterRateLimit {
+                character_count,
+                time_window_minutes,
+            } => format!(
+                "author sent at least {character_count} characters in {time_window_minutes} min"
             ),
             Self::AuthorHitsModerationRateLimit {
                 message_count,
@@ -455,6 +488,7 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
         | ModerationCondition::ContainsVoiceMessage
         | ModerationCondition::ContainsFile
         | ModerationCondition::AuthorHitsMessageRateLimit { .. }
+        | ModerationCondition::AuthorHitsCharacterRateLimit { .. }
         | ModerationCondition::AuthorHitsModerationRateLimit { .. } => Ok(()),
         ModerationCondition::All { .. }
         | ModerationCondition::Any { .. }
@@ -692,6 +726,7 @@ fn should_moderate_by_condition(message: &str, condition: &ModerationCondition) 
         | ModerationCondition::ContainsVoiceMessage
         | ModerationCondition::ContainsFile
         | ModerationCondition::AuthorHitsMessageRateLimit { .. }
+        | ModerationCondition::AuthorHitsCharacterRateLimit { .. }
         | ModerationCondition::AuthorHitsModerationRateLimit { .. }
         | ModerationCondition::AuthorJoinedRecently { .. }
         | ModerationCondition::All { .. }
@@ -776,6 +811,20 @@ async fn evaluate(
                 &ctx.group_message.group.id,
                 &ctx.group_message.author_id,
                 *message_count,
+                *time_window_minutes,
+                ctx.group_message.timestamp,
+            )
+            .await
+        }
+        ModerationCondition::AuthorHitsCharacterRateLimit {
+            character_count,
+            time_window_minutes,
+        } => {
+            character_rate_limit::check(
+                ctx.character_activity_repo,
+                &ctx.group_message.group.id,
+                &ctx.group_message.author_id,
+                *character_count,
                 *time_window_minutes,
                 ctx.group_message.timestamp,
             )
