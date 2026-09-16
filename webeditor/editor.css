@@ -25,7 +25,9 @@
     color-scheme: light;
 }
 
-* { box-sizing: border-box }
+* {
+    box-sizing: border-box
+}
 
 body {
     margin: 0;
@@ -43,10 +45,30 @@ body {
     padding-right: 16px;
 }
 
-h1, h2, h3 { margin: 0; text-wrap: balance }
-button, select, input, textarea { font: inherit; color: inherit }
-button { cursor: pointer }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px }
+h1,
+h2,
+h3 {
+    margin: 0;
+    text-wrap: balance
+}
+
+button,
+select,
+input,
+textarea {
+    font: inherit;
+    color: inherit
+}
+
+button {
+    cursor: pointer
+}
+
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px
+}
 
 .eyebrow {
     font: 600 11px/1 var(--cond);
@@ -55,8 +77,13 @@ button { cursor: pointer }
     color: var(--ink-3);
 }
 
-.mono { font-family: var(--mono) }
-.tnum { font-variant-numeric: tabular-nums }
+.mono {
+    font-family: var(--mono)
+}
+
+.tnum {
+    font-variant-numeric: tabular-nums
+}
 
 /* ---------------- page header ---------------- */
 .phead {
@@ -68,11 +95,31 @@ button { cursor: pointer }
     margin-bottom: 14px;
 }
 
-.phead h1 { font: 600 20px/1.25 var(--sans) }
-.phead h1 a { color: var(--accent) }
-.phead .sub { color: var(--ink-2); font-size: 13px; margin: 4px 0 0; max-width: 68ch }
-.phead .sub b { color: var(--ink); font-weight: 600 }
-.phead .err { color: var(--danger); font-size: 13px; margin: 4px 0 0 }
+.phead h1 {
+    font: 600 20px/1.25 var(--sans)
+}
+
+.phead h1 a {
+    color: var(--accent)
+}
+
+.phead .sub {
+    color: var(--ink-2);
+    font-size: 13px;
+    margin: 4px 0 0;
+    max-width: 68ch
+}
+
+.phead .sub b {
+    color: var(--ink);
+    font-weight: 600
+}
+
+.phead .err {
+    color: var(--danger);
+    font-size: 13px;
+    margin: 4px 0 0
+}
 
 .btn {
     border: 1px solid var(--line);
@@ -83,21 +130,54 @@ button { cursor: pointer }
     font-weight: 500;
 }
 
-.btn:hover { border-color: var(--ink-3) }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff }
-.btn.primary:hover { filter: brightness(1.08) }
-.btn.ghost { background: transparent }
-.btn.sm { padding: 5px 9px; font-size: 12.5px }
-.btn.danger { color: var(--danger) }
+.btn:hover {
+    border-color: var(--ink-3)
+}
 
-.boot { color: var(--ink-3); font-size: 13.5px; padding: 20px 0 }
-.boot.failed { color: var(--danger) }
+.btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff
+}
+
+.btn.primary:hover {
+    filter: brightness(1.08)
+}
+
+.btn.ghost {
+    background: transparent
+}
+
+.btn.sm {
+    padding: 5px 9px;
+    font-size: 12.5px
+}
+
+.btn.danger {
+    color: var(--danger)
+}
+
+.boot {
+    color: var(--ink-3);
+    font-size: 13.5px;
+    padding: 20px 0
+}
+
+.boot.failed {
+    color: var(--danger)
+}
 
 /* ---------------- master / detail ---------------- */
-.app { display: grid; gap: 16px; align-items: start }
+.app {
+    display: grid;
+    gap: 16px;
+    align-items: start
+}
 
 @media (min-width: 1000px) {
-    .app { grid-template-columns: minmax(300px, 352px) minmax(0, 1fr) }
+    .app {
+        grid-template-columns: minmax(300px, 352px) minmax(0, 1fr)
+    }
 }
 
 .pane {
@@ -124,7 +204,12 @@ button { cursor: pointer }
 }
 
 /* rule list */
-.rlist { display: flex; flex-direction: column; padding: 8px; gap: 6px }
+.rlist {
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
+    gap: 6px
+}
 
 .rcard {
     display: grid;
@@ -138,7 +223,9 @@ button { cursor: pointer }
     padding: 9px 10px;
 }
 
-.rcard:hover { background: var(--sunken) }
+.rcard:hover {
+    background: var(--sunken)
+}
 
 .rcard[aria-current="true"] {
     background: var(--accent-soft);
@@ -155,16 +242,52 @@ button { cursor: pointer }
     color: var(--ink-2);
 }
 
-.rcard[aria-current="true"] .rnum { background: var(--accent); color: #fff }
-.rsum { min-width: 0; display: flex; flex-direction: column; gap: 3px }
-.rsum .line { font-size: 13px; line-height: 1.35; overflow-wrap: anywhere }
+.rcard[aria-current="true"] .rnum {
+    background: var(--accent);
+    color: #fff
+}
 
-.kw { font: 500 11px var(--mono); letter-spacing: .04em; padding: 0 3px; border-radius: 3px }
-.kw.if { color: var(--if); background: var(--if-soft) }
-.kw.then { color: var(--then); background: var(--then-soft) }
-.kw.op { color: var(--accent); background: var(--accent-soft) }
+.rsum {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px
+}
 
-.empty { padding: 18px 12px; text-align: center; color: var(--ink-3); font-size: 13.5px }
+.rsum .line {
+    font-size: 13px;
+    line-height: 1.35;
+    overflow-wrap: anywhere
+}
+
+.kw {
+    font: 500 11px var(--mono);
+    letter-spacing: .04em;
+    padding: 0 3px;
+    border-radius: 3px
+}
+
+.kw.if {
+    color: var(--if);
+    background: var(--if-soft)
+}
+
+.kw.then {
+    color: var(--then);
+    background: var(--then-soft)
+}
+
+.kw.op {
+    color: var(--accent);
+    background: var(--accent-soft)
+}
+
+.empty {
+    padding: 18px 12px;
+    text-align: center;
+    color: var(--ink-3);
+    font-size: 13.5px
+}
 
 .lfoot {
     padding: 8px 10px 12px;
@@ -195,10 +318,26 @@ button { cursor: pointer }
     font-size: 12.5px;
 }
 
-.back { display: none }
-.block { padding: 12px 14px 14px; border-bottom: 1px solid var(--line-soft) }
-.block:last-child { border-bottom: 0 }
-.bhead { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px }
+.back {
+    display: none
+}
+
+.block {
+    padding: 12px 14px 14px;
+    border-bottom: 1px solid var(--line-soft)
+}
+
+.block:last-child {
+    border-bottom: 0
+}
+
+.bhead {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 10px
+}
 
 .bhead .tag {
     font: 600 11px/1 var(--cond);
@@ -208,14 +347,40 @@ button { cursor: pointer }
     border-radius: 5px;
 }
 
-.bhead.if .tag { color: var(--if); background: var(--if-soft) }
-.bhead.then .tag { color: var(--then); background: var(--then-soft) }
-.bhead .bname { font-weight: 600; font-size: 14px }
-.bhead .tools { display: flex; gap: 6px; margin-left: auto }
+.bhead.if .tag {
+    color: var(--if);
+    background: var(--if-soft)
+}
+
+.bhead.then .tag {
+    color: var(--then);
+    background: var(--then-soft)
+}
+
+.bhead .bname {
+    font-weight: 600;
+    font-size: 14px
+}
+
+.bhead .tools {
+    display: flex;
+    gap: 6px;
+    margin-left: auto
+}
 
 /* ---------------- node row ---------------- */
-.node { min-width: 0 }
-.nrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 5px 4px 5px 0; min-width: 0 }
+.node {
+    min-width: 0
+}
+
+.nrow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 5px 4px 5px 0;
+    min-width: 0
+}
 
 .twist {
     width: 22px;
@@ -228,9 +393,21 @@ button { cursor: pointer }
     line-height: 1;
 }
 
-.twist:hover { background: var(--sunken); color: var(--ink) }
-.twist[hidden] { display: block !important; visibility: hidden }
-.glyph { flex: 0 0 auto; font-size: 14px; line-height: 1 }
+.twist:hover {
+    background: var(--sunken);
+    color: var(--ink)
+}
+
+.twist[hidden] {
+    display: block !important;
+    visibility: hidden
+}
+
+.glyph {
+    flex: 0 0 auto;
+    font-size: 14px;
+    line-height: 1
+}
 
 .ntype {
     flex: 0 1 auto;
@@ -247,7 +424,10 @@ button { cursor: pointer }
     text-overflow: ellipsis;
 }
 
-.ntype:hover, .ntype:focus { border-color: var(--ink-3) }
+.ntype:hover,
+.ntype:focus {
+    border-color: var(--ink-3)
+}
 
 .nsum {
     font: 400 12px var(--mono);
@@ -258,8 +438,13 @@ button { cursor: pointer }
     overflow-wrap: anywhere;
 }
 
-.sp { flex: 1 1 auto }
-.nrow .ico { margin-left: auto }
+.sp {
+    flex: 1 1 auto
+}
+
+.nrow .ico {
+    margin-left: auto
+}
 
 .ico {
     width: 26px;
@@ -273,9 +458,19 @@ button { cursor: pointer }
     line-height: 1;
 }
 
-.ico:hover { border-color: var(--line); color: var(--ink) }
-.ico[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft) }
-.ico + .ico { margin-left: 0 }
+.ico:hover {
+    border-color: var(--line);
+    color: var(--ink)
+}
+
+.ico[aria-pressed="true"] {
+    color: var(--accent);
+    background: var(--accent-soft)
+}
+
+.ico+.ico {
+    margin-left: 0
+}
 
 /* every word of prose a type carries lives here, never in the row */
 .help {
@@ -288,9 +483,18 @@ button { cursor: pointer }
     margin: 2px 0 6px 28px;
 }
 
-.help code { font: 400 12px var(--mono); color: var(--ink) }
-.help a { color: var(--accent) }
-.help b { color: var(--ink) }
+.help code {
+    font: 400 12px var(--mono);
+    color: var(--ink)
+}
+
+.help a {
+    color: var(--accent)
+}
+
+.help b {
+    color: var(--ink)
+}
 
 .help .fh {
     display: grid;
@@ -300,14 +504,35 @@ button { cursor: pointer }
     border-top: 1px solid var(--line);
 }
 
-.help .fh div { font-size: 12px; line-height: 1.45 }
-.help.warn { color: var(--danger); background: var(--danger-soft) }
-.block > .help { margin-left: 0 }
+.help .fh div {
+    font-size: 12px;
+    line-height: 1.45
+}
 
-.params { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 2px 0 8px 28px }
-.fld { display: flex; flex-direction: column; gap: 3px; min-width: 0 }
+.help.warn {
+    color: var(--danger);
+    background: var(--danger-soft)
+}
 
-.fld > span:not(.fhint) {
+.block>.help {
+    margin-left: 0
+}
+
+.params {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    margin: 2px 0 8px 28px
+}
+
+.fld {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0
+}
+
+.fld>span:not(.fhint) {
     font: 600 10.5px/1 var(--cond);
     letter-spacing: .1em;
     text-transform: uppercase;
@@ -335,10 +560,28 @@ button { cursor: pointer }
     max-width: 46ch;
 }
 
-.chk input { accent-color: var(--accent); width: 15px; height: 15px; flex: 0 0 15px }
+.chk input {
+    accent-color: var(--accent);
+    width: 15px;
+    height: 15px;
+    flex: 0 0 15px
+}
 
-.listtools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px }
-.chips { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; flex: 1 1 100%; min-width: 0 }
+.listtools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px
+}
+
+.chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    align-items: center;
+    flex: 1 1 100%;
+    min-width: 0
+}
 
 .chips.cap {
     max-height: 176px;
@@ -373,7 +616,10 @@ button { cursor: pointer }
     line-height: 1;
 }
 
-.chip button:hover { background: var(--sunken); color: var(--danger) }
+.chip button:hover {
+    background: var(--sunken);
+    color: var(--danger)
+}
 
 .chipin {
     border: 1px dashed var(--line);
@@ -416,19 +662,41 @@ button { cursor: pointer }
     resize: vertical;
 }
 
-.fhint { font-size: 11.5px; line-height: 1.45; color: var(--ink-3); margin-top: 3px }
-.nores { font: 400 12.5px var(--mono); color: var(--ink-3); padding: 2px 4px }
+.fhint {
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--ink-3);
+    margin-top: 3px
+}
+
+.nores {
+    font: 400 12.5px var(--mono);
+    color: var(--ink-3);
+    padding: 2px 4px
+}
 
 /* depth is a rail plus a small indent, never nested padding */
-.kids { margin-left: 11px; padding-left: 12px; border-left: 2px solid var(--rail) }
+.kids {
+    margin-left: 11px;
+    padding-left: 12px;
+    border-left: 2px solid var(--rail)
+}
 
 .node[data-d="3"] .kids,
 .node[data-d="4"] .kids,
 .node[data-d="5"] .kids,
-.node[data-d="6"] .kids { margin-left: 7px; padding-left: 9px }
+.node[data-d="6"] .kids {
+    margin-left: 7px;
+    padding-left: 9px
+}
 
-.kidfoot { margin: 4px 0 4px 28px }
-.menu { position: relative }
+.kidfoot {
+    margin: 4px 0 4px 28px
+}
+
+.menu {
+    position: relative
+}
 
 .pop {
     position: absolute;
@@ -455,13 +723,33 @@ button { cursor: pointer }
     white-space: nowrap;
 }
 
-.pop button:hover { background: var(--sunken) }
-.pop button.del { color: var(--danger) }
-.pop hr { border: 0; border-top: 1px solid var(--line-soft); margin: 4px 2px }
+.pop button:hover {
+    background: var(--sunken)
+}
+
+.pop button.del {
+    color: var(--danger)
+}
+
+.pop hr {
+    border: 0;
+    border-top: 1px solid var(--line-soft);
+    margin: 4px 2px
+}
 
 /* actions are a set: order is shown, not edited */
-.arow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 4px; border-top: 1px solid var(--line-soft) }
-.arow:first-of-type { border-top: 0 }
+.arow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 6px 4px;
+    border-top: 1px solid var(--line-soft)
+}
+
+.arow:first-of-type {
+    border-top: 0
+}
 
 .ord {
     font: 500 11px/18px var(--mono);
@@ -474,8 +762,19 @@ button { cursor: pointer }
     flex: 0 0 18px;
 }
 
-.cov { font: 400 11px var(--mono); color: var(--ink-3); border: 1px dashed var(--line); border-radius: 5px; padding: 1px 5px }
-.ordnote { font-size: 12px; color: var(--ink-3); margin-top: 8px }
+.cov {
+    font: 400 11px var(--mono);
+    color: var(--ink-3);
+    border: 1px dashed var(--line);
+    border-radius: 5px;
+    padding: 1px 5px
+}
+
+.ordnote {
+    font-size: 12px;
+    color: var(--ink-3);
+    margin-top: 8px
+}
 
 details.json {
     margin-top: 16px;
@@ -485,7 +784,7 @@ details.json {
     padding: 12px 14px;
 }
 
-details.json > summary {
+details.json>summary {
     cursor: pointer;
     font: 600 11px/1 var(--cond);
     letter-spacing: .13em;
@@ -495,21 +794,26 @@ details.json > summary {
     flex-wrap: wrap;
     gap: 6px;
     align-items: baseline;
-    list-style: none;               /* flex already drops the native marker in
+    list-style: none;
+    /* flex already drops the native marker in
                                        most browsers; this covers the rest */
 }
 
-details.json > summary::-webkit-details-marker { display: none }
+details.json>summary::-webkit-details-marker {
+    display: none
+}
 
 /* Same ▸ / ▾ the condition rows use, so one glyph means "open me" everywhere. */
-details.json > summary::before {
+details.json>summary::before {
     content: "▸";
     font-size: 12px;
     letter-spacing: 0;
     color: var(--ink-3);
 }
 
-details.json[open] > summary::before { content: "▾" }
+details.json[open]>summary::before {
+    content: "▾"
+}
 
 details.json .jcopy {
     margin-left: auto;
@@ -545,38 +849,106 @@ details.json pre {
 
 /* phone: master and detail become two screens */
 @media (max-width: 999px) {
-    .app[data-view="rule"] .master { display: none }
-    .app[data-view="list"] .detail { display: none }
-    .back { display: inline-flex; align-items: center; gap: 5px }
-    .help, .params, .kidfoot { margin-left: 22px }
-    .nrow { gap: 4px }
-    .ntype { flex: 1 1 80px; min-width: 0; font-size: 13.5px }
-    .nrow .sp { display: none }
-    .nrow .ico { margin-left: 0; order: 5 }
-    .nrow .menu { order: 5 }
-    .nsum { order: 10; flex: 1 1 100%; margin-left: 26px }
+    .app[data-view="rule"] .master {
+        display: none
+    }
+
+    .app[data-view="list"] .detail {
+        display: none
+    }
+
+    .back {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px
+    }
+
+    .help,
+    .params,
+    .kidfoot {
+        margin-left: 22px
+    }
+
+    .nrow {
+        gap: 4px
+    }
+
+    .ntype {
+        flex: 1 1 80px;
+        min-width: 0;
+        font-size: 13.5px
+    }
+
+    .nrow .sp {
+        display: none
+    }
+
+    .nrow .ico {
+        margin-left: 0;
+        order: 5
+    }
+
+    .nrow .menu {
+        order: 5
+    }
+
+    .nsum {
+        order: 10;
+        flex: 1 1 100%;
+        margin-left: 26px
+    }
 
     /* Every level of indent is width the condition's name loses; on a phone the
        rail stays readable at half the desktop inset. */
-    .kids { margin-left: 6px; padding-left: 8px }
+    .kids {
+        margin-left: 6px;
+        padding-left: 8px
+    }
+
     .node[data-d="3"] .kids,
     .node[data-d="4"] .kids,
     .node[data-d="5"] .kids,
-    .node[data-d="6"] .kids { margin-left: 4px; padding-left: 6px }
-    .arow > div { order: 20 }            /* help and params below the summary */
+    .node[data-d="6"] .kids {
+        margin-left: 4px;
+        padding-left: 6px
+    }
+
+    .arow>div {
+        order: 20
+    }
+
+    /* help and params below the summary */
 }
 
 @media (prefers-reduced-motion: reduce) {
-    * { transition: none !important; animation: none !important }
+    * {
+        transition: none !important;
+        animation: none !important
+    }
 }
 
 /* ---------------- header actions ---------------- */
-.hactions { display: flex; gap: 8px; flex-wrap: wrap }
+.hactions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap
+}
 
-/* ---------------- ask an AI ---------------- */
-.aitoggle { margin: 0 0 14px }
-.aistep { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 12px; padding: 13px 15px }
-.aistep + .aistep { border-top: 1px solid var(--line-soft) }
+/* ---------------- edit with AI ---------------- */
+.aitoggle {
+    margin: 0 0 14px
+}
+
+.aistep {
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: 12px;
+    padding: 13px 15px
+}
+
+.aistep+.aistep {
+    border-top: 1px solid var(--line-soft)
+}
 
 .aistep .sn {
     font: 500 12px/22px var(--mono);
@@ -587,9 +959,19 @@ details.json pre {
     color: var(--accent);
 }
 
-.aistep h3 { font: 600 14.5px/1.3 var(--sans); margin: 0 0 4px }
-.aistep p { margin: 0 0 9px; font-size: 13px; line-height: 1.5; color: var(--ink-2); max-width: 62ch }
-.aistep p.privacy { color: var(--ink-3); font-size: 12px }
+.aistep h3 {
+    font: 600 14.5px/1.3 var(--sans);
+    margin: 0 0 4px
+}
+
+.aistep p {
+    margin: 0 0 9px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ink-2);
+    max-width: 62ch
+}
+
 .aistep textarea {
     width: 100%;
     min-height: 84px;
@@ -601,21 +983,109 @@ details.json pre {
     resize: vertical;
 }
 
-.aibtns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 9px }
-.slists { display: grid; gap: 5px; margin: 0 0 9px }
-.slists label { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-2) }
-.slists input { accent-color: var(--accent); width: 14px; height: 14px; flex: 0 0 14px }
-.slists .what { font-family: var(--mono); font-size: 12px }
+.aibtns {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 9px
+}
 
-.airesult { border-radius: var(--r); padding: 9px 11px; font-size: 13px; line-height: 1.5; margin-top: 9px }
-.airesult.ok { background: var(--if-soft); color: var(--if) }
-.airesult.bad { background: var(--danger-soft); color: var(--danger) }
-.airesult ul { margin: 6px 0 0; padding-left: 18px }
-.airesult li { margin-bottom: 3px }
-.airesult code { font-family: var(--mono); font-size: 12px }
+/* long lists: present, but out of the way of an owner who just wants the prompt */
+.aiadv {
+    margin-top: 10px
+}
+
+.aiadv[hidden] {
+    display: none
+}
+
+.aiadv>summary {
+    cursor: pointer;
+    list-style: none;
+    display: block;
+    font-size: 12.5px;
+    color: var(--ink-3)
+}
+
+.aiadv>summary::-webkit-details-marker {
+    display: none
+}
+
+.aiadv>summary::before {
+    content: "▸ ";
+    color: var(--ink-3)
+}
+
+.aiadv[open]>summary::before {
+    content: "▾ "
+}
+
+.aiadv p {
+    margin: 7px 0 8px;
+    font-size: 12.5px
+}
+
+.slists {
+    display: grid;
+    gap: 5px;
+    margin: 0 0 9px
+}
+
+.slists label {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    color: var(--ink-2)
+}
+
+.slists input {
+    accent-color: var(--accent);
+    width: 14px;
+    height: 14px;
+    flex: 0 0 14px
+}
+
+.slists .what {
+    font-family: var(--mono);
+    font-size: 12px
+}
+
+.airesult {
+    border-radius: var(--r);
+    padding: 9px 11px;
+    font-size: 13px;
+    line-height: 1.5;
+    margin-top: 9px
+}
+
+.airesult.ok {
+    background: var(--if-soft);
+    color: var(--if)
+}
+
+.airesult.bad {
+    background: var(--danger-soft);
+    color: var(--danger)
+}
+
+.airesult ul {
+    margin: 6px 0 0;
+    padding-left: 18px
+}
+
+.airesult li {
+    margin-bottom: 3px
+}
+
+.airesult code {
+    font-family: var(--mono);
+    font-size: 12px
+}
 
 /* ---------------- apply dialog ---------------- */
-#applydlg, #aidlg {
+#applydlg,
+#aidlg {
     border: 1px solid var(--line);
     border-radius: 12px;
     padding: 0;
@@ -626,8 +1096,14 @@ details.json pre {
     overflow: hidden;
 }
 
-#aidlg { width: min(660px, calc(100vw - 32px)) }
-#applydlg::backdrop, #aidlg::backdrop { background: rgb(16 22 34 / .38) }
+#aidlg {
+    width: min(660px, calc(100vw - 32px))
+}
+
+#applydlg::backdrop,
+#aidlg::backdrop {
+    background: rgb(16 22 34 / .38)
+}
 
 .dlg-x {
     border: 0;
@@ -639,17 +1115,69 @@ details.json pre {
     border-radius: 6px;
 }
 
-.dlg-x:hover { background: var(--sunken); color: var(--ink) }
-.dlg-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 13px 15px; border-bottom: 1px solid var(--line-soft) }
-.dlg-head b { font-size: 15px }
-.dlg-meta { font: 400 12px var(--mono); color: var(--ink-3); font-variant-numeric: tabular-nums }
-.dlg-body { padding: 6px 0; max-height: 52vh; overflow-y: auto }
-#aidlg .dlg-body { max-height: none }
-.dlg-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 15px; border-top: 1px solid var(--line-soft); background: var(--sunken) }
+.dlg-x:hover {
+    background: var(--sunken);
+    color: var(--ink)
+}
 
-.drow { display: grid; grid-template-columns: 24px 92px minmax(0, 1fr); gap: 10px; padding: 8px 15px; align-items: baseline; font-size: 13.5px }
-.drow + .drow { border-top: 1px solid var(--line-soft) }
-.drow .idx { font: 500 11px/18px var(--mono); text-align: center; background: var(--sunken); border-radius: 4px; color: var(--ink-2) }
+.dlg-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 15px;
+    border-bottom: 1px solid var(--line-soft)
+}
+
+.dlg-head b {
+    font-size: 15px
+}
+
+.dlg-meta {
+    font: 400 12px var(--mono);
+    color: var(--ink-3);
+    font-variant-numeric: tabular-nums
+}
+
+.dlg-body {
+    padding: 6px 0;
+    max-height: 52vh;
+    overflow-y: auto
+}
+
+#aidlg .dlg-body {
+    max-height: none
+}
+
+.dlg-foot {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    padding: 12px 15px;
+    border-top: 1px solid var(--line-soft);
+    background: var(--sunken)
+}
+
+.drow {
+    display: grid;
+    grid-template-columns: 24px 92px minmax(0, 1fr);
+    gap: 10px;
+    padding: 8px 15px;
+    align-items: baseline;
+    font-size: 13.5px
+}
+
+.drow+.drow {
+    border-top: 1px solid var(--line-soft)
+}
+
+.drow .idx {
+    font: 500 11px/18px var(--mono);
+    text-align: center;
+    background: var(--sunken);
+    border-radius: 4px;
+    color: var(--ink-2)
+}
 
 .drow .st {
     font: 600 10px/1.4 var(--cond);
@@ -660,32 +1188,119 @@ details.json pre {
     text-align: center;
 }
 
-.drow .st.changed { color: var(--then); background: var(--then-soft) }
-.drow .st.added { color: var(--if); background: var(--if-soft) }
-.drow .st.removed { color: var(--danger); background: var(--danger-soft) }
-.drow .st.moved { color: var(--accent); background: var(--accent-soft) }
-.drow .txt { min-width: 0; overflow-wrap: anywhere; line-height: 1.45 }
-.drow .d { display: block; font: 400 12px var(--mono); color: var(--ink-2) }
-.drow .d.alarm { color: var(--danger); font-weight: 500 }
-.dquiet { padding: 9px 15px; font-size: 12.5px; color: var(--ink-3); border-top: 1px solid var(--line-soft) }
-.dempty { padding: 16px 15px; font-size: 13.5px; color: var(--ink-2) }
-.dsuccess { padding: 18px 15px; font-size: 14px; line-height: 1.55 }
-.dsuccess b { display: block; margin-bottom: 4px }
+.drow .st.changed {
+    color: var(--then);
+    background: var(--then-soft)
+}
+
+.drow .st.added {
+    color: var(--if);
+    background: var(--if-soft)
+}
+
+.drow .st.removed {
+    color: var(--danger);
+    background: var(--danger-soft)
+}
+
+.drow .st.moved {
+    color: var(--accent);
+    background: var(--accent-soft)
+}
+
+.drow .txt {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    line-height: 1.45
+}
+
+.drow .d {
+    display: block;
+    font: 400 12px var(--mono);
+    color: var(--ink-2)
+}
+
+.drow .d.alarm {
+    color: var(--danger);
+    font-weight: 500
+}
+
+.dquiet {
+    padding: 9px 15px;
+    font-size: 12.5px;
+    color: var(--ink-3);
+    border-top: 1px solid var(--line-soft)
+}
+
+.dempty {
+    padding: 16px 15px;
+    font-size: 13.5px;
+    color: var(--ink-2)
+}
+
+.dsuccess {
+    padding: 18px 15px;
+    font-size: 14px;
+    line-height: 1.55
+}
+
+.dsuccess b {
+    display: block;
+    margin-bottom: 4px
+}
 
 @media (max-width: 620px) {
-    .drow { grid-template-columns: 24px minmax(0, 1fr) }
-    .drow .st { justify-self: start }
-    .drow .txt { grid-column: 2 }
+    .drow {
+        grid-template-columns: 24px minmax(0, 1fr)
+    }
+
+    .drow .st {
+        justify-self: start
+    }
+
+    .drow .txt {
+        grid-column: 2
+    }
 }
 
 /* list changes inside the diff: the line is always there, the entries open on click */
-.dlist { display: block }
-.dlist > summary { cursor: pointer; list-style: none; display: block }
-.dlist > summary::-webkit-details-marker { display: none }
-.dlist > summary::before { content: "▸ "; color: var(--ink-3) }
-.dlist[open] > summary::before { content: "▾ " }
-.dlbody { margin: 5px 0 4px; max-height: 184px; overflow-y: auto; display: grid; gap: 7px }
-.dlgroup { display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 8px; align-items: baseline }
+.dlist {
+    display: block
+}
+
+.dlist>summary {
+    cursor: pointer;
+    list-style: none;
+    display: block
+}
+
+.dlist>summary::-webkit-details-marker {
+    display: none
+}
+
+.dlist>summary::before {
+    content: "▸ ";
+    color: var(--ink-3)
+}
+
+.dlist[open]>summary::before {
+    content: "▾ "
+}
+
+.dlbody {
+    margin: 5px 0 4px;
+    max-height: 184px;
+    overflow-y: auto;
+    display: grid;
+    gap: 7px
+}
+
+.dlgroup {
+    display: grid;
+    grid-template-columns: 68px minmax(0, 1fr);
+    gap: 8px;
+    align-items: baseline
+}
 
 .dlk {
     font: 600 10px/1.5 var(--cond);
@@ -696,9 +1311,22 @@ details.json pre {
     padding: 1px 5px;
 }
 
-.dlk.rm { color: var(--danger); background: var(--danger-soft) }
-.dlk.ad { color: var(--if); background: var(--if-soft) }
-.dlchips { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0 }
+.dlk.rm {
+    color: var(--danger);
+    background: var(--danger-soft)
+}
+
+.dlk.ad {
+    color: var(--if);
+    background: var(--if-soft)
+}
+
+.dlchips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 0
+}
 
 .dlchip {
     font: 400 12px var(--mono);
@@ -710,9 +1338,27 @@ details.json pre {
     max-width: 100%;
 }
 
-.dlchip.rm { border-style: dashed; color: var(--ink-2); text-decoration: line-through }
-.dlmore { font: 400 11.5px var(--mono); color: var(--ink-3); align-self: center }
-@media (max-width: 620px) { .dlgroup { grid-template-columns: minmax(0, 1fr) } .dlk { justify-self: start } }
+.dlchip.rm {
+    border-style: dashed;
+    color: var(--ink-2);
+    text-decoration: line-through
+}
+
+.dlmore {
+    font: 400 11.5px var(--mono);
+    color: var(--ink-3);
+    align-self: center
+}
+
+@media (max-width: 620px) {
+    .dlgroup {
+        grid-template-columns: minmax(0, 1fr)
+    }
+
+    .dlk {
+        justify-self: start
+    }
+}
 
 /* the warning above an Apply diff when the link approaches the message limit */
 .dwarn {
@@ -725,12 +1371,18 @@ details.json pre {
     color: var(--then);
 }
 
-.dwarn.over { background: var(--danger-soft); color: var(--danger) }
+.dwarn.over {
+    background: var(--danger-soft);
+    color: var(--danger)
+}
 
 @media (max-width: 999px) {
+
     /* The page runs past a screen on a single nested rule, so the actions that
        end the job live in a bar instead of scrolling away with the header. */
-    body { padding-bottom: 74px }
+    body {
+        padding-bottom: 74px
+    }
 
     .hactions {
         position: fixed;
@@ -745,11 +1397,29 @@ details.json pre {
         box-shadow: 0 -4px 16px rgb(16 22 34 / .06);
     }
 
-    .hactions .btn { flex: 1 1 auto; text-align: center; padding-block: 11px }
-    .toast { bottom: 84px }
+    .hactions .btn {
+        flex: 1 1 auto;
+        text-align: center;
+        padding-block: 11px
+    }
+
+    .toast {
+        bottom: 84px
+    }
 
     /* Fingers need more than a 26px square; the row keeps its height because the
        target grows outwards, and stays narrow so neighbours do not overlap. */
-    .ico, .chip button, .twist { position: relative }
-    .ico::after, .chip button::after, .twist::after { content: ""; position: absolute; inset: -9px -3px }
+    .ico,
+    .chip button,
+    .twist {
+        position: relative
+    }
+
+    .ico::after,
+    .chip button::after,
+    .twist::after {
+        content: "";
+        position: absolute;
+        inset: -9px -3px
+    }
 }

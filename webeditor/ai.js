@@ -1,5 +1,5 @@
 /*
- * Ask an AI — a clipboard handoff to whatever AI chat the owner already uses.
+ * Edit with AI — a clipboard handoff to whatever AI chat the owner already uses.
  *
  * The editor writes a prompt describing the bot, the rule types and the owner's
  * current rules; the owner pastes it into ChatGPT / Gemini / Claude / anything
@@ -15,8 +15,12 @@
  * registries and the rules already exist.
  */
 
-/* Lists longer than BIG_LIST (from editor.js) travel as a marker instead of
-   their entries — the same threshold that gives a list its filter and bulk mode. */
+/* Lists longer than AI_BIG_LIST travel as a marker instead of their entries.
+   This is not editor.js's BIG_LIST: twenty entries is where a list needs a filter
+   in the UI, but a model reproduces a hundred words without dropping any, and an
+   abbreviated list is the one thing in the prompt the owner has to understand. So
+   the marker is reserved for lists that really are too big to send. */
+const AI_BIG_LIST = 100;
 const MARKER = (id, n) => `<<KEEP LIST ${id}: ${n} ENTRIES>>`;
 const MARKER_RE = /^<<KEEP LIST (\d+): (\d+) ENTRIES>>$/;
 
@@ -80,7 +84,7 @@ function elideLists(rules, keepFull) {
         const out = {};
         for (const [k, v] of Object.entries(node)) {
             const longList =
-                Array.isArray(v) && v.length > BIG_LIST && v.every((x) => typeof x === "string");
+                Array.isArray(v) && v.length > AI_BIG_LIST && v.every((x) => typeof x === "string");
             if (!longList) {
                 out[k] = walk(v, ruleIdx);
                 continue;
@@ -179,7 +183,7 @@ when I paste your answer in.
   anything before it comes first and anything after it comes last.
 - Need to remove or fix entries you cannot see? Do not guess, and never edit the text inside the
   marker. Say so, and tell me to copy the prompt again with that list included - there is a checkbox
-  for it in the editor.
+  for it under "Long lists" in the editor's AI panel.
 `
         : ""
 }
@@ -413,20 +417,24 @@ function checkNeverUnderNot(node, underNot, banned, notKey, where, errors) {
 
 function renderLists() {
     elideLists(state.rules, new Set()); /* refresh ids against the current rules */
+    const adv = document.getElementById("ai-adv");
     const host = document.getElementById("ai-lists");
+    /* No abbreviated list means nothing to decide: the section is not there at all,
+       rather than sitting open on an owner who never needs it. */
+    adv.hidden = !ai.lists.size;
     if (!ai.lists.size) {
         host.innerHTML = "";
         return;
     }
-    host.innerHTML =
-        `<p>Long lists travel as a placeholder, so the AI cannot rewrite them by hand. Tick one to send
-         its entries in full — needed only if you want the AI to remove or fix entries inside it.</p>` +
-        [...ai.lists.entries()]
-            .map(
-                ([id, l]) => `<label><input type="checkbox" value="${id}" ${ai.include.has(id) ? "checked" : ""}>
+    const n = ai.lists.size;
+    document.getElementById("ai-adv-sum").textContent =
+        `${n} long list${n === 1 ? "" : "s"} sent as a placeholder`;
+    host.innerHTML = [...ai.lists.entries()]
+        .map(
+            ([id, l]) => `<label><input type="checkbox" value="${id}" ${ai.include.has(id) ? "checked" : ""}>
         <span class="what">Rule ${l.rule} · ${esc(l.field)} · ${l.values.length} entries</span></label>`
-            )
-            .join("");
+        )
+        .join("");
 }
 
 function setResult(kind, html) {
