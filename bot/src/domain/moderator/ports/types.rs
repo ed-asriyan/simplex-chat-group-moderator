@@ -60,6 +60,11 @@ pub struct GroupMessage {
     /// after the bot have a known join time; for everyone who was already there
     /// when the bot joined this is `None`.
     pub author_joined_at: Option<DateTime<Utc>>,
+    /// An edit of a message already posted, rather than a new message. It is
+    /// moderated like any other message — an edit into a banned word is still
+    /// caught — but it is not new traffic, so it feeds no rate limit counter.
+    /// `timestamp` is then when the edit was made.
+    pub is_edit: bool,
 }
 
 #[derive(Clone, Debug)]

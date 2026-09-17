@@ -141,10 +141,12 @@ impl ModerationEngine for MessageModerationApplication {
 
         let rules_list: Vec<ModerationRule> = rules.into_iter().map(|o| o.rule).collect();
 
-        self.track_user_message_if_needed(&group_message, &rules_list)
-            .await?;
-        self.track_user_characters_if_needed(&group_message, &rules_list)
-            .await?;
+        if !group_message.is_edit {
+            self.track_user_message_if_needed(&group_message, &rules_list)
+                .await?;
+            self.track_user_characters_if_needed(&group_message, &rules_list)
+                .await?;
+        }
 
         if let Some(matched) = should_moderate(
             &group_message,
@@ -155,8 +157,10 @@ impl ModerationEngine for MessageModerationApplication {
         )
         .await?
         {
-            self.track_moderated_message_if_needed(&group_message, &rules_list)
-                .await?;
+            if !group_message.is_edit {
+                self.track_moderated_message_if_needed(&group_message, &rules_list)
+                    .await?;
+            }
             let group = self
                 .repository
                 .get_group_by_messenger_id(&group_message.group.id)

@@ -71,6 +71,7 @@ async fn handle_event(
             text,
             attachment,
             author_joined_at,
+            is_edit,
         } => {
             let group_message = GroupMessage {
                 group: MessengerGroup {
@@ -88,6 +89,7 @@ async fn handle_event(
                 }),
                 timestamp,
                 author_joined_at,
+                is_edit,
             };
             moderator.process_group_message(group_message).await?;
         }

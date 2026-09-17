@@ -62,6 +62,10 @@ pub enum SimplexEvent {
         attachment: Option<MessageAttachment>,
         /// When the author joined the group; `None` if unknown (see `member_joined_at`).
         author_joined_at: Option<DateTime<Utc>>,
+        /// An edit of a message already posted, rather than a new message.
+        /// `timestamp` is then when the edit was made, not when the original
+        /// was sent.
+        is_edit: bool,
     },
     Connected {
         user_id: UserId,
@@ -487,6 +491,7 @@ async fn handle_event(
                                             &chat_item.chat_item.meta.created_at,
                                         ),
                                         author_joined_at: member_joined_at(group_member),
+                                        is_edit: false,
                                     }
                                 })
                             }
@@ -515,8 +520,13 @@ async fn handle_event(
                         message_id: chat_item.chat_item.chat_item.meta.item_id,
                         text: content.text,
                         attachment: content.attachment,
-                        timestamp: parse_utc_time(&chat_item.chat_item.chat_item.meta.created_at),
+                        // The time of the edit, not of the original send:
+                        // `timestamp` is the domain's "now", so it decides the
+                        // rate limit window and when an observer restriction
+                        // this edit triggers runs out.
+                        timestamp: parse_utc_time(&chat_item.chat_item.chat_item.meta.updated_at),
                         author_joined_at: member_joined_at(group_member),
+                        is_edit: true,
                     })
                     .map_or(vec![], |event| vec![event]))
             } else {

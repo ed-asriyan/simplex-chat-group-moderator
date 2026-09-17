@@ -208,6 +208,7 @@ async fn test_process_group_message_moderate_message_action() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -283,6 +284,7 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -361,6 +363,7 @@ async fn test_process_group_message_kick_author_without_deleting_messages() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -436,6 +439,7 @@ async fn test_process_group_message_kick_author_deleting_all_messages() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -514,6 +518,7 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -579,6 +584,7 @@ async fn test_process_group_message_no_match_does_nothing() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -658,6 +664,7 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -744,6 +751,7 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -834,6 +842,7 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -914,6 +923,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -986,6 +996,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1057,6 +1068,7 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1128,6 +1140,7 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     // Even if notification fails, the overall processing must succeed (best-effort)
@@ -1217,6 +1230,7 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1305,6 +1319,7 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1387,6 +1402,7 @@ async fn test_process_group_message_message_rate_limit_triggers_on_threshold() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     // Message 1: under limit
@@ -1470,6 +1486,7 @@ async fn test_process_group_message_message_rate_limit_kick_author() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     // User A message 1
@@ -1549,6 +1566,7 @@ async fn test_process_group_message_message_rate_limit_dry_mode() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1613,6 +1631,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         attachment: None,
         timestamp: base_time,
         author_joined_at: None,
+        is_edit: false,
     })
     .await
     .unwrap();
@@ -1629,6 +1648,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         attachment: None,
         timestamp: base_time + chrono::Duration::minutes(10),
         author_joined_at: None,
+        is_edit: false,
     })
     .await
     .unwrap();
@@ -1648,6 +1668,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         attachment: None,
         timestamp: base_time + chrono::Duration::minutes(12),
         author_joined_at: None,
+        is_edit: false,
     })
     .await
     .unwrap();
@@ -1702,6 +1723,7 @@ async fn test_track_user_message_called_when_message_rate_limit_rule_configured(
         attachment: None,
         timestamp: msg_time,
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1784,6 +1806,7 @@ async fn test_track_user_message_uses_max_window_across_multiple_message_rate_li
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -1845,6 +1868,7 @@ async fn test_track_characters_called_when_character_rate_limit_rule_configured(
         attachment: None,
         timestamp: msg_time,
         author_joined_at: None,
+        is_edit: false,
     })
     .await
     .unwrap();
@@ -1914,6 +1938,7 @@ async fn test_track_characters_not_called_without_a_character_rate_limit_rule() 
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     })
     .await
     .unwrap();
@@ -1972,6 +1997,7 @@ async fn test_track_characters_not_called_when_window_is_zero() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     })
     .await
     .unwrap();
@@ -2035,6 +2061,7 @@ async fn test_track_user_message_not_called_when_no_message_rate_limit_rules() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -2081,6 +2108,7 @@ async fn test_track_user_message_not_called_when_group_has_empty_rules() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -2136,6 +2164,7 @@ async fn test_track_user_message_not_called_when_message_rate_limit_window_is_ze
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -2191,6 +2220,7 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(msg).await.unwrap();
@@ -2277,6 +2307,7 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     // Message 1: contains spam -> moderated via rule 2 (ModerateMessage).
@@ -2370,6 +2401,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     // Clean message: should NOT record into moderation activity recorder
@@ -2391,6 +2423,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         attachment: None,
         timestamp: bad_time,
         author_joined_at: None,
+        is_edit: false,
     };
 
     // Moderated message: MUST record into moderation activity recorder
@@ -2448,6 +2481,7 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     app.process_group_message(bad_msg).await.unwrap();
@@ -2463,6 +2497,241 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
 // ---------------------------------------------------------------------------
 // Timed observer restrictions: what the bot owes the member afterwards.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Edits of an already posted message
+//
+// An edit is moderated like any other message, but it is not new traffic: the
+// message it changes is already in the counters, so counting the edit too would
+// let one message plus a few edits of it hit a limit its author never reached.
+// ---------------------------------------------------------------------------
+
+fn edit_test_group() -> Group {
+    Group {
+        id: 10,
+        owner_id: 100,
+        name: "Test Group".to_string(),
+        notifications_enabled: true,
+        dry_mode_enabled: false,
+    }
+}
+
+fn edit_test_message(text: &str, is_edit: bool) -> GroupMessage {
+    GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id: 1,
+        author_id: 42,
+        text: text.to_string(),
+        attachment: None,
+        timestamp: Utc::now(),
+        author_joined_at: None,
+        is_edit,
+    }
+}
+
+#[tokio::test]
+async fn test_editing_one_message_does_not_hit_the_message_rate_limit() {
+    let rule = OwnedModerationRule {
+        id: 1,
+        rule: ModerationRule {
+            actions: vec![ModerationAction::ModerateMessage],
+            condition: ModerationCondition::AuthorHitsMessageRateLimit {
+                message_count: 3,
+                time_window_minutes: 1,
+            },
+        },
+    };
+
+    let deleted_messages = Arc::new(Mutex::new(Vec::new()));
+    let app = MessageModerationApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(edit_test_group()),
+            rules: vec![rule],
+        }),
+        Arc::new(MockGroupModerator {
+            deleted_messages: deleted_messages.clone(),
+            ..Default::default()
+        }),
+        Arc::new(MockModerationNotifier::default()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(MockMemberRestoreRepository::default()),
+    );
+
+    app.process_group_message(edit_test_message("first version", false))
+        .await
+        .unwrap();
+    for version in 0..5 {
+        app.process_group_message(edit_test_message(&format!("version {version}"), true))
+            .await
+            .unwrap();
+    }
+
+    assert!(
+        deleted_messages.lock().unwrap().is_empty(),
+        "one message and its edits must not reach a limit of 3 messages"
+    );
+}
+
+#[tokio::test]
+async fn test_edit_is_still_moderated_by_a_content_rule() {
+    let rule = OwnedModerationRule {
+        id: 1,
+        rule: ModerationRule {
+            actions: vec![ModerationAction::ModerateMessage],
+            condition: ModerationCondition::ContainsWords {
+                keywords: vec!["badword".to_string()],
+            },
+        },
+    };
+
+    let deleted_messages = Arc::new(Mutex::new(Vec::new()));
+    let app = MessageModerationApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(edit_test_group()),
+            rules: vec![rule],
+        }),
+        Arc::new(MockGroupModerator {
+            deleted_messages: deleted_messages.clone(),
+            ..Default::default()
+        }),
+        Arc::new(MockModerationNotifier::default()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(MockMemberRestoreRepository::default()),
+    );
+
+    app.process_group_message(edit_test_message("edited into badword", true))
+        .await
+        .unwrap();
+
+    assert_eq!(*deleted_messages.lock().unwrap(), vec![(10, 1)]);
+}
+
+#[tokio::test]
+async fn test_edit_feeds_neither_the_message_nor_the_character_counter() {
+    let rules = vec![
+        OwnedModerationRule {
+            id: 1,
+            rule: ModerationRule {
+                actions: vec![ModerationAction::ModerateMessage],
+                condition: ModerationCondition::AuthorHitsMessageRateLimit {
+                    message_count: 5,
+                    time_window_minutes: 1,
+                },
+            },
+        },
+        OwnedModerationRule {
+            id: 2,
+            rule: ModerationRule {
+                actions: vec![ModerationAction::ModerateMessage],
+                condition: ModerationCondition::AuthorHitsCharacterRateLimit {
+                    character_count: 2000,
+                    time_window_minutes: 1,
+                },
+            },
+        },
+    ];
+
+    let messages = Arc::new(MockActivityRecorder::default());
+    let characters = Arc::new(MockCharacterActivityRecorder::default());
+    let app = MessageModerationApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(edit_test_group()),
+            rules,
+        }),
+        Arc::new(MockGroupModerator::default()),
+        Arc::new(MockModerationNotifier::default()),
+        messages.clone(),
+        characters.clone(),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(MockMemberRestoreRepository::default()),
+    );
+
+    app.process_group_message(edit_test_message("hello", false))
+        .await
+        .unwrap();
+    assert_eq!(messages.recorded.lock().unwrap().len(), 1);
+    assert_eq!(characters.recorded.lock().unwrap().len(), 1);
+
+    app.process_group_message(edit_test_message("hello, and some more text", true))
+        .await
+        .unwrap();
+    assert_eq!(
+        messages.recorded.lock().unwrap().len(),
+        1,
+        "an edit must not be recorded as another message"
+    );
+    assert_eq!(
+        characters.recorded.lock().unwrap().len(),
+        1,
+        "an edit must not be recorded as more characters written"
+    );
+}
+
+#[tokio::test]
+async fn test_moderating_an_edit_does_not_join_the_moderated_tally() {
+    let rules = vec![
+        OwnedModerationRule {
+            id: 1,
+            rule: ModerationRule {
+                actions: vec![ModerationAction::KickAuthor {
+                    delete_all_messages: false,
+                }],
+                condition: ModerationCondition::AuthorHitsModerationRateLimit {
+                    message_count: 5,
+                    time_window_minutes: 30,
+                },
+            },
+        },
+        OwnedModerationRule {
+            id: 2,
+            rule: ModerationRule {
+                actions: vec![ModerationAction::ModerateMessage],
+                condition: ModerationCondition::ContainsWords {
+                    keywords: vec!["badword".to_string()],
+                },
+            },
+        },
+    ];
+
+    let mod_recorder = Arc::new(MockModerationActivityRecorder::default());
+    let deleted_messages = Arc::new(Mutex::new(Vec::new()));
+    let app = MessageModerationApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(edit_test_group()),
+            rules,
+        }),
+        Arc::new(MockGroupModerator {
+            deleted_messages: deleted_messages.clone(),
+            ..Default::default()
+        }),
+        Arc::new(MockModerationNotifier::default()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
+        mod_recorder.clone(),
+        Arc::new(MockMemberRestoreRepository::default()),
+    );
+
+    app.process_group_message(edit_test_message("edited into badword", true))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        *deleted_messages.lock().unwrap(),
+        vec![(10, 1)],
+        "the edit itself is still moderated"
+    );
+    assert!(
+        mod_recorder.recorded.lock().unwrap().is_empty(),
+        "re-moderating an edited message must not count as another moderated message"
+    );
+}
 
 fn app_with_observer_rule(
     duration_minutes: u32,
@@ -2508,6 +2777,7 @@ fn triggering_message(timestamp: chrono::DateTime<Utc>) -> GroupMessage {
         attachment: None,
         timestamp,
         author_joined_at: None,
+        is_edit: false,
     }
 }
 

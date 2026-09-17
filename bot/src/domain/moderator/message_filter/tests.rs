@@ -464,6 +464,7 @@ async fn test_should_moderate_with_character_rate_limit() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     let repo = InMemoryUserMessageActivityRepository::new();
@@ -531,6 +532,7 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
     let mod_repo = InMemoryUserModerationActivityRepository::new();
     let ttl = std::time::Duration::from_secs(60);
@@ -632,6 +634,7 @@ async fn test_should_moderate_with_message_rate_limit() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     let repo_under_limit = MockActivityRepoForFilter { count: 4 };
@@ -700,6 +703,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     let activity_repo = InMemoryUserMessageActivityRepository::new();
@@ -879,6 +883,7 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
         attachment: None,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     let activity_repo = InMemoryUserMessageActivityRepository::new();
@@ -1456,6 +1461,7 @@ async fn matched_from(
         attachment: None,
         timestamp: now,
         author_joined_at: joined_minutes_ago.map(|m| now - chrono::Duration::minutes(m)),
+        is_edit: false,
         ..Default::default()
     };
     let repo = InMemoryUserMessageActivityRepository::new();
@@ -1585,6 +1591,7 @@ async fn test_moderates_pictures_and_leaves_them_out_of_is_blank() {
         attachment,
         timestamp: Utc::now(),
         author_joined_at: None,
+        is_edit: false,
     };
 
     let activity_repo = InMemoryUserMessageActivityRepository::new();
