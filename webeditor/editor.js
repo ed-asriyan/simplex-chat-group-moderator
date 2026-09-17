@@ -957,6 +957,8 @@ function coversThis(cover, action) {
     return !when || Object.entries(when).every(([k, v]) => action[k] === v);
 }
 
+const label = (n) => `${spec(C, n.type).g} ${spec(C, n.type).t}`;
+
 function actionLine(r) {
     return r.actions.map((a) => `${spec(A, a.type).g} ${spec(A, a.type).say(a)}`).join(" · ");
 }
@@ -970,7 +972,7 @@ function ruleDetails(a, b) {
 
 /* Walks two condition trees side by side. A shrinking list is called out
    separately: it is the one change that would otherwise slip through. */
-function conditionDetails(a, b, out) {
+function conditionDetails(a, b, out, where = "") {
     if (!a || !b || out.length > 8) return;
     if (a.type !== b.type) {
         out.push({ text: `${spec(C, a.type).t} → ${spec(C, b.type).t}` });
@@ -978,12 +980,9 @@ function conditionDetails(a, b, out) {
     }
     for (const f of spec(C, a.type).p) {
         const x = a[f.k], y = b[f.k];
-        if (f.kind === "child") conditionDetails(x, y, out);
-        else if (f.kind === "children") {
-            const xs = x || [], ys = y || [];
-            if (xs.length !== ys.length) out.push({ text: `${spec(C, a.type).t}: ${xs.length} → ${ys.length} conditions` });
-            for (let i = 0; i < Math.min(xs.length, ys.length); i++) conditionDetails(xs[i], ys[i], out);
-        } else if (f.kind === "strlist") {
+        if (f.kind === "child") conditionDetails(x, y, out, where);
+        else if (f.kind === "children") childrenDetails(spec(C, a.type).t, x || [], y || [], out);
+        else if (f.kind === "strlist") {
             /* A net "+1" can hide five entries leaving and six arriving, so the
                two directions are counted separately. Entries disappearing from a
                list is the dangerous one, whichever way the total moved. */
@@ -993,20 +992,64 @@ function conditionDetails(a, b, out) {
             const removed = was.filter((v) => !nowSet.has(v));
             const added = now.filter((v) => !wasSet.has(v));
             if (!removed.length && !added.length) {
-                out.push({ text: `${f.k}: same ${was.length} entries, reordered` });
+                out.push({ text: `${where}${f.k}: same ${was.length} entries, reordered` });
                 continue;
             }
             const parts = [];
             if (removed.length) parts.push(`${removed.length} removed`);
             if (added.length) parts.push(`${added.length} added`);
             out.push({
-                text: `${f.k}: ${parts.join(", ")} (${was.length} → ${now.length})`,
+                text: `${where}${f.k}: ${parts.join(", ")} (${was.length} → ${now.length})`,
                 alarm: removed.length > 0,
                 removed,
                 added,
             });
-        } else if (x !== y) out.push({ text: `${f.k}: ${x} → ${y}` });
+        } else if (x !== y) out.push({ text: `${where}${f.k}: ${x} → ${y}` });
     }
+}
+
+/* A composite's children carry no id either, so the rules' own pairing applies
+   one level down: identical children first, then what is left, by type. Walking
+   them by position instead turns one deleted child into a run of bogus
+   "X → Y" lines down the rest of the list — dropping the second of three
+   conditions read as "the second became the third". Order inside All/Any
+   changes nothing the bot does, so a pure reorder says nothing. */
+function childrenDetails(title, xs, ys, out) {
+    const left = xs.map((n, i) => ({ n, i, key: canon(n) }));
+    const right = ys.map((n, i) => ({ n, i, key: canon(n) }));
+    const same = new Set();
+    const restR = right.filter((b) => {
+        const m = left.find((a) => !same.has(a.i) && a.key === b.key);
+        if (m) same.add(m.i);
+        return !m;
+    });
+
+    /* Same detector, edited settings — the one pairing worth guessing at. A
+       child of another type is a different condition that took its place. */
+    const edited = new Set(), pairs = [], added = [];
+    for (const b of restR) {
+        const m = left.find((a) => !same.has(a.i) && !edited.has(a.i) && a.n.type === b.n.type);
+        if (m) {
+            edited.add(m.i);
+            pairs.push([m.n, b.n]);
+        } else added.push(b.n);
+    }
+    const removed = left.filter((a) => !same.has(a.i) && !edited.has(a.i)).map((a) => a.n);
+
+    if (xs.length !== ys.length) out.push({ text: `${title}: ${xs.length} → ${ys.length} conditions` });
+    /* Removals go out first: past the line budget below, what is left of the
+       diff is what an owner can most afford not to read. The line names the
+       condition and nothing else — what it was set to opens on click, the way
+       a changed list does, so a dropped rule carrying 300 words stays one
+       line. */
+    for (const n of removed) out.push({ text: `removed: ${label(n)}`, node: n, alarm: true });
+    for (const n of added) {
+        if (out.length > 8) break;
+        out.push({ text: `added: ${label(n)}`, node: n });
+    }
+    /* Beside its siblings, "max_lines: 10 → 20" does not say whose setting
+       moved, so a field line inside a composite carries its condition. */
+    for (const [a, b] of pairs) conditionDetails(a, b, out, `${spec(C, b.type).t} · `);
 }
 
 /* ----------------------------- apply dialog ----------------------------- */
@@ -1029,6 +1072,7 @@ function chipList(items, kind) {
 /* A list change is a line like any other until you click it: showing every word
    of every changed list by default would bury the rest of the diff. */
 function detailHtml(x) {
+    if (x.node) return nodeHtml(x);
     if (!x.removed && !x.added) return `<span class="d${x.alarm ? " alarm" : ""}">${esc(x.text)}</span>`;
     return `<details class="dlist"><summary class="d${x.alarm ? " alarm" : ""}">${esc(x.text)}</summary>
     <div class="dlbody">
@@ -1043,6 +1087,24 @@ function detailHtml(x) {
               : ""
       }
     </div></details>`;
+}
+
+/* A condition that left or arrived, opened up: its full wording, and every
+   list it carries. A condition with no settings has nothing to open. */
+function nodeHtml(x) {
+    const n = x.node, kind = x.alarm ? "rm" : "ad";
+    const fields = spec(C, n.type).p;
+    const head = `<span class="d${x.alarm ? " alarm" : ""}">${esc(x.text)}</span>`;
+    if (!fields.length) return head;
+    const lists = fields
+        .filter((f) => f.kind === "strlist" && (n[f.k] || []).length)
+        .map(
+            (f) =>
+                `<div class="dlgroup"><span class="dlk ${kind}">${esc(f.k)}</span><span class="dlchips">${chipList(n[f.k], kind)}</span></div>`
+        )
+        .join("");
+    return `<details class="dlist"><summary class="d${x.alarm ? " alarm" : ""}">${esc(x.text)}</summary>
+    <div class="dlbody"><span class="d">${esc(say(n))}</span>${lists}</div></details>`;
 }
 
 function ruleLine(r) {
