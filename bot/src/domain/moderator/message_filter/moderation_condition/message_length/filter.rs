@@ -4,66 +4,7 @@
 //! can never match; each check still treats 0 as "never matches" so a bad
 //! stored value is inert rather than matching every message.
 
-// Split text by any standard Unicode newline sequence (LF, CRLF, CR, VT, FF, NEL, LS, PS).
-fn split_lines(message: &str) -> Vec<&str> {
-    let mut lines = Vec::new();
-    let mut start = 0;
-    let mut chars = message.char_indices().peekable();
-
-    while let Some((idx, c)) = chars.next() {
-        match c {
-            '\r' => {
-                lines.push(&message[start..idx]);
-                if let Some(&(_, '\n')) = chars.peek() {
-                    chars.next();
-                }
-                start = chars
-                    .peek()
-                    .map(|&(next_idx, _)| next_idx)
-                    .unwrap_or(message.len());
-            }
-            '\n' | '\x0B' | '\x0C' | '\u{0085}' | '\u{2028}' | '\u{2029}' => {
-                lines.push(&message[start..idx]);
-                start = chars
-                    .peek()
-                    .map(|&(next_idx, _)| next_idx)
-                    .unwrap_or(message.len());
-            }
-            _ => {}
-        }
-    }
-    lines.push(&message[start..]);
-    lines
-}
-
-fn count_effective_lines(message: &str, chars_per_line: u32) -> usize {
-    let lines = split_lines(message);
-    let wrap_width = if chars_per_line > 0 {
-        Some(chars_per_line as usize)
-    } else {
-        None
-    };
-
-    let mut total_lines = 0;
-    for line in lines {
-        let char_count = line.chars().count();
-        match wrap_width {
-            Some(w) => {
-                let wrapped = if char_count == 0 {
-                    1
-                } else {
-                    char_count.div_ceil(w)
-                };
-                total_lines += wrapped;
-            }
-            None => {
-                total_lines += 1;
-            }
-        }
-    }
-
-    total_lines
-}
+use crate::domain::moderator::message_filter::screen_lines::count_effective_lines;
 
 /// Matches a message with more than `max_characters` characters. Whitespace
 /// and line breaks count.

@@ -5,8 +5,8 @@ use bot::domain::bot_dm::ports::{
 use bot::domain::moderator::ports::{
     GroupAdministration, GroupMessage, GroupModerator, MemberRestoreRepository,
     MemberRestoreRunner, MessageAttachment, MessengerGroup, ModerationEngine, ModerationNotifier,
-    ModerationRepository, UserCharacterActivityRepository, UserMessageActivityRepository,
-    UserModerationActivityRepository,
+    ModerationRepository, UserCharacterActivityRepository, UserLineActivityRepository,
+    UserMessageActivityRepository, UserModerationActivityRepository,
 };
 use bot::domain::moderator::{
     GroupAdministrationApplication, MemberRestoreApplication, MessageModerationApplication,
@@ -17,6 +17,7 @@ use bot::infrastructure::adapters::moderation_notification_router::ModerationNot
 use bot::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository;
 use bot::infrastructure::adapters::simplex_adapter::SimplexAdapter;
 use bot::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
+use bot::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
 use bot::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
 use bot::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
 use bot::infrastructure::drivers::simplex::{
@@ -238,6 +239,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Arc::new(InMemoryUserMessageActivityRepository::new());
     let user_character_activity_repo: Arc<dyn UserCharacterActivityRepository> =
         Arc::new(InMemoryUserCharacterActivityRepository::new());
+    let user_line_activity_repo: Arc<dyn UserLineActivityRepository> =
+        Arc::new(InMemoryUserLineActivityRepository::new());
     let user_moderation_activity_repo: Arc<dyn UserModerationActivityRepository> =
         Arc::new(InMemoryUserModerationActivityRepository::new());
     let member_restore_repo: Arc<dyn MemberRestoreRepository> =
@@ -258,6 +261,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         moderation_notifier,
         user_activity_repo,
         user_character_activity_repo,
+        user_line_activity_repo,
         user_moderation_activity_repo,
         member_restore_repo.clone(),
     ));

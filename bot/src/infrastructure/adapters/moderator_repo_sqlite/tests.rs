@@ -187,6 +187,46 @@ async fn test_save_and_load_rate_limit_rules() {
     assert_eq!(loaded[1].rule, rules[1]);
 }
 
+/// The line rate limit carries a third setting, the wrap width, which must come
+/// back with the rest of it — including from inside a composite.
+#[tokio::test]
+async fn test_round_trips_line_rate_limit_settings() {
+    let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+    migrations::run(conn.clone()).await.unwrap();
+
+    let repo = SqliteModerationRepository::new(conn.clone());
+    let group_id = repo
+        .save_owner(&1002, "Line Rate Limit Group", &456)
+        .await
+        .unwrap();
+
+    let rules = vec![ModerationRule {
+        actions: vec![ModerationAction::ModerateMessage],
+        condition: ModerationCondition::All {
+            conditions: vec![
+                ModerationCondition::AuthorHitsLineRateLimit {
+                    line_count: 30,
+                    time_window_minutes: 5,
+                    chars_per_line: 40,
+                },
+                ModerationCondition::Not {
+                    condition: Box::new(ModerationCondition::AuthorHitsLineRateLimit {
+                        line_count: 100,
+                        time_window_minutes: 60,
+                        chars_per_line: 0,
+                    }),
+                },
+            ],
+        },
+    }];
+
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+
+    let loaded = repo.get_group_rules(&group_id).await.unwrap();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].rule, rules[0]);
+}
+
 // ---------------------------------------------------------------------------
 // Persistence round-trips
 //

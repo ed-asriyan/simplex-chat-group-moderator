@@ -724,6 +724,55 @@
                 },
                 {
                     "type": "object",
+                    "title": "👤 Author Hits Line Rate Limit",
+                    "description": "Matches when the author's messages take at least the given number of lines within the time window, counting this message. Lines are counted across all of the author's messages in the window, so ten 5-line messages and one 50-line message both reach 50. Each message is counted when it arrives, with the wrap width set then, so changing the width only affects messages sent after the change. An attachment adds no lines of its own — only the text counts, which for an attachment is its caption. This is the limit that catches a chat flooded line by line, where **Message Exceeds Max Lines** only looks at one message at a time.",
+                    "required": [
+                        "type",
+                        "line_count",
+                        "time_window_minutes",
+                        "chars_per_line"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "AuthorHitsLineRateLimit",
+                            "default": "AuthorHitsLineRateLimit",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "line_count": {
+                            "type": "integer",
+                            "title": "Number of Lines",
+                            "description": "Matches when the lines the author's messages took in the time window, this message included, reach this number.",
+                            "minimum": 1,
+                            "default": 30
+                        },
+                        "time_window_minutes": {
+                            "type": "integer",
+                            "title": "Time Window (Minutes)",
+                            "description": "The time window in minutes over which the lines accumulate (maximum 60 minutes).",
+                            "minimum": 1,
+                            "maximum": 60,
+                            "default": 1
+                        },
+                        "chars_per_line": {
+                            "type": "integer",
+                            "title": "Characters per Line (Screen Wrap)",
+                            "description": "If not 0, every line longer than this number of characters counts as several lines, the way it wraps on a phone screen: with 40, a single line of 100 characters counts as 3 lines. With 0, only actual line breaks count. About 40 characters fit on one line on a mobile screen.",
+                            "minimum": 0,
+                            "default": 40
+                        }
+                    },
+                    "options": {
+                        "summary": "{line_count} lines / {time_window_minutes} min @ {chars_per_line} cpl",
+                        "phrase": "author sent at least {line_count} lines in {time_window_minutes} min",
+                        "short": "Line rate limit"
+                    }
+                },
+                {
+                    "type": "object",
                     "title": "👤 Author Hits Moderation Rate Limit",
                     "description": "Matches when the given number of the author's messages have **already** been moderated by the bot within the time window. The message being checked right now joins that tally only after the decision is made, so it counts from the author's next message on: with a threshold of 2, the rule fires on their third moderated message.",
                     "required": [

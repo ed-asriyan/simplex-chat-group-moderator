@@ -5,5 +5,6 @@ pub mod moderator_repo_sqlite;
 mod moderator_repo_sqlite_rules;
 pub mod simplex_adapter;
 pub mod user_character_activity_repo_in_memory;
+pub mod user_line_activity_repo_in_memory;
 pub mod user_message_activity_repo_in_memory;
 pub mod user_moderation_activity_repo_in_memory;

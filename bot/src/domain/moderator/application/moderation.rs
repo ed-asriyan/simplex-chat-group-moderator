@@ -3,11 +3,11 @@ use chrono::Duration as ChronoDuration;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::domain::moderator::message_filter::should_moderate;
+use crate::domain::moderator::message_filter::{count_effective_lines, should_moderate};
 use crate::domain::moderator::ports::{
     Err, GroupMemberRole, GroupMessage, GroupModerator, MemberRestoreRepository, ModerationAction,
     ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule,
-    UserCharacterActivityRepository, UserMessageActivityRepository,
+    UserCharacterActivityRepository, UserLineActivityRepository, UserMessageActivityRepository,
     UserModerationActivityRepository,
 };
 
@@ -20,6 +20,7 @@ pub struct MessageModerationApplication {
     notifier: Arc<dyn ModerationNotifier>,
     activity_repository: Arc<dyn UserMessageActivityRepository>,
     character_activity_repository: Arc<dyn UserCharacterActivityRepository>,
+    line_activity_repository: Arc<dyn UserLineActivityRepository>,
     moderation_activity_repository: Arc<dyn UserModerationActivityRepository>,
     restores: Arc<dyn MemberRestoreRepository>,
 }
@@ -31,6 +32,7 @@ impl MessageModerationApplication {
         notifier: Arc<dyn ModerationNotifier>,
         activity_repository: Arc<dyn UserMessageActivityRepository>,
         character_activity_repository: Arc<dyn UserCharacterActivityRepository>,
+        line_activity_repository: Arc<dyn UserLineActivityRepository>,
         moderation_activity_repository: Arc<dyn UserModerationActivityRepository>,
         restores: Arc<dyn MemberRestoreRepository>,
     ) -> Self {
@@ -40,6 +42,7 @@ impl MessageModerationApplication {
             notifier,
             activity_repository,
             character_activity_repository,
+            line_activity_repository,
             moderation_activity_repository,
             restores,
         }
@@ -103,6 +106,54 @@ impl MessageModerationApplication {
         Ok(())
     }
 
+    async fn track_user_lines_if_needed(
+        &self,
+        group_message: &GroupMessage,
+        rules: &[ModerationRule],
+    ) -> Result<(), Err> {
+        let max_line_rate_limit_window = rules
+            .iter()
+            .filter_map(|r| r.condition.max_line_rate_limit_window())
+            .map(|window| window.min(60))
+            .max();
+
+        if let Some(max_window_minutes) = max_line_rate_limit_window {
+            // One counter serves the whole group, so the message is measured
+            // once, with the widest width any of its conditions configured.
+            let chars_per_line = rules
+                .iter()
+                .filter_map(|r| r.condition.line_rate_limit_wrap_width())
+                .fold(None, |widest, width| match (widest, width) {
+                    (_, 0) | (Some(0), _) => Some(0),
+                    (Some(current), width) => Some(current.max(width)),
+                    (None, width) => Some(width),
+                })
+                .unwrap_or(0);
+
+            let ttl = Duration::from_secs(max_window_minutes as u64 * 60);
+            self.line_activity_repository
+                .record_lines(
+                    &group_message.group.id,
+                    &group_message.author_id,
+                    group_message.timestamp,
+                    // An attachment adds no lines of its own — a caption-less
+                    // picture weighs nothing, where counting it as the one
+                    // empty line it technically is would make the limit count
+                    // attachments.
+                    if group_message.text.is_empty() {
+                        0
+                    } else {
+                        count_effective_lines(&group_message.text, chars_per_line)
+                            .min(u32::MAX as usize) as u32
+                    },
+                    ttl,
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
+
     async fn track_moderated_message_if_needed(
         &self,
         group_message: &GroupMessage,
@@ -146,6 +197,8 @@ impl ModerationEngine for MessageModerationApplication {
                 .await?;
             self.track_user_characters_if_needed(&group_message, &rules_list)
                 .await?;
+            self.track_user_lines_if_needed(&group_message, &rules_list)
+                .await?;
         }
 
         if let Some(matched) = should_moderate(
@@ -153,6 +206,7 @@ impl ModerationEngine for MessageModerationApplication {
             &rules_list,
             self.activity_repository.as_ref(),
             self.character_activity_repository.as_ref(),
+            self.line_activity_repository.as_ref(),
             self.moderation_activity_repository.as_ref(),
         )
         .await?

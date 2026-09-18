@@ -47,6 +47,7 @@ body:
         - Message Exceeds Max Lines
         - Author Hits Message Rate Limit
         - Author Hits Character Rate Limit
+        - Author Hits Line Rate Limit
         - Author Hits Moderation Rate Limit
         - Author Joined Recently
         - All of These Conditions Match (AND)

@@ -33,6 +33,7 @@ mod exact_message;
 mod invisible_chars;
 mod joined_recently;
 mod keywords;
+mod line_rate_limit;
 mod links;
 mod message_length;
 mod message_rate_limit;
@@ -155,6 +156,22 @@ pub enum ModerationCondition {
         #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
         time_window_minutes: u32,
     },
+    /// The author's messages took at least `line_count` lines on screen in the
+    /// last `time_window_minutes`, this message's own lines included, with
+    /// every line longer than `chars_per_line` characters counted as several
+    /// (0: no wrapping). 0 in the count or the window disables it.
+    ///
+    /// Each message is counted once, when it arrives, with the width configured
+    /// then: the counter keeps a total, not the messages, so changing the width
+    /// only affects messages that come after it.
+    AuthorHitsLineRateLimit {
+        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
+        line_count: u32,
+        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
+        time_window_minutes: u32,
+        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
+        chars_per_line: u32,
+    },
     /// At least `message_count` of the author's messages were moderated in the
     /// last `time_window_minutes`, this one included if another rule moderates
     /// it. 0 in either disables it.
@@ -244,6 +261,52 @@ impl ModerationCondition {
     }
 
     /// Longest non-zero `time_window_minutes` over every
+    /// [`Self::AuthorHitsLineRateLimit`] in this tree.
+    pub fn max_line_rate_limit_window(&self) -> Option<u32> {
+        let mut max: Option<u32> = None;
+        self.walk(&mut |condition| {
+            if let Self::AuthorHitsLineRateLimit {
+                time_window_minutes,
+                ..
+            } = condition
+                && *time_window_minutes > 0
+            {
+                max = Some(max.map_or(*time_window_minutes, |m: u32| m.max(*time_window_minutes)));
+            }
+        });
+        max
+    }
+
+    /// The wrap width every [`Self::AuthorHitsLineRateLimit`] in this tree is
+    /// counted with: the widest one configured, where 0 ("no wrapping") is
+    /// widest of all.
+    ///
+    /// One counter serves the whole group, so a message has one line count even
+    /// when two conditions disagree about the width. Taking the widest makes
+    /// that count the one the mildest condition expects: deleting a message the
+    /// owner did not ask to delete is worse than missing a flood.
+    pub fn line_rate_limit_wrap_width(&self) -> Option<u32> {
+        let mut width: Option<u32> = None;
+        self.walk(&mut |condition| {
+            if let Self::AuthorHitsLineRateLimit {
+                time_window_minutes,
+                chars_per_line,
+                ..
+            } = condition
+                && *time_window_minutes > 0
+            {
+                width = Some(match (width, *chars_per_line) {
+                    // 0 means "no wrapping", which is wider than any width.
+                    (_, 0) | (Some(0), _) => 0,
+                    (Some(current), configured) => current.max(configured),
+                    (None, configured) => configured,
+                });
+            }
+        });
+        width
+    }
+
+    /// Longest non-zero `time_window_minutes` over every
     /// [`Self::AuthorHitsModerationRateLimit`] in this tree.
     pub fn max_moderation_rate_limit_window(&self) -> Option<u32> {
         let mut max: Option<u32> = None;
@@ -318,6 +381,13 @@ impl ModerationCondition {
             } => format!(
                 "author sent at least {character_count} characters in {time_window_minutes} min"
             ),
+            Self::AuthorHitsLineRateLimit {
+                line_count,
+                time_window_minutes,
+                ..
+            } => {
+                format!("author sent at least {line_count} lines in {time_window_minutes} min")
+            }
             Self::AuthorHitsModerationRateLimit {
                 message_count,
                 time_window_minutes,
@@ -489,6 +559,7 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
         | ModerationCondition::ContainsFile
         | ModerationCondition::AuthorHitsMessageRateLimit { .. }
         | ModerationCondition::AuthorHitsCharacterRateLimit { .. }
+        | ModerationCondition::AuthorHitsLineRateLimit { .. }
         | ModerationCondition::AuthorHitsModerationRateLimit { .. } => Ok(()),
         ModerationCondition::All { .. }
         | ModerationCondition::Any { .. }
@@ -727,6 +798,7 @@ fn should_moderate_by_condition(message: &str, condition: &ModerationCondition) 
         | ModerationCondition::ContainsFile
         | ModerationCondition::AuthorHitsMessageRateLimit { .. }
         | ModerationCondition::AuthorHitsCharacterRateLimit { .. }
+        | ModerationCondition::AuthorHitsLineRateLimit { .. }
         | ModerationCondition::AuthorHitsModerationRateLimit { .. }
         | ModerationCondition::AuthorJoinedRecently { .. }
         | ModerationCondition::All { .. }
@@ -825,6 +897,23 @@ async fn evaluate(
                 &ctx.group_message.group.id,
                 &ctx.group_message.author_id,
                 *character_count,
+                *time_window_minutes,
+                ctx.group_message.timestamp,
+            )
+            .await
+        }
+        // The wrap width is not read here: it did its work when the message was
+        // counted into the window.
+        ModerationCondition::AuthorHitsLineRateLimit {
+            line_count,
+            time_window_minutes,
+            ..
+        } => {
+            line_rate_limit::check(
+                ctx.line_activity_repo,
+                &ctx.group_message.group.id,
+                &ctx.group_message.author_id,
+                *line_count,
                 *time_window_minutes,
                 ctx.group_message.timestamp,
             )

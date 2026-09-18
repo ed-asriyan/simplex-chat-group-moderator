@@ -624,6 +624,73 @@ fn test_character_windows_are_found_at_any_depth() {
 }
 
 #[test]
+fn test_line_windows_and_wrap_width_are_found_at_any_depth() {
+    let condition = ModerationCondition::All {
+        conditions: vec![
+            words("a"),
+            ModerationCondition::Any {
+                conditions: vec![
+                    ModerationCondition::AuthorHitsLineRateLimit {
+                        line_count: 30,
+                        time_window_minutes: 7,
+                        chars_per_line: 40,
+                    },
+                    ModerationCondition::Not {
+                        condition: Box::new(ModerationCondition::AuthorHitsLineRateLimit {
+                            line_count: 100,
+                            time_window_minutes: 30,
+                            chars_per_line: 80,
+                        }),
+                    },
+                ],
+            },
+        ],
+    };
+    assert_eq!(condition.max_line_rate_limit_window(), Some(30));
+    // One counter serves the group, so the widest width wins.
+    assert_eq!(condition.line_rate_limit_wrap_width(), Some(80));
+    // Lines are their own log: no other tracking is asked for.
+    assert_eq!(condition.max_message_rate_limit_window(), None);
+    assert_eq!(condition.max_character_rate_limit_window(), None);
+    assert_eq!(condition.max_moderation_rate_limit_window(), None);
+}
+
+/// 0 means "no wrapping", which counts fewer lines than any width does, so it
+/// is the widest setting of all.
+#[test]
+fn test_wrap_width_zero_beats_every_width() {
+    let condition = ModerationCondition::Any {
+        conditions: vec![
+            ModerationCondition::AuthorHitsLineRateLimit {
+                line_count: 30,
+                time_window_minutes: 5,
+                chars_per_line: 40,
+            },
+            ModerationCondition::AuthorHitsLineRateLimit {
+                line_count: 10,
+                time_window_minutes: 5,
+                chars_per_line: 0,
+            },
+        ],
+    };
+    assert_eq!(condition.line_rate_limit_wrap_width(), Some(0));
+}
+
+#[test]
+fn test_zero_line_windows_are_ignored() {
+    let condition = ModerationCondition::Not {
+        condition: Box::new(ModerationCondition::AuthorHitsLineRateLimit {
+            line_count: 30,
+            time_window_minutes: 0,
+            chars_per_line: 40,
+        }),
+    };
+    assert_eq!(condition.max_line_rate_limit_window(), None);
+    // A disabled condition asks for no counting either.
+    assert_eq!(condition.line_rate_limit_wrap_width(), None);
+}
+
+#[test]
 fn test_zero_character_windows_are_ignored() {
     let condition = ModerationCondition::Not {
         condition: Box::new(ModerationCondition::AuthorHitsCharacterRateLimit {
@@ -712,6 +779,15 @@ fn test_descriptions_carry_the_thresholds() {
         }
         .describe(),
         "author sent at least 2000 characters in 5 min"
+    );
+    assert_eq!(
+        ModerationCondition::AuthorHitsLineRateLimit {
+            line_count: 30,
+            time_window_minutes: 5,
+            chars_per_line: 40,
+        }
+        .describe(),
+        "author sent at least 30 lines in 5 min"
     );
     assert_eq!(
         ModerationCondition::AuthorHitsModerationRateLimit {

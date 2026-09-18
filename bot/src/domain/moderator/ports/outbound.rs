@@ -177,6 +177,33 @@ pub trait UserCharacterActivityRepository: Send + Sync {
     ) -> Result<u32, Err>;
 }
 
+/// Outbound port: persistence for how many lines a user took up on screen and
+/// the line rate limit state.
+///
+/// Lines are counted by the caller, with the wrap width configured at the time
+/// the message arrived; this port only keeps the sum over the window. A message
+/// already counted is never recounted, so changing the width affects new
+/// messages only.
+#[async_trait]
+pub trait UserLineActivityRepository: Send + Sync {
+    async fn record_lines(
+        &self,
+        group_id: &MessengerGroupId,
+        user_id: &UserId,
+        timestamp: DateTime<Utc>,
+        line_count: u32,
+        ttl: Duration,
+    ) -> Result<(), Err>;
+
+    async fn sum_lines_since(
+        &self,
+        group_id: &MessengerGroupId,
+        user_id: &UserId,
+        since: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<u32, Err>;
+}
+
 /// Outbound port: persistence for user moderation activity (moderated messages history) and moderation rate limit state.
 #[async_trait]
 pub trait UserModerationActivityRepository: Send + Sync {

@@ -4,6 +4,7 @@ use crate::domain::moderator::ports::{
     UserModerationActivityRepository,
 };
 use crate::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
+use crate::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
 use crate::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
 use crate::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
 use chrono::{DateTime, Utc};
@@ -185,9 +186,16 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
     };
     let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
-    let result = should_moderate(&msg, &rules, &repo, &no_character_activity(), &mod_repo)
-        .await
-        .unwrap();
+    let result = should_moderate(
+        &msg,
+        &rules,
+        &repo,
+        &no_character_activity(),
+        &no_line_activity(),
+        &mod_repo,
+    )
+    .await
+    .unwrap();
     assert!(result.is_some());
     let m = result.unwrap();
     assert_eq!(
@@ -230,9 +238,16 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
 
     // When ModerateMessage is first, KickAuthor is stronger (covers ModerateMessage),
     // so it checks the second rule and upgrades to moderate-then-kick.
-    let result = should_moderate(&msg, &rules, &repo, &no_character_activity(), &mod_repo)
-        .await
-        .unwrap();
+    let result = should_moderate(
+        &msg,
+        &rules,
+        &repo,
+        &no_character_activity(),
+        &no_line_activity(),
+        &mod_repo,
+    )
+    .await
+    .unwrap();
     assert!(result.is_some());
     let m = result.unwrap();
     assert_eq!(
@@ -269,6 +284,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
         &reversed_rules,
         &repo,
         &no_character_activity(),
+        &no_line_activity(),
         &mod_repo,
     )
     .await
@@ -305,10 +321,17 @@ async fn test_no_rules_match_returns_none() {
     let mod_repo = InMemoryUserModerationActivityRepository::new();
 
     assert!(
-        should_moderate(&msg, &rules, &repo, &no_character_activity(), &mod_repo)
-            .await
-            .unwrap()
-            .is_none()
+        should_moderate(
+            &msg,
+            &rules,
+            &repo,
+            &no_character_activity(),
+            &no_line_activity(),
+            &mod_repo
+        )
+        .await
+        .unwrap()
+        .is_none()
     );
 }
 
@@ -389,8 +412,94 @@ fn test_character_rate_limit_serialization_roundtrip() {
 
 /// Most tests here exercise no character rate limit, so they hand
 /// `should_moderate` an empty character log.
+#[tokio::test]
+async fn test_should_moderate_with_line_rate_limit() {
+    let rules = vec![ModerationRule {
+        actions: vec![ModerationAction::ModerateMessage],
+        condition: ModerationCondition::AuthorHitsLineRateLimit {
+            line_count: 30,
+            time_window_minutes: 1,
+            chars_per_line: 40,
+        },
+    }];
+
+    let msg = GroupMessage {
+        group: MessengerGroup {
+            id: 1,
+            name: "Test Group".to_string(),
+        },
+        message_id: 10,
+        author_id: 2,
+        text: "hello".to_string(),
+        attachment: None,
+        timestamp: Utc::now(),
+        author_joined_at: None,
+        is_edit: false,
+    };
+
+    let repo = InMemoryUserMessageActivityRepository::new();
+    let mod_repo = InMemoryUserModerationActivityRepository::new();
+
+    // Five lines short of the limit.
+    let under = InMemoryUserLineActivityRepository::new();
+    under
+        .record_lines(
+            &1,
+            &2,
+            msg.timestamp,
+            25,
+            std::time::Duration::from_secs(60),
+        )
+        .await
+        .unwrap();
+    let res = should_moderate(
+        &msg,
+        &rules,
+        &repo,
+        &no_character_activity(),
+        &under,
+        &mod_repo,
+    )
+    .await
+    .unwrap();
+    assert!(res.is_none());
+
+    // A five-line message takes them to it.
+    let at = InMemoryUserLineActivityRepository::new();
+    at.record_lines(
+        &1,
+        &2,
+        msg.timestamp,
+        25,
+        std::time::Duration::from_secs(60),
+    )
+    .await
+    .unwrap();
+    at.record_lines(&1, &2, msg.timestamp, 5, std::time::Duration::from_secs(60))
+        .await
+        .unwrap();
+    let res = should_moderate(
+        &msg,
+        &rules,
+        &repo,
+        &no_character_activity(),
+        &at,
+        &mod_repo,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        res.unwrap().reasons,
+        vec!["author sent 30 lines in 1 min".to_string()]
+    );
+}
+
 fn no_character_activity() -> InMemoryUserCharacterActivityRepository {
     InMemoryUserCharacterActivityRepository::new()
+}
+
+fn no_line_activity() -> InMemoryUserLineActivityRepository {
+    InMemoryUserLineActivityRepository::new()
 }
 
 struct MockActivityRepoForFilter {
@@ -482,7 +591,7 @@ async fn test_should_moderate_with_character_rate_limit() {
         )
         .await
         .unwrap();
-    let res = should_moderate(&msg, &rules, &repo, &under, &mod_repo)
+    let res = should_moderate(&msg, &rules, &repo, &under, &no_line_activity(), &mod_repo)
         .await
         .unwrap();
     assert!(res.is_none());
@@ -507,7 +616,7 @@ async fn test_should_moderate_with_character_rate_limit() {
     )
     .await
     .unwrap();
-    let res = should_moderate(&msg, &rules, &repo, &at, &mod_repo)
+    let res = should_moderate(&msg, &rules, &repo, &at, &no_line_activity(), &mod_repo)
         .await
         .unwrap();
     assert_eq!(
@@ -569,16 +678,30 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
     // Ten messages hit the message limit of 10 and the character limit of 10
     // is reached too, since ten single-character messages are ten characters.
     assert!(
-        should_moderate(&msg, &by_messages, &messages, &characters, &mod_repo)
-            .await
-            .unwrap()
-            .is_some()
+        should_moderate(
+            &msg,
+            &by_messages,
+            &messages,
+            &characters,
+            &no_line_activity(),
+            &mod_repo
+        )
+        .await
+        .unwrap()
+        .is_some()
     );
     assert!(
-        should_moderate(&msg, &by_characters, &messages, &characters, &mod_repo)
-            .await
-            .unwrap()
-            .is_some()
+        should_moderate(
+            &msg,
+            &by_characters,
+            &messages,
+            &characters,
+            &no_line_activity(),
+            &mod_repo
+        )
+        .await
+        .unwrap()
+        .is_some()
     );
 
     // One 1000-character message: one message, a thousand characters. Only the
@@ -595,16 +718,30 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
         .unwrap();
 
     assert!(
-        should_moderate(&msg, &by_messages, &messages, &characters, &mod_repo)
-            .await
-            .unwrap()
-            .is_none()
+        should_moderate(
+            &msg,
+            &by_messages,
+            &messages,
+            &characters,
+            &no_line_activity(),
+            &mod_repo
+        )
+        .await
+        .unwrap()
+        .is_none()
     );
     assert!(
-        should_moderate(&msg, &by_characters, &messages, &characters, &mod_repo)
-            .await
-            .unwrap()
-            .is_some()
+        should_moderate(
+            &msg,
+            &by_characters,
+            &messages,
+            &characters,
+            &no_line_activity(),
+            &mod_repo
+        )
+        .await
+        .unwrap()
+        .is_some()
     );
 }
 
@@ -644,6 +781,7 @@ async fn test_should_moderate_with_message_rate_limit() {
         &rules,
         &repo_under_limit,
         &no_character_activity(),
+        &no_line_activity(),
         &mod_repo,
     )
     .await
@@ -656,6 +794,7 @@ async fn test_should_moderate_with_message_rate_limit() {
         &rules,
         &repo_at_limit,
         &no_character_activity(),
+        &no_line_activity(),
         &mod_repo,
     )
     .await
@@ -713,6 +852,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
         &rules,
         &activity_repo,
         &no_character_activity(),
+        &no_line_activity(),
         &mod_repo_under,
     )
     .await
@@ -725,6 +865,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
         &rules,
         &activity_repo,
         &no_character_activity(),
+        &no_line_activity(),
         &mod_repo_at,
     )
     .await
@@ -772,9 +913,16 @@ async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_mess
     let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
 
-    let res = should_moderate(&msg, &rules, &repo, &no_character_activity(), &mod_repo)
-        .await
-        .unwrap();
+    let res = should_moderate(
+        &msg,
+        &rules,
+        &repo,
+        &no_character_activity(),
+        &no_line_activity(),
+        &mod_repo,
+    )
+    .await
+    .unwrap();
     assert!(res.is_some());
     let m = res.unwrap();
     // ModerateMessage is completely covered by KickAuthor { AllMessages }
@@ -819,9 +967,16 @@ async fn test_independent_rules_combine_and_order_deletion_before_kick() {
     let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
 
-    let res = should_moderate(&msg, &rules, &repo, &no_character_activity(), &mod_repo)
-        .await
-        .unwrap();
+    let res = should_moderate(
+        &msg,
+        &rules,
+        &repo,
+        &no_character_activity(),
+        &no_line_activity(),
+        &mod_repo,
+    )
+    .await
+    .unwrap();
     assert!(res.is_some());
     let m = res.unwrap();
     // Combined plan: the message is moderated, then the author is kicked.
@@ -895,6 +1050,7 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
         &rules,
         &activity_repo,
         &no_character_activity(),
+        &no_line_activity(),
         &mod_repo,
     )
     .await
@@ -955,6 +1111,7 @@ async fn test_moderation_rate_limit_is_order_independent() {
         &rules,
         &activity_repo,
         &no_character_activity(),
+        &no_line_activity(),
         &moderation_activity_repo,
     )
     .await
@@ -1007,6 +1164,7 @@ async fn matched(text: &str, condition: ModerationCondition) -> Option<Moderatio
         &rule_with(condition),
         &repo,
         &no_character_activity(),
+        &no_line_activity(),
         &mod_repo,
     )
     .await
@@ -1148,6 +1306,7 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
         &rules,
         &activity_repo,
         &no_character_activity(),
+        &no_line_activity(),
         &moderation_activity_repo,
     )
     .await
@@ -1207,6 +1366,7 @@ async fn test_moderation_rate_limit_in_a_tree_ignores_its_own_rule() {
         &rules,
         &activity_repo,
         &no_character_activity(),
+        &no_line_activity(),
         &moderation_activity_repo,
     )
     .await
@@ -1330,10 +1490,17 @@ async fn moderates(rules: &[ModerationRule], text: &str) -> bool {
     };
     let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
-    should_moderate(&msg, rules, &repo, &no_character_activity(), &mod_repo)
-        .await
-        .unwrap()
-        .is_some()
+    should_moderate(
+        &msg,
+        rules,
+        &repo,
+        &no_character_activity(),
+        &no_line_activity(),
+        &mod_repo,
+    )
+    .await
+    .unwrap()
+    .is_some()
 }
 
 #[test]
@@ -1471,6 +1638,7 @@ async fn matched_from(
         &rule_with(condition),
         &repo,
         &no_character_activity(),
+        &no_line_activity(),
         &mod_repo,
     )
     .await
@@ -1602,6 +1770,7 @@ async fn test_moderates_pictures_and_leaves_them_out_of_is_blank() {
             &rules,
             &activity_repo,
             &no_character_activity(),
+            &no_line_activity(),
             &moderation_repo,
         )
         .await

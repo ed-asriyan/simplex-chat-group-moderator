@@ -80,6 +80,7 @@ mod action_planner;
 mod moderation_action;
 mod moderation_condition;
 mod moderation_rule;
+mod screen_lines;
 
 #[cfg(test)]
 mod tests;
@@ -87,10 +88,11 @@ mod tests;
 pub use moderation_action::ModerationAction;
 pub use moderation_condition::ModerationCondition;
 pub use moderation_rule::ModerationRule;
+pub use screen_lines::count_effective_lines;
 
 use super::ports::{
-    Err, GroupMessage, UserCharacterActivityRepository, UserMessageActivityRepository,
-    UserModerationActivityRepository,
+    Err, GroupMessage, UserCharacterActivityRepository, UserLineActivityRepository,
+    UserMessageActivityRepository, UserModerationActivityRepository,
 };
 use moderation_condition::{ConditionContext, check_condition};
 
@@ -109,12 +111,14 @@ pub async fn should_moderate(
     rules: &[ModerationRule],
     activity_repo: &dyn UserMessageActivityRepository,
     character_activity_repo: &dyn UserCharacterActivityRepository,
+    line_activity_repo: &dyn UserLineActivityRepository,
     moderation_activity_repo: &dyn UserModerationActivityRepository,
 ) -> Result<Option<ModerationMatch>, Err> {
     let mut ctx = ConditionContext::new(
         group_message,
         activity_repo,
         character_activity_repo,
+        line_activity_repo,
         moderation_activity_repo,
     );
 
