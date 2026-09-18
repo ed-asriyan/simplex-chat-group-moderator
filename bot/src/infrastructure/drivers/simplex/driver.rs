@@ -476,6 +476,7 @@ async fn handle_event(
                         && let None = group_chat_scope
                         && let CIDirection::GroupRcv { group_member, .. } =
                             &chat_item.chat_item.chat_dir
+                        && let GroupMemberRole::Member = group_member.member_role
                     {
                         match group_chat_scope {
                             None | Some(GroupChatScopeInfo::Undocumented(_)) => {
@@ -511,6 +512,7 @@ async fn handle_event(
                 && let ChatInfo::Group { group_info, .. } = &chat_item.chat_item.chat_info
                 && let CIDirection::GroupRcv { group_member, .. } =
                     &chat_item.chat_item.chat_item.chat_dir
+                && let GroupMemberRole::Member = group_member.member_role
             {
                 Ok(extract_message_content(msg_content)
                     .map(|content| SimplexEvent::GroupMessage {
