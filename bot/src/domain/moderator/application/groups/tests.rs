@@ -492,7 +492,7 @@ async fn test_a_non_owner_never_gets_openai_asked_about_a_key() {
 }
 
 fn instructed(api_key: &str, model: &str) -> ModerationCondition {
-    ModerationCondition::MatchesOpenAiInstruction {
+    ModerationCondition::FlaggedByOpenAiInstruction {
         api_key: api_key.to_string(),
         model: model.to_string(),
         instruction: "Block crypto ads.".to_string(),

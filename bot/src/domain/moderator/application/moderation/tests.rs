@@ -3555,7 +3555,7 @@ async fn test_a_message_a_model_says_matches_the_instruction_is_deleted() {
                 id: 1,
                 rule: ModerationRule {
                     actions: vec![ModerationAction::ModerateMessage],
-                    condition: ModerationCondition::MatchesOpenAiInstruction {
+                    condition: ModerationCondition::FlaggedByOpenAiInstruction {
                         api_key: "sk-owner".to_string(),
                         model: "gpt-4o-mini".to_string(),
                         instruction: "Block crypto ads.".to_string(),

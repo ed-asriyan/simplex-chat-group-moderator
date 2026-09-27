@@ -957,11 +957,11 @@ fn test_openai_condition_describes_itself_without_its_key() {
 }
 
 // ---------------------------------------------------------------------------
-// MatchesOpenAiInstruction
+// FlaggedByOpenAiInstruction
 // ---------------------------------------------------------------------------
 
 fn instructed(api_key: &str, model: &str, instruction: &str) -> ModerationCondition {
-    ModerationCondition::MatchesOpenAiInstruction {
+    ModerationCondition::FlaggedByOpenAiInstruction {
         api_key: api_key.to_string(),
         model: model.to_string(),
         instruction: instruction.to_string(),

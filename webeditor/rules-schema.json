@@ -848,7 +848,7 @@
                 {
                     "type": "object",
                     "title": "💬 Flagged by OpenAI Omni",
-                    "description": "Sends the text of each message this condition checks to OpenAI's Moderation API with **your own** API key, and matches when a category below crosses its trigger. For each category pick **Off** (ignored), **OpenAI decides** (OpenAI's own threshold — every category on it is exactly OpenAI's own verdict) or a minimum score in percent (higher is more lenient). Pictures are not sent, and a message without text is never checked. The text leaves SimpleX's end-to-end encryption and is processed by OpenAI. If OpenAI cannot be reached, the condition does not match.\n\n**The Moderation API is [free](https://help.openai.com/en/articles/4936833-is-the-moderation-endpoint-free-to-use)**, so checking costs nothing. The risk is the key: it travels in every editor link, and a leaked key can call paid models. **Before pasting one:** 1) create a [separate OpenAI project](https://help.openai.com/en/articles/9186755-managing-projects-in-the-api-platform) for this bot; 2) create a **restricted** key in it that allows only Moderations; 3) keep that project on prepaid credits with auto-recharge off — a monthly budget only sends an alert, it does not stop spending.\n\nInside **All of These Conditions Match (AND)**, put this condition last: the others are checked first, and OpenAI is only asked when they all match.",
+                    "description": "Sends the text of each message this condition checks to OpenAI's Moderation API with **your own** API key, and matches when a category below crosses its trigger. For each category pick **Off** (ignored), **OpenAI decides** (OpenAI's own threshold — every category on it is exactly OpenAI's own verdict) or a minimum score in percent (higher is more lenient). Pictures are not sent, and a message without text is never checked. The text leaves SimpleX's end-to-end encryption and is processed by OpenAI. If OpenAI cannot be reached, the condition does not match.\n\n**The risk is the key:** it travels in every editor link, and a leaked key can call paid models. **Before pasting one:** 1) create a [separate OpenAI project](https://help.openai.com/en/articles/9186755-managing-projects-in-the-api-platform) for this bot; 2) create a **restricted** key in it that allows only Moderations; 3) keep that project on prepaid credits with auto-recharge off — a monthly budget only sends an alert, it does not stop spending.\n\nInside **All of These Conditions Match (AND)**, put this condition last: the others are checked first, and OpenAI is only asked when they all match.",
                     "required": [
                         "type",
                         "api_key"
@@ -1204,7 +1204,7 @@
                 {
                     "type": "object",
                     "title": "💬 Flagged by OpenAI Instruction",
-                    "description": "Sends the text of each message this condition checks, together with **your instruction**, to an OpenAI model with **your own** API key, and matches when the model answers that the message is what the instruction describes. The model also says why in one sentence, and that sentence is what the moderation notification shows. Pictures are not sent, and a message without text is never checked. The text leaves SimpleX's end-to-end encryption and is processed by OpenAI. If OpenAI cannot be reached or gives no clear answer, the condition does not match.\n\n**Every checked message costs money**, billed to your OpenAI account: with gpt-4o-mini and an instruction the length of a paragraph, roughly $0.10 per 1,000 messages — see [OpenAI's pricing](https://developers.openai.com/api/docs/pricing). A busy group can check tens of thousands of messages a day. **Before pasting a key:** 1) create a [separate OpenAI project](https://help.openai.com/en/articles/9186755-managing-projects-in-the-api-platform) for this bot; 2) create a **restricted** key in it that allows only Responses (Write); 3) put the project on **prepaid credits with auto-recharge off** and load only what you are ready to spend — a monthly budget only sends an alert, it does not stop spending. When the credits run out the condition simply stops matching.\n\nInside **All of These Conditions Match (AND)**, put this condition last: the others are checked first, and OpenAI is only asked — and paid — when they all match. For free, fixed categories of harm, use **Flagged by OpenAI Omni** instead.",
+                    "description": "Sends the text of each message this condition checks, together with **your instruction**, to an OpenAI model with **your own** API key, and matches when the model answers that the message is what the instruction describes. The model also says why in one sentence, and that sentence is what the moderation notification shows. Pictures are not sent, and a message without text is never checked. The text leaves SimpleX's end-to-end encryption and is processed by OpenAI. If OpenAI cannot be reached or gives no clear answer, the condition does not match.\n\nEvery checked message is billed to your OpenAI account. **Before pasting a key:** 1) create a [separate OpenAI project](https://help.openai.com/en/articles/9186755-managing-projects-in-the-api-platform) for this bot; 2) create a **restricted** key in it that allows only Responses (Write); 3) put the project on **prepaid credits with auto-recharge off** and load only what you are ready to spend — a monthly budget only sends an alert, it does not stop spending. When the credits run out the condition simply stops matching.\n\nInside **All of These Conditions Match (AND)**, put this condition last: the others are checked first, and OpenAI is only asked when they all match. For fixed categories of harm, use **Flagged by OpenAI Omni** instead.",
                     "required": [
                         "type",
                         "api_key",
@@ -1215,8 +1215,8 @@
                     "properties": {
                         "type": {
                             "type": "string",
-                            "const": "MatchesOpenAiInstruction",
-                            "default": "MatchesOpenAiInstruction",
+                            "const": "FlaggedByOpenAiInstruction",
+                            "default": "FlaggedByOpenAiInstruction",
                             "options": {
                                 "hidden": true
                             }
@@ -1231,15 +1231,15 @@
                         },
                         "model": {
                             "title": "Model",
-                            "description": "The OpenAI model that reads each message. gpt-4o-mini is cheap and follows instructions well; the bigger models judge subtler cases at many times the price.",
+                            "description": "The OpenAI model that reads each message.",
                             "oneOf": [
                                 {
                                     "const": "gpt-4o-mini",
-                                    "title": "gpt-4o-mini (recommended)"
+                                    "title": "gpt-4o-mini"
                                 },
                                 {
                                     "const": "gpt-4.1-nano",
-                                    "title": "gpt-4.1-nano (cheapest)"
+                                    "title": "gpt-4.1-nano"
                                 },
                                 {
                                     "const": "gpt-4.1-mini",
@@ -1247,11 +1247,11 @@
                                 },
                                 {
                                     "const": "gpt-4o",
-                                    "title": "gpt-4o (about 17× the price)"
+                                    "title": "gpt-4o"
                                 },
                                 {
                                     "const": "gpt-4.1",
-                                    "title": "gpt-4.1 (about 13× the price)"
+                                    "title": "gpt-4.1"
                                 }
                             ],
                             "default": "gpt-4o-mini"
@@ -1262,7 +1262,7 @@
                             "maxLength": 4000,
                             "title": "Instruction",
                             "default": "",
-                            "description": "What to catch, written to the model: describe what should match and what should not, e.g. \"Match advertising: crypto promotions, casinos, unsolicited offers. Do not match normal conversation or technical questions.\" The model answers yes or no for each message, plus a one-sentence reason. The instruction is sent with every message, so a shorter one costs less."
+                            "description": "What to catch, written to the model: describe what should match and what should not, e.g. \"Match advertising: crypto promotions, casinos, unsolicited offers. Do not match normal conversation or technical questions.\" The model answers yes or no for each message, plus a one-sentence reason. The instruction is sent with every message."
                         }
                     },
                     "options": {

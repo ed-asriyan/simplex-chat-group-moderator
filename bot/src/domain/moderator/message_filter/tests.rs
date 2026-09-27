@@ -2231,11 +2231,11 @@ async fn test_openai_is_not_asked_for_a_rule_whose_actions_are_already_planned()
 }
 
 // ---------------------------------------------------------------------------
-// MatchesOpenAiInstruction
+// FlaggedByOpenAiInstruction
 // ---------------------------------------------------------------------------
 
 fn openai_instruction(api_key: &str) -> ModerationCondition {
-    ModerationCondition::MatchesOpenAiInstruction {
+    ModerationCondition::FlaggedByOpenAiInstruction {
         api_key: api_key.to_string(),
         model: "gpt-4o-mini".to_string(),
         instruction: "Block crypto ads.".to_string(),
@@ -2245,7 +2245,7 @@ fn openai_instruction(api_key: &str) -> ModerationCondition {
 #[test]
 fn test_openai_instruction_wire_format_matches_the_editor_schema() {
     let json = r#"{
-        "type": "MatchesOpenAiInstruction",
+        "type": "FlaggedByOpenAiInstruction",
         "api_key": "sk-proj-abc",
         "model": "gpt-4o-mini",
         "instruction": "Block crypto ads."
@@ -2257,7 +2257,7 @@ fn test_openai_instruction_wire_format_matches_the_editor_schema() {
     assert_eq!(
         written,
         serde_json::json!({
-            "type": "MatchesOpenAiInstruction",
+            "type": "FlaggedByOpenAiInstruction",
             "api_key": "sk-proj-abc",
             "model": "gpt-4o-mini",
             "instruction": "Block crypto ads."
@@ -2268,9 +2268,9 @@ fn test_openai_instruction_wire_format_matches_the_editor_schema() {
 #[test]
 fn test_openai_instruction_needs_all_three_fields() {
     for json in [
-        r#"{ "type": "MatchesOpenAiInstruction", "model": "gpt-4o-mini", "instruction": "i" }"#,
-        r#"{ "type": "MatchesOpenAiInstruction", "api_key": "sk", "instruction": "i" }"#,
-        r#"{ "type": "MatchesOpenAiInstruction", "api_key": "sk", "model": "gpt-4o-mini" }"#,
+        r#"{ "type": "FlaggedByOpenAiInstruction", "model": "gpt-4o-mini", "instruction": "i" }"#,
+        r#"{ "type": "FlaggedByOpenAiInstruction", "api_key": "sk", "instruction": "i" }"#,
+        r#"{ "type": "FlaggedByOpenAiInstruction", "api_key": "sk", "model": "gpt-4o-mini" }"#,
     ] {
         assert!(
             serde_json::from_str::<ModerationCondition>(json).is_err(),

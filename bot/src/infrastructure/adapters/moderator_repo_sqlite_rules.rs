@@ -313,7 +313,7 @@ impl ConditionData {
             openai_instructions: load_condition_settings(
                 guard,
                 "s.api_key, s.model, s.instruction",
-                "moderation_condition__matches_openai_instruction",
+                "moderation_condition__flagged_by_openai_instruction",
                 gid,
                 |row| Ok((row.get(1)?, row.get(2)?, row.get(3)?)),
             )?,
@@ -467,13 +467,13 @@ fn build_condition(
             api_key: data.openai_api_keys.get(&id).cloned().unwrap_or_default(),
             triggers: data.openai_triggers.get(&id).copied().unwrap_or_default(),
         }),
-        "MatchesOpenAiInstruction" => {
+        "FlaggedByOpenAiInstruction" => {
             let (api_key, model, instruction) = data
                 .openai_instructions
                 .get(&id)
                 .cloned()
                 .unwrap_or_default();
-            Ok(ModerationCondition::MatchesOpenAiInstruction {
+            Ok(ModerationCondition::FlaggedByOpenAiInstruction {
                 api_key,
                 model,
                 instruction,

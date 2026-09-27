@@ -203,7 +203,7 @@ pub enum ModerationCondition {
     /// owner's `instruction`, answers that the message is what the instruction
     /// describes. Sends the message text to OpenAI; a message with no text is
     /// never sent and never matches.
-    MatchesOpenAiInstruction {
+    FlaggedByOpenAiInstruction {
         api_key: String,
         model: String,
         instruction: String,
@@ -419,7 +419,7 @@ impl ModerationCondition {
                 time_window_minutes,
             } => format!("author joined less than {time_window_minutes} min ago"),
             Self::FlaggedByOmniModeration { .. } => "flagged by OpenAI Omni".into(),
-            Self::MatchesOpenAiInstruction { model, .. } => {
+            Self::FlaggedByOpenAiInstruction { model, .. } => {
                 format!("flagged by OpenAI instruction ({model})")
             }
         }
@@ -579,7 +579,7 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
         ModerationCondition::FlaggedByOmniModeration { api_key, triggers } => {
             normalize_and_validate_omni_moderation(api_key, triggers)
         }
-        ModerationCondition::MatchesOpenAiInstruction {
+        ModerationCondition::FlaggedByOpenAiInstruction {
             api_key,
             model,
             instruction,
@@ -634,7 +634,7 @@ fn normalize_and_validate_omni_moderation(
     Ok(())
 }
 
-/// The OpenAI models `MatchesOpenAiInstruction` may ask. All of them take
+/// The OpenAI models `FlaggedByOpenAiInstruction` may ask. All of them take
 /// `temperature` 0 and a strict JSON schema, which is what keeps the answer a
 /// repeatable boolean; the reasoning models reject one or the other. Mirrored
 /// by the `model` field's `oneOf` in `rules-schema.json`.
@@ -933,7 +933,7 @@ fn should_moderate_by_condition(message: &str, condition: &ModerationCondition) 
         | ModerationCondition::AuthorHitsModerationRateLimit { .. }
         | ModerationCondition::AuthorJoinedRecently { .. }
         | ModerationCondition::FlaggedByOmniModeration { .. }
-        | ModerationCondition::MatchesOpenAiInstruction { .. }
+        | ModerationCondition::FlaggedByOpenAiInstruction { .. }
         | ModerationCondition::All { .. }
         | ModerationCondition::Any { .. }
         | ModerationCondition::Not { .. } => None,
@@ -1150,7 +1150,7 @@ async fn evaluate(
                 Err(_) => Ok(None),
             }
         }
-        ModerationCondition::MatchesOpenAiInstruction {
+        ModerationCondition::FlaggedByOpenAiInstruction {
             api_key,
             model,
             instruction,

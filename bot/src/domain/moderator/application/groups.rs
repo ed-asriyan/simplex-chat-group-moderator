@@ -51,7 +51,7 @@ impl GroupAdministrationApplication {
                 ModerationCondition::FlaggedByOmniModeration { api_key, .. } => {
                     checks.insert(KeyUse::Moderation(api_key.clone()));
                 }
-                ModerationCondition::MatchesOpenAiInstruction { api_key, model, .. } => {
+                ModerationCondition::FlaggedByOpenAiInstruction { api_key, model, .. } => {
                     checks.insert(KeyUse::Model(api_key.clone(), model.clone()));
                 }
                 _ => {}

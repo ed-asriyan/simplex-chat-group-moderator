@@ -753,11 +753,11 @@ async fn test_openai_rows_go_with_replaced_rules_and_with_the_group() {
 }
 
 // ---------------------------------------------------------------------------
-// MatchesOpenAiInstruction
+// FlaggedByOpenAiInstruction
 // ---------------------------------------------------------------------------
 
 fn instructed(api_key: &str, model: &str) -> ModerationCondition {
-    ModerationCondition::MatchesOpenAiInstruction {
+    ModerationCondition::FlaggedByOpenAiInstruction {
         api_key: api_key.to_string(),
         model: model.to_string(),
         instruction: "Block crypto ads.\nAllow \"quotes\" and ünïcode — всё.".to_string(),
@@ -796,13 +796,13 @@ async fn test_openai_instruction_rows_go_with_replaced_rules_and_with_the_group(
     repo.set_group_rules(&group_id, &rules).await.unwrap();
     repo.set_group_rules(&group_id, &rules).await.unwrap();
     assert_eq!(
-        count(&conn, "moderation_condition__matches_openai_instruction"),
+        count(&conn, "moderation_condition__flagged_by_openai_instruction"),
         1
     );
 
     repo.delete_group_data(&2203).await.unwrap();
     assert_eq!(
-        count(&conn, "moderation_condition__matches_openai_instruction"),
+        count(&conn, "moderation_condition__flagged_by_openai_instruction"),
         0
     );
 }
