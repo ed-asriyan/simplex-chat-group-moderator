@@ -21,6 +21,10 @@ impl OpenAiKeyVerifier for UnusedKeyVerifier {
     async fn verify(&self, _api_key: &str) -> KeyCheck {
         panic!("OpenAI was asked about a key although no rule carries one")
     }
+
+    async fn verify_model(&self, _api_key: &str, _model: &str) -> KeyCheck {
+        panic!("OpenAI was asked about a key although no rule carries one")
+    }
 }
 
 fn app_owning_group(group_id: GroupId, owner_id: UserId) -> GroupAdministrationApplication {
@@ -191,6 +195,13 @@ impl OpenAiKeyVerifier for FakeKeyVerifier {
             .get(api_key)
             .copied()
             .unwrap_or(KeyCheck::Valid)
+    }
+
+    /// Recorded, and answered, as `key@model`.
+    async fn verify_model(&self, api_key: &str, model: &str) -> KeyCheck {
+        let asked = format!("{api_key}@{model}");
+        self.asked.lock().unwrap().push(asked.clone());
+        self.answers.get(&asked).copied().unwrap_or(KeyCheck::Valid)
     }
 }
 
@@ -449,5 +460,98 @@ async fn test_a_non_owner_never_gets_openai_asked_about_a_key() {
             .await
             .is_err()
     );
+    assert!(verifier.asked().is_empty());
+}
+
+fn instructed(api_key: &str, model: &str) -> ModerationCondition {
+    ModerationCondition::MatchesOpenAiInstruction {
+        api_key: api_key.to_string(),
+        model: model.to_string(),
+        instruction: "Block crypto ads.".to_string(),
+    }
+}
+
+#[tokio::test]
+async fn test_a_model_key_is_checked_with_its_model() {
+    let repository = Arc::new(SavingRepository::default());
+    let verifier = FakeKeyVerifier::answering(&[]);
+    let rules = vec![moderate_when(instructed("sk-good", "gpt-4o-mini"))];
+
+    app_with(&repository, &verifier)
+        .set_group_rules(100, 10, rules.clone())
+        .await
+        .unwrap();
+
+    assert_eq!(verifier.asked(), vec!["sk-good@gpt-4o-mini"]);
+    assert_eq!(repository.saved(), Some(rules));
+}
+
+#[tokio::test]
+async fn test_each_distinct_key_and_model_pair_is_checked_once() {
+    let repository = Arc::new(SavingRepository::default());
+    let verifier = FakeKeyVerifier::answering(&[]);
+    let rules = vec![
+        moderate_when(instructed("sk-one", "gpt-4o-mini")),
+        moderate_when(ModerationCondition::Not {
+            condition: Box::new(instructed("sk-one", "gpt-4o-mini")),
+        }),
+        moderate_when(instructed("sk-one", "gpt-4.1-mini")),
+        // The same key used for moderation is a separate check: another
+        // endpoint, another permission.
+        moderate_when(openai_condition("sk-one")),
+    ];
+
+    app_with(&repository, &verifier)
+        .set_group_rules(100, 10, rules)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        verifier.asked(),
+        vec!["sk-one", "sk-one@gpt-4.1-mini", "sk-one@gpt-4o-mini"]
+    );
+}
+
+#[tokio::test]
+async fn test_a_model_the_key_cannot_use_is_not_saved_and_the_owner_is_told_which() {
+    let key = "sk-proj-secret-part-WXYZ";
+    let cases = [
+        (KeyCheck::ModelUnavailable, "cannot use the model gpt-4.1"),
+        (KeyCheck::Forbidden, "Responses"),
+        (KeyCheck::Rejected, "rejected"),
+        (KeyCheck::QuotaExceeded, "quota"),
+        (KeyCheck::Unreachable, "reach OpenAI"),
+    ];
+    for (check, says) in cases {
+        let repository = Arc::new(SavingRepository::default());
+        let verifier = FakeKeyVerifier::answering(&[(&format!("{key}@gpt-4.1"), check)]);
+
+        let err = app_with(&repository, &verifier)
+            .set_group_rules(100, 10, vec![moderate_when(instructed(key, "gpt-4.1"))])
+            .await
+            .expect_err("the rules must not be saved")
+            .to_string();
+
+        assert!(err.contains(says), "{check:?}: unexpected error: {err}");
+        assert!(
+            err.contains("WXYZ") && !err.contains(key),
+            "{check:?}: {err}"
+        );
+        assert_eq!(repository.saved(), None, "{check:?}");
+    }
+}
+
+#[tokio::test]
+async fn test_an_unlisted_model_is_rejected_before_openai_is_asked() {
+    let repository = Arc::new(SavingRepository::default());
+    let verifier = FakeKeyVerifier::answering(&[]);
+
+    let err = app_with(&repository, &verifier)
+        .set_group_rules(100, 10, vec![moderate_when(instructed("sk-good", "gpt-5"))])
+        .await
+        .expect_err("an unlisted model is rejected")
+        .to_string();
+
+    assert!(err.contains("cannot use the model 'gpt-5'"), "{err}");
     assert!(verifier.asked().is_empty());
 }

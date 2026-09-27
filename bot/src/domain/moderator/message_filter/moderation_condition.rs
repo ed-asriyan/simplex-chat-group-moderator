@@ -199,6 +199,15 @@ pub enum ModerationCondition {
         #[serde(flatten)]
         triggers: OpenAiCategoryTriggers,
     },
+    /// An OpenAI `model`, asked with the owner's own `api_key` and given the
+    /// owner's `instruction`, answers that the message is what the instruction
+    /// describes. Sends the message text to OpenAI; a message with no text is
+    /// never sent and never matches.
+    MatchesOpenAiInstruction {
+        api_key: String,
+        model: String,
+        instruction: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -410,6 +419,9 @@ impl ModerationCondition {
                 time_window_minutes,
             } => format!("author joined less than {time_window_minutes} min ago"),
             Self::FlaggedByOpenAiModeration { .. } => "flagged by OpenAI moderation".into(),
+            Self::MatchesOpenAiInstruction { model, .. } => {
+                format!("matches the instruction (OpenAI {model})")
+            }
         }
     }
 }
@@ -567,6 +579,11 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
         ModerationCondition::FlaggedByOpenAiModeration { api_key, triggers } => {
             normalize_and_validate_openai_moderation(api_key, triggers)
         }
+        ModerationCondition::MatchesOpenAiInstruction {
+            api_key,
+            model,
+            instruction,
+        } => normalize_and_validate_openai_instruction(api_key, model, instruction),
         ModerationCondition::IsBlank
         | ModerationCondition::ContainsInvisibleCharacters
         | ModerationCondition::ContainsImage
@@ -589,27 +606,11 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
 /// 170 characters; the cap only keeps a pasted paragraph out of the database.
 const MAX_OPENAI_API_KEY_LENGTH: usize = 256;
 
-/// The key is trimmed, because it is pasted by hand; the errors never repeat
-/// it, because they land in the owner's chat and in the logs.
 fn normalize_and_validate_openai_moderation(
     api_key: &mut String,
     triggers: &OpenAiCategoryTriggers,
 ) -> Result<(), Err> {
-    let trimmed = api_key.trim();
-    if trimmed.is_empty() {
-        return Err("'OpenAI Moderation Flags the Message' needs an OpenAI API key".into());
-    }
-    if trimmed.chars().any(char::is_whitespace) {
-        return Err("The OpenAI API key must not contain spaces or line breaks".into());
-    }
-    let length = trimmed.chars().count();
-    if length > MAX_OPENAI_API_KEY_LENGTH {
-        return Err(format!(
-            "The OpenAI API key is too long: {length} characters, maximum is {MAX_OPENAI_API_KEY_LENGTH}"
-        )
-        .into());
-    }
-    *api_key = trimmed.to_string();
+    normalize_openai_api_key(api_key, "OpenAI Moderation Flags the Message")?;
 
     for category in OpenAiCategory::ALL {
         if let CategoryTrigger::MinScorePercent(percent) = triggers.get(category)
@@ -631,6 +632,72 @@ fn normalize_and_validate_openai_moderation(
                 .into(),
         );
     }
+    Ok(())
+}
+
+/// The OpenAI models `MatchesOpenAiInstruction` may ask. All of them take
+/// `temperature` 0 and a strict JSON schema, which is what keeps the answer a
+/// repeatable boolean; the reasoning models reject one or the other. Mirrored
+/// by the `model` field's `oneOf` in `rules-schema.json`.
+pub const OPENAI_INSTRUCTION_MODELS: [&str; 5] = [
+    "gpt-4o-mini",
+    "gpt-4.1-nano",
+    "gpt-4.1-mini",
+    "gpt-4o",
+    "gpt-4.1",
+];
+
+/// Maximum length (in characters) of an instruction. It travels in the editor
+/// link and in every request, so it is billed on every message it checks.
+pub const MAX_OPENAI_INSTRUCTION_LENGTH: usize = 4000;
+
+fn normalize_and_validate_openai_instruction(
+    api_key: &mut String,
+    model: &str,
+    instruction: &mut String,
+) -> Result<(), Err> {
+    const TITLE: &str = "Message Matches an Instruction (OpenAI)";
+    normalize_openai_api_key(api_key, TITLE)?;
+    if !OPENAI_INSTRUCTION_MODELS.contains(&model) {
+        return Err(format!(
+            "'{TITLE}' cannot use the model '{model}'. Pick one of: {}",
+            OPENAI_INSTRUCTION_MODELS.join(", ")
+        )
+        .into());
+    }
+    let trimmed = instruction.trim();
+    if trimmed.is_empty() {
+        return Err(format!("'{TITLE}' needs an instruction").into());
+    }
+    let length = trimmed.chars().count();
+    if length > MAX_OPENAI_INSTRUCTION_LENGTH {
+        return Err(format!(
+            "The instruction is too long: {length} characters, maximum is {MAX_OPENAI_INSTRUCTION_LENGTH}"
+        )
+        .into());
+    }
+    *instruction = trimmed.to_string();
+    Ok(())
+}
+
+/// The key is trimmed, because it is pasted by hand; the errors never repeat
+/// it, because they land in the owner's chat and in the logs.
+fn normalize_openai_api_key(api_key: &mut String, title: &str) -> Result<(), Err> {
+    let trimmed = api_key.trim();
+    if trimmed.is_empty() {
+        return Err(format!("'{title}' needs an OpenAI API key").into());
+    }
+    if trimmed.chars().any(char::is_whitespace) {
+        return Err("The OpenAI API key must not contain spaces or line breaks".into());
+    }
+    let length = trimmed.chars().count();
+    if length > MAX_OPENAI_API_KEY_LENGTH {
+        return Err(format!(
+            "The OpenAI API key is too long: {length} characters, maximum is {MAX_OPENAI_API_KEY_LENGTH}"
+        )
+        .into());
+    }
+    *api_key = trimmed.to_string();
     Ok(())
 }
 
@@ -867,10 +934,30 @@ fn should_moderate_by_condition(message: &str, condition: &ModerationCondition) 
         | ModerationCondition::AuthorHitsModerationRateLimit { .. }
         | ModerationCondition::AuthorJoinedRecently { .. }
         | ModerationCondition::FlaggedByOpenAiModeration { .. }
+        | ModerationCondition::MatchesOpenAiInstruction { .. }
         | ModerationCondition::All { .. }
         | ModerationCondition::Any { .. }
         | ModerationCondition::Not { .. } => None,
     }
+}
+
+/// Maximum length (in characters) of a model's reason as the owner is shown
+/// it. The schema asks for one short sentence; this holds a model that ignores
+/// that to a notification's worth.
+const MAX_OPENAI_REASON_LENGTH: usize = 200;
+
+/// The model's own reason, on one line and cut to size, after the model's name
+/// so the owner knows whose judgement it is.
+fn openai_instruction_reason(model: &str, reason: &str) -> String {
+    let reason = reason.split_whitespace().collect::<Vec<_>>().join(" ");
+    if reason.is_empty() {
+        return format!("OpenAI {model} says it matches the instruction");
+    }
+    let mut shown: String = reason.chars().take(MAX_OPENAI_REASON_LENGTH).collect();
+    if reason.chars().count() > MAX_OPENAI_REASON_LENGTH {
+        shown.push('…');
+    }
+    format!("OpenAI {model}: {shown}")
 }
 
 /// Evaluate one condition, reusing the per-message memo.
@@ -1062,6 +1149,26 @@ async fn evaluate(
                 // refusing the key must not stop the other rules. The adapter
                 // has logged why.
                 Err(_) => Ok(None),
+            }
+        }
+        ModerationCondition::MatchesOpenAiInstruction {
+            api_key,
+            model,
+            instruction,
+        } => {
+            let text = &ctx.group_message.text;
+            if text.trim().is_empty() {
+                return Ok(None);
+            }
+            match ctx
+                .openai_classifier
+                .matches_instruction(api_key, model, instruction, text)
+                .await
+            {
+                Ok(verdict) if verdict.matches => {
+                    Ok(Some(openai_instruction_reason(model, &verdict.reason)))
+                }
+                Ok(_) | Err(_) => Ok(None),
             }
         }
         other => Ok(should_moderate_by_condition(&ctx.group_message.text, other)),

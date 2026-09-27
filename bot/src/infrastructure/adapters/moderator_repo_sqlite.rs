@@ -122,6 +122,7 @@ fn insert_condition(
         }
         ModerationCondition::AuthorJoinedRecently { .. } => "AuthorJoinedRecently",
         ModerationCondition::FlaggedByOpenAiModeration { .. } => "FlaggedByOpenAiModeration",
+        ModerationCondition::MatchesOpenAiInstruction { .. } => "MatchesOpenAiInstruction",
     };
     tx.execute(
         "INSERT INTO moderation_conditions (rule_id, parent_id, rank, type) VALUES (?1, ?2, ?3, ?4)",
@@ -303,6 +304,17 @@ fn insert_condition(
                 stmt.execute(params![condition_id, category.name(), min_score_percent])
                     .map_err(|e| -> Err { e.to_string().into() })?;
             }
+        }
+        ModerationCondition::MatchesOpenAiInstruction {
+            api_key,
+            model,
+            instruction,
+        } => {
+            tx.execute(
+                "INSERT INTO moderation_condition__matches_openai_instruction (condition_id, api_key, model, instruction) VALUES (?1, ?2, ?3, ?4)",
+                params![condition_id, api_key, model, instruction],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
         }
     }
     Ok(())

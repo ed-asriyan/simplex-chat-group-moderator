@@ -15,6 +15,8 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;
 
+use super::openai::{OpenAiApiError, OpenAiHttp, error_for_status};
+
 type Err = Box<dyn Error + Send + Sync>;
 
 #[cfg(test)]
@@ -33,35 +35,10 @@ pub struct RawModeration {
     pub category_scores: HashMap<String, f64>,
 }
 
-/// Why there is no [`RawModeration`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ModerationApiError {
-    /// 401: OpenAI does not know the key.
-    Unauthorized,
-    /// 403: the key may not call this endpoint.
-    Forbidden,
-    /// 429 with `insufficient_quota`: no credits or no billing. Retrying does
-    /// not help.
-    InsufficientQuota,
-    /// 429 for anything else: too many requests. `retry_after` is OpenAI's
-    /// `Retry-After` header, when it sent one that reads as seconds.
-    RateLimited { retry_after: Option<Duration> },
-    /// Any other non-success status.
-    Server { status: u16 },
-    /// A success status with a body that is not a moderation result.
-    Malformed(String),
-    /// The request never got an HTTP answer: DNS, TLS, connection, timeout.
-    Transport(String),
-}
-
 /// Asks OpenAI to moderate one text.
 #[async_trait]
 pub trait ModerationApi: Send + Sync {
-    async fn moderate(
-        &self,
-        api_key: &str,
-        text: &str,
-    ) -> Result<RawModeration, ModerationApiError>;
+    async fn moderate(&self, api_key: &str, text: &str) -> Result<RawModeration, OpenAiApiError>;
 }
 
 /// The JSON body for one text: `{"model": "omni-moderation-latest", "input": text}`.
@@ -83,35 +60,19 @@ struct ModerationResult {
     category_scores: HashMap<String, Option<f64>>,
 }
 
-#[derive(Deserialize)]
-struct ErrorResponse {
-    error: ErrorBody,
-}
-
-#[derive(Deserialize)]
-struct ErrorBody {
-    #[serde(rename = "type")]
-    kind: Option<String>,
-    code: Option<String>,
-}
-
-const INSUFFICIENT_QUOTA: &str = "insufficient_quota";
-const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(1);
-const MAX_RETRY_DELAY: Duration = Duration::from_secs(30);
-
 /// Reads OpenAI's answer: its HTTP status, its `Retry-After` header if any,
 /// and its body.
 pub fn parse_response(
     status: u16,
     retry_after: Option<&str>,
     body: &str,
-) -> Result<RawModeration, ModerationApiError> {
+) -> Result<RawModeration, OpenAiApiError> {
     match status {
         200..=299 => {
-            let response: ModerationResponse = serde_json::from_str(body)
-                .map_err(|e| ModerationApiError::Malformed(e.to_string()))?;
+            let response: ModerationResponse =
+                serde_json::from_str(body).map_err(|e| OpenAiApiError::Malformed(e.to_string()))?;
             let result = response.results.into_iter().next().ok_or_else(|| {
-                ModerationApiError::Malformed("the answer carries no result".to_string())
+                OpenAiApiError::Malformed("the answer carries no result".to_string())
             })?;
             Ok(RawModeration {
                 flagged: result.flagged,
@@ -127,115 +88,38 @@ pub fn parse_response(
                     .collect(),
             })
         }
-        401 => Err(ModerationApiError::Unauthorized),
-        403 => Err(ModerationApiError::Forbidden),
-        // The same status covers "no money" and "too fast"; only the body tells
-        // them apart, and only one of them is worth waiting out.
-        429 if is_insufficient_quota(body) => Err(ModerationApiError::InsufficientQuota),
-        429 => Err(ModerationApiError::RateLimited {
-            retry_after: retry_after.and_then(parse_retry_after),
-        }),
-        status => Err(ModerationApiError::Server { status }),
+        status => Err(error_for_status(status, retry_after, body)),
     }
-}
-
-fn is_insufficient_quota(body: &str) -> bool {
-    serde_json::from_str::<ErrorResponse>(body).is_ok_and(|response| {
-        response.error.code.as_deref() == Some(INSUFFICIENT_QUOTA)
-            || response.error.kind.as_deref() == Some(INSUFFICIENT_QUOTA)
-    })
-}
-
-/// `Retry-After` as a number of seconds. The HTTP-date form is ignored: no
-/// hint is better than a wrong one, and the gateway has a default.
-fn parse_retry_after(value: &str) -> Option<Duration> {
-    let seconds: f64 = value.trim().parse().ok()?;
-    (seconds.is_finite() && seconds >= 0.0).then(|| Duration::from_secs_f64(seconds))
 }
 
 /// [`ModerationApi`] over HTTPS.
 pub struct HttpModerationApi {
-    client: reqwest::Client,
+    http: OpenAiHttp,
     endpoint: String,
-    max_attempts: usize,
 }
 
 impl HttpModerationApi {
+    /// `timeout` bounds each attempt; transient failures are tried up to
+    /// `max_attempts` times.
     pub fn new(
         endpoint: impl Into<String>,
         timeout: Duration,
         max_attempts: usize,
     ) -> Result<Self, Err> {
-        if max_attempts == 0 {
-            return Err("max_attempts must be greater than zero".into());
-        }
-
         Ok(Self {
-            client: reqwest::Client::builder().timeout(timeout).build()?,
+            http: OpenAiHttp::new(timeout, max_attempts)?,
             endpoint: endpoint.into(),
-            max_attempts,
         })
     }
-
-    async fn moderate_once(
-        &self,
-        api_key: &str,
-        text: &str,
-    ) -> Result<RawModeration, ModerationApiError> {
-        // reqwest's errors name the URL, never the headers, so the key stays
-        // out of whatever gets logged.
-        let transport = |e: reqwest::Error| ModerationApiError::Transport(e.to_string());
-        let response = self
-            .client
-            .post(&self.endpoint)
-            .bearer_auth(api_key)
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(request_body(text).to_string())
-            .send()
-            .await
-            .map_err(transport)?;
-        let status = response.status().as_u16();
-        let retry_after = response
-            .headers()
-            .get(reqwest::header::RETRY_AFTER)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_string);
-        let body = response.text().await.map_err(transport)?;
-        parse_response(status, retry_after.as_deref(), &body)
-    }
-}
-
-fn retry_delay(attempt: usize) -> Duration {
-    let multiplier = 1u64 << attempt.saturating_sub(1).min(4);
-    DEFAULT_RETRY_DELAY
-        .checked_mul(multiplier as u32)
-        .unwrap_or(MAX_RETRY_DELAY)
-        .min(MAX_RETRY_DELAY)
 }
 
 #[async_trait]
 impl ModerationApi for HttpModerationApi {
-    async fn moderate(
-        &self,
-        api_key: &str,
-        text: &str,
-    ) -> Result<RawModeration, ModerationApiError> {
-        for attempt in 1..=self.max_attempts {
-            match self.moderate_once(api_key, text).await {
-                Ok(result) => return Ok(result),
-                Err(error) if attempt < self.max_attempts => {
-                    let delay = match &error {
-                        ModerationApiError::RateLimited {
-                            retry_after: Some(delay),
-                        } => *delay,
-                        _ => retry_delay(attempt),
-                    };
-                    tokio::time::sleep(delay).await;
-                }
-                Err(error) => return Err(error),
-            }
-        }
-
-        unreachable!("max_attempts is guaranteed to be greater than zero")
+    async fn moderate(&self, api_key: &str, text: &str) -> Result<RawModeration, OpenAiApiError> {
+        self.http
+            .post(&self.endpoint, api_key, &request_body(text), |answer| {
+                parse_response(answer.status, answer.retry_after.as_deref(), &answer.body)
+            })
+            .await
     }
 }

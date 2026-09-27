@@ -184,6 +184,7 @@ struct ConditionData {
     joined_recently: HashMap<i64, u32>,
     openai_api_keys: HashMap<i64, String>,
     openai_triggers: HashMap<i64, OpenAiCategoryTriggers>,
+    openai_instructions: HashMap<i64, (String, String, String)>,
 }
 
 impl ConditionData {
@@ -309,6 +310,13 @@ impl ConditionData {
                 |row| row.get::<_, String>(1),
             )?,
             openai_triggers: load_openai_category_triggers(guard, gid)?,
+            openai_instructions: load_condition_settings(
+                guard,
+                "s.api_key, s.model, s.instruction",
+                "moderation_condition__matches_openai_instruction",
+                gid,
+                |row| Ok((row.get(1)?, row.get(2)?, row.get(3)?)),
+            )?,
         })
     }
 }
@@ -459,6 +467,18 @@ fn build_condition(
             api_key: data.openai_api_keys.get(&id).cloned().unwrap_or_default(),
             triggers: data.openai_triggers.get(&id).copied().unwrap_or_default(),
         }),
+        "MatchesOpenAiInstruction" => {
+            let (api_key, model, instruction) = data
+                .openai_instructions
+                .get(&id)
+                .cloned()
+                .unwrap_or_default();
+            Ok(ModerationCondition::MatchesOpenAiInstruction {
+                api_key,
+                model,
+                instruction,
+            })
+        }
         other => Err(format!("unknown condition type '{other}' on condition {id}").into()),
     }
 }

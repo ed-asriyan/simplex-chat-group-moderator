@@ -1,4 +1,5 @@
-use super::{MODERATION_MODEL, ModerationApiError, parse_response, request_body};
+use super::{MODERATION_MODEL, parse_response, request_body};
+use crate::infrastructure::drivers::openai::OpenAiApiError;
 use std::time::Duration;
 
 /// A response in the shape OpenAI documents for `omni-moderation-latest`,
@@ -78,7 +79,7 @@ fn test_a_success_without_a_result_is_malformed() {
         assert!(
             matches!(
                 parse_response(200, None, body),
-                Err(ModerationApiError::Malformed(_))
+                Err(OpenAiApiError::Malformed(_))
             ),
             "{body:?} should be malformed"
         );
@@ -89,11 +90,11 @@ fn test_a_success_without_a_result_is_malformed() {
 fn test_401_and_403_are_about_the_key() {
     assert_eq!(
         parse_response(401, None, &error_body("invalid_request_error")),
-        Err(ModerationApiError::Unauthorized)
+        Err(OpenAiApiError::Unauthorized)
     );
     assert_eq!(
         parse_response(403, None, &error_body("invalid_request_error")),
-        Err(ModerationApiError::Forbidden)
+        Err(OpenAiApiError::Forbidden)
     );
 }
 
@@ -101,13 +102,13 @@ fn test_401_and_403_are_about_the_key() {
 fn test_429_insufficient_quota_is_not_a_rate_limit() {
     assert_eq!(
         parse_response(429, Some("20"), &error_body("insufficient_quota")),
-        Err(ModerationApiError::InsufficientQuota)
+        Err(OpenAiApiError::InsufficientQuota)
     );
     // Some answers carry it only in `type`.
     let type_only = r#"{"error": {"message": "x", "type": "insufficient_quota", "code": null}}"#;
     assert_eq!(
         parse_response(429, None, type_only),
-        Err(ModerationApiError::InsufficientQuota)
+        Err(OpenAiApiError::InsufficientQuota)
     );
 }
 
@@ -115,18 +116,18 @@ fn test_429_insufficient_quota_is_not_a_rate_limit() {
 fn test_429_rate_limit_carries_retry_after_seconds() {
     assert_eq!(
         parse_response(429, Some("20"), &error_body("rate_limit_exceeded")),
-        Err(ModerationApiError::RateLimited {
+        Err(OpenAiApiError::RateLimited {
             retry_after: Some(Duration::from_secs(20))
         })
     );
     assert_eq!(
         parse_response(429, None, &error_body("rate_limit_exceeded")),
-        Err(ModerationApiError::RateLimited { retry_after: None })
+        Err(OpenAiApiError::RateLimited { retry_after: None })
     );
     // An HTTP-date or garbage is not a number of seconds; better no hint than a wrong one.
     assert_eq!(
         parse_response(429, Some("Wed, 21 Oct 2026 07:28:00 GMT"), "not json"),
-        Err(ModerationApiError::RateLimited { retry_after: None })
+        Err(OpenAiApiError::RateLimited { retry_after: None })
     );
 }
 
@@ -135,7 +136,7 @@ fn test_other_statuses_are_server_errors() {
     for status in [400, 404, 500, 502, 503] {
         assert_eq!(
             parse_response(status, None, &error_body("server_error")),
-            Err(ModerationApiError::Server { status }),
+            Err(OpenAiApiError::Server { status }),
             "status {status}"
         );
     }

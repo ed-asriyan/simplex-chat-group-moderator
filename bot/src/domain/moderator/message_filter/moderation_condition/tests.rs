@@ -955,3 +955,82 @@ fn test_openai_condition_describes_itself_without_its_key() {
     let condition = openai("sk-proj-abc", hate_only(CategoryTrigger::OpenAiDecides));
     assert_eq!(condition.describe(), "flagged by OpenAI moderation");
 }
+
+// ---------------------------------------------------------------------------
+// MatchesOpenAiInstruction
+// ---------------------------------------------------------------------------
+
+fn instructed(api_key: &str, model: &str, instruction: &str) -> ModerationCondition {
+    ModerationCondition::MatchesOpenAiInstruction {
+        api_key: api_key.to_string(),
+        model: model.to_string(),
+        instruction: instruction.to_string(),
+    }
+}
+
+#[test]
+fn test_openai_instruction_is_accepted_with_key_and_instruction_trimmed() {
+    let mut condition = instructed(" sk-proj-abc\n", "gpt-4o-mini", "\n  Block crypto ads.  \n");
+    condition.normalize_and_validate().unwrap();
+    assert_eq!(
+        condition,
+        instructed("sk-proj-abc", "gpt-4o-mini", "Block crypto ads.")
+    );
+}
+
+#[test]
+fn test_openai_instruction_accepts_every_listed_model_and_nothing_else() {
+    for model in super::OPENAI_INSTRUCTION_MODELS {
+        let mut condition = instructed("sk-proj-abc", model, "Block ads.");
+        condition.normalize_and_validate().unwrap();
+    }
+    for model in ["gpt-5", "o3-mini", "GPT-4o-mini", " gpt-4o-mini", ""] {
+        let err = err_of(&mut instructed("sk-proj-abc", model, "Block ads."));
+        assert!(
+            err.contains("cannot use the model") && err.contains("gpt-4o-mini"),
+            "{model:?}: unexpected error: {err}"
+        );
+    }
+}
+
+#[test]
+fn test_openai_instruction_needs_an_instruction() {
+    for instruction in ["", "   ", "\n\t"] {
+        let err = err_of(&mut instructed("sk-proj-abc", "gpt-4o-mini", instruction));
+        assert!(
+            err.contains("needs an instruction"),
+            "{instruction:?}: {err}"
+        );
+    }
+}
+
+#[test]
+fn test_openai_instruction_length_is_capped() {
+    let longest = "я".repeat(super::MAX_OPENAI_INSTRUCTION_LENGTH);
+    let mut condition = instructed("sk-proj-abc", "gpt-4o-mini", &longest);
+    condition.normalize_and_validate().unwrap();
+
+    let too_long = "я".repeat(super::MAX_OPENAI_INSTRUCTION_LENGTH + 1);
+    let err = err_of(&mut instructed("sk-proj-abc", "gpt-4o-mini", &too_long));
+    assert!(
+        err.contains("instruction is too long"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn test_openai_instruction_key_is_checked_like_every_openai_key() {
+    let err = err_of(&mut instructed("  ", "gpt-4o-mini", "Block ads."));
+    assert!(err.contains("API key"), "unexpected error: {err}");
+
+    let err = err_of(&mut instructed("sk-proj abc", "gpt-4o-mini", "Block ads."));
+    assert!(err.contains("API key") && !err.contains("sk-proj"), "{err}");
+}
+
+#[test]
+fn test_openai_instruction_describes_itself_without_its_key() {
+    assert_eq!(
+        instructed("sk-proj-abc", "gpt-4.1-mini", "Block ads.").describe(),
+        "matches the instruction (OpenAI gpt-4.1-mini)"
+    );
+}

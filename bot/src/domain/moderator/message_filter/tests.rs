@@ -1,7 +1,7 @@
 use super::*;
 use crate::domain::moderator::ports::{
-    GroupMessage, MessageAttachment, MessengerGroup, MessengerGroupId, OpenAiModerationClassifier,
-    UserId, UserModerationActivityRepository,
+    GroupMessage, MessageAttachment, MessengerGroup, MessengerGroupId, OpenAiInstructionVerdict,
+    OpenAiModerationClassifier, UserId, UserModerationActivityRepository,
 };
 use crate::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
 use crate::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
@@ -1861,24 +1861,57 @@ impl OpenAiModerationClassifier for UnusedOpenAi {
     async fn classify(&self, _api_key: &str, _text: &str) -> Result<OpenAiModerationResult, Err> {
         panic!("OpenAI was asked about a message no rule sends to it")
     }
+    async fn matches_instruction(
+        &self,
+        _api_key: &str,
+        _model: &str,
+        _instruction: &str,
+        _text: &str,
+    ) -> Result<OpenAiInstructionVerdict, Err> {
+        panic!("OpenAI was asked about a message no rule sends to it")
+    }
 }
 
 /// Answers every message the same way and records what it was asked.
 pub struct ScriptedOpenAi {
     answer: Result<OpenAiModerationResult, String>,
+    verdict: Result<OpenAiInstructionVerdict, String>,
     calls: std::sync::Mutex<Vec<(String, String)>>,
+    instruction_calls: std::sync::Mutex<Vec<(String, String, String, String)>>,
 }
 
 impl ScriptedOpenAi {
     pub fn answering(answer: Result<OpenAiModerationResult, String>) -> Self {
         Self {
             answer,
+            verdict: Err("no verdict scripted".to_string()),
             calls: std::sync::Mutex::new(Vec::new()),
+            instruction_calls: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Answers every instruction the same way, with `reason` as its reason.
+    pub fn judging(verdict: Result<bool, String>) -> Self {
+        Self::judging_with(verdict, "Promotes a coin.")
+    }
+
+    pub fn judging_with(verdict: Result<bool, String>, reason: &str) -> Self {
+        Self {
+            verdict: verdict.map(|matches| OpenAiInstructionVerdict {
+                matches,
+                reason: reason.to_string(),
+            }),
+            ..Self::answering(Err("no moderation scripted".to_string()))
         }
     }
 
     pub fn calls(&self) -> Vec<(String, String)> {
         self.calls.lock().unwrap().clone()
+    }
+
+    /// (key, model, instruction, text) for every instruction asked.
+    pub fn instruction_calls(&self) -> Vec<(String, String, String, String)> {
+        self.instruction_calls.lock().unwrap().clone()
     }
 }
 
@@ -1890,6 +1923,22 @@ impl OpenAiModerationClassifier for ScriptedOpenAi {
             .unwrap()
             .push((api_key.to_string(), text.to_string()));
         self.answer.clone().map_err(Err::from)
+    }
+
+    async fn matches_instruction(
+        &self,
+        api_key: &str,
+        model: &str,
+        instruction: &str,
+        text: &str,
+    ) -> Result<OpenAiInstructionVerdict, Err> {
+        self.instruction_calls.lock().unwrap().push((
+            api_key.to_string(),
+            model.to_string(),
+            instruction.to_string(),
+            text.to_string(),
+        ));
+        self.verdict.clone().map_err(Err::from)
     }
 }
 
@@ -2163,4 +2212,230 @@ async fn test_openai_is_not_asked_for_a_rule_whose_actions_are_already_planned()
 
     assert!(hit.is_some());
     assert!(openai.calls().is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// MatchesOpenAiInstruction
+// ---------------------------------------------------------------------------
+
+fn openai_instruction(api_key: &str) -> ModerationCondition {
+    ModerationCondition::MatchesOpenAiInstruction {
+        api_key: api_key.to_string(),
+        model: "gpt-4o-mini".to_string(),
+        instruction: "Block crypto ads.".to_string(),
+    }
+}
+
+#[test]
+fn test_openai_instruction_wire_format_matches_the_editor_schema() {
+    let json = r#"{
+        "type": "MatchesOpenAiInstruction",
+        "api_key": "sk-proj-abc",
+        "model": "gpt-4o-mini",
+        "instruction": "Block crypto ads."
+    }"#;
+    let condition: ModerationCondition = serde_json::from_str(json).unwrap();
+    assert_eq!(condition, openai_instruction("sk-proj-abc"));
+
+    let written = serde_json::to_value(&condition).unwrap();
+    assert_eq!(
+        written,
+        serde_json::json!({
+            "type": "MatchesOpenAiInstruction",
+            "api_key": "sk-proj-abc",
+            "model": "gpt-4o-mini",
+            "instruction": "Block crypto ads."
+        })
+    );
+}
+
+#[test]
+fn test_openai_instruction_needs_all_three_fields() {
+    for json in [
+        r#"{ "type": "MatchesOpenAiInstruction", "model": "gpt-4o-mini", "instruction": "i" }"#,
+        r#"{ "type": "MatchesOpenAiInstruction", "api_key": "sk", "instruction": "i" }"#,
+        r#"{ "type": "MatchesOpenAiInstruction", "api_key": "sk", "model": "gpt-4o-mini" }"#,
+    ] {
+        assert!(
+            serde_json::from_str::<ModerationCondition>(json).is_err(),
+            "{json} should not parse"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_a_model_saying_yes_moderates_with_its_reason() {
+    let openai = ScriptedOpenAi::judging(Ok(true));
+
+    let hit = matched_with(
+        &openai,
+        &text_message("buy my coin"),
+        &rule_with(openai_instruction("sk-one")),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(hit.actions, vec![ModerationAction::ModerateMessage]);
+    assert_eq!(
+        hit.reasons,
+        vec!["OpenAI gpt-4o-mini: Promotes a coin.".to_string()]
+    );
+}
+
+async fn reason_for(reason: &str) -> String {
+    let openai = ScriptedOpenAi::judging_with(Ok(true), reason);
+    let hit = matched_with(
+        &openai,
+        &text_message("buy my coin"),
+        &rule_with(openai_instruction("sk-one")),
+    )
+    .await
+    .unwrap();
+    hit.reasons.into_iter().next().unwrap()
+}
+
+#[tokio::test]
+async fn test_the_models_reason_is_shown_on_one_line() {
+    assert_eq!(
+        reason_for("  Promotes\na coin\t airdrop.  ").await,
+        "OpenAI gpt-4o-mini: Promotes a coin airdrop."
+    );
+}
+
+#[tokio::test]
+async fn test_a_missing_reason_falls_back_to_saying_whose_verdict_it_is() {
+    assert_eq!(
+        reason_for(" \n ").await,
+        "OpenAI gpt-4o-mini says it matches the instruction"
+    );
+}
+
+#[tokio::test]
+async fn test_an_overlong_reason_is_cut_to_a_notifications_worth() {
+    let reason = reason_for(&"я".repeat(500)).await;
+    let shown = reason.strip_prefix("OpenAI gpt-4o-mini: ").unwrap();
+    assert_eq!(shown.chars().count(), 201);
+    assert!(shown.ends_with('…'));
+}
+
+#[tokio::test]
+async fn test_a_model_saying_no_does_not_match() {
+    let openai = ScriptedOpenAi::judging(Ok(false));
+
+    let hit = matched_with(
+        &openai,
+        &text_message("hello"),
+        &rule_with(openai_instruction("sk-one")),
+    )
+    .await;
+
+    assert!(hit.is_none());
+}
+
+#[tokio::test]
+async fn test_the_model_is_asked_with_key_model_instruction_and_the_text_as_is() {
+    let openai = ScriptedOpenAi::judging(Ok(false));
+    let text = "  Привет,\nмир  ";
+
+    matched_with(
+        &openai,
+        &text_message(text),
+        &rule_with(openai_instruction("sk-one")),
+    )
+    .await;
+
+    assert_eq!(
+        openai.instruction_calls(),
+        vec![(
+            "sk-one".to_string(),
+            "gpt-4o-mini".to_string(),
+            "Block crypto ads.".to_string(),
+            text.to_string()
+        )]
+    );
+    assert!(
+        openai.calls().is_empty(),
+        "the moderation model was asked too"
+    );
+}
+
+#[tokio::test]
+async fn test_the_model_is_not_asked_about_a_message_without_text() {
+    let openai = ScriptedOpenAi::judging(Ok(true));
+    let rules = rule_with(openai_instruction("sk-one"));
+    let captionless_picture = GroupMessage {
+        attachment: Some(MessageAttachment::Image),
+        ..Default::default()
+    };
+
+    assert!(
+        matched_with(&openai, &text_message("  \n "), &rules)
+            .await
+            .is_none()
+    );
+    assert!(
+        matched_with(&openai, &captionless_picture, &rules)
+            .await
+            .is_none()
+    );
+    assert!(openai.instruction_calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_no_verdict_reads_as_no_match_and_other_rules_still_apply() {
+    let openai = ScriptedOpenAi::judging(Err("OpenAI is down".to_string()));
+    let rules = vec![
+        ModerationRule {
+            actions: vec![ModerationAction::ModerateMessage],
+            condition: openai_instruction("sk-one"),
+        },
+        ModerationRule {
+            actions: vec![ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            }],
+            condition: words("spam"),
+        },
+    ];
+
+    let hit = matched_with(&openai, &text_message("spam"), &rules)
+        .await
+        .unwrap();
+
+    assert_eq!(hit.reasons, vec!["contains word: 'spam'".to_string()]);
+}
+
+#[tokio::test]
+async fn test_the_model_is_asked_once_per_message_however_many_rules_use_the_condition() {
+    let openai = ScriptedOpenAi::judging(Ok(false));
+    let rules = vec![
+        ModerationRule {
+            actions: vec![ModerationAction::ModerateMessage],
+            condition: openai_instruction("sk-one"),
+        },
+        ModerationRule {
+            actions: vec![ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            }],
+            condition: ModerationCondition::Any {
+                conditions: vec![words("spam"), openai_instruction("sk-one")],
+            },
+        },
+    ];
+
+    matched_with(&openai, &text_message("hello"), &rules).await;
+
+    assert_eq!(openai.instruction_calls().len(), 1);
+}
+
+#[tokio::test]
+async fn test_all_does_not_ask_the_model_once_an_earlier_condition_fails() {
+    let openai = ScriptedOpenAi::judging(Ok(true));
+    let condition = ModerationCondition::All {
+        conditions: vec![words("crypto"), openai_instruction("sk-one")],
+    };
+
+    let hit = matched_with(&openai, &text_message("hello"), &rule_with(condition)).await;
+
+    assert!(hit.is_none());
+    assert!(openai.instruction_calls().is_empty());
 }

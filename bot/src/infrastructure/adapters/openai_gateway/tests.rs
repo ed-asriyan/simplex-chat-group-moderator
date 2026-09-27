@@ -1,10 +1,10 @@
-use super::{OpenAiModerationGateway, OpenAiModerationGatewayConfig};
+use super::{OpenAiGateway, OpenAiGatewayConfig};
 use crate::domain::moderator::ports::{
     KeyCheck, OpenAiCategory, OpenAiKeyVerifier, OpenAiModerationClassifier,
 };
-use crate::infrastructure::drivers::openai_moderation::{
-    ModerationApi, ModerationApiError, RawModeration,
-};
+use crate::infrastructure::drivers::openai::OpenAiApiError;
+use crate::infrastructure::drivers::openai_moderation::{ModerationApi, RawModeration};
+use crate::infrastructure::drivers::openai_responses::{Judgement, ResponsesApi};
 use async_trait::async_trait;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -13,10 +13,10 @@ use std::time::Duration;
 use tokio::sync::Semaphore;
 
 // ---------------------------------------------------------------------------
-// A scripted Moderation API
+// Scripted Moderation and Responses APIs
 // ---------------------------------------------------------------------------
 
-type Answer = Result<RawModeration, ModerationApiError>;
+type Answer = Result<RawModeration, OpenAiApiError>;
 
 /// Answers from a per-key script (a clean verdict once a key's script runs
 /// out), records every call in the order it was made, and — when gated — holds
@@ -25,6 +25,8 @@ type Answer = Result<RawModeration, ModerationApiError>;
 struct FakeApi {
     calls: Mutex<Vec<(String, String)>>,
     script: Mutex<HashMap<String, VecDeque<Answer>>>,
+    verdicts: Mutex<HashMap<String, VecDeque<Result<Judgement, OpenAiApiError>>>>,
+    judged: Mutex<Vec<(String, String, String)>>,
     gate: Option<Arc<Semaphore>>,
     in_flight: AtomicUsize,
     peak_in_flight: AtomicUsize,
@@ -67,9 +69,30 @@ impl FakeApi {
     }
 }
 
-#[async_trait]
-impl ModerationApi for FakeApi {
-    async fn moderate(&self, api_key: &str, text: &str) -> Answer {
+impl FakeApi {
+    /// Scripts the verdicts a key gets from the Responses API (`false` once
+    /// the script runs out). A verdict's reason is "reason: <verdict>".
+    fn judge_as(&self, key: &str, verdicts: Vec<Result<bool, OpenAiApiError>>) {
+        self.verdicts
+            .lock()
+            .unwrap()
+            .entry(key.to_string())
+            .or_default()
+            .extend(verdicts.into_iter().map(|verdict| {
+                verdict.map(|matches| Judgement {
+                    matches,
+                    reason: format!("reason: {matches}"),
+                })
+            }));
+    }
+
+    fn judged(&self) -> Vec<(String, String, String)> {
+        self.judged.lock().unwrap().clone()
+    }
+
+    /// Records the call and holds it at the gate: both endpoints count
+    /// against the same in-flight limit.
+    async fn enter(&self, api_key: &str, text: &str) {
         self.calls
             .lock()
             .unwrap()
@@ -80,6 +103,40 @@ impl ModerationApi for FakeApi {
             gate.acquire().await.unwrap().forget();
         }
         self.in_flight.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+#[async_trait]
+impl ResponsesApi for FakeApi {
+    async fn judge(
+        &self,
+        api_key: &str,
+        model: &str,
+        instruction: &str,
+        text: &str,
+    ) -> Result<Judgement, OpenAiApiError> {
+        self.enter(api_key, text).await;
+        self.judged.lock().unwrap().push((
+            api_key.to_string(),
+            model.to_string(),
+            instruction.to_string(),
+        ));
+        self.verdicts
+            .lock()
+            .unwrap()
+            .get_mut(api_key)
+            .and_then(VecDeque::pop_front)
+            .unwrap_or(Ok(Judgement {
+                matches: false,
+                reason: String::new(),
+            }))
+    }
+}
+
+#[async_trait]
+impl ModerationApi for FakeApi {
+    async fn moderate(&self, api_key: &str, text: &str) -> Answer {
+        self.enter(api_key, text).await;
         self.script
             .lock()
             .unwrap()
@@ -89,24 +146,22 @@ impl ModerationApi for FakeApi {
     }
 }
 
-fn config() -> OpenAiModerationGatewayConfig {
-    OpenAiModerationGatewayConfig {
+fn config() -> OpenAiGatewayConfig {
+    OpenAiGatewayConfig {
         requests_per_minute_per_key: 100,
         max_pending_per_key: 10,
         max_in_flight: 4,
         queue_capacity: 100,
         classify_deadline: Duration::from_secs(60),
+        judge_deadline: Duration::from_secs(60),
         verify_deadline: Duration::from_secs(60),
         rejected_key_ttl: Duration::from_secs(600),
         default_rate_limit_cooldown: Duration::from_secs(20),
     }
 }
 
-fn start_gateway(
-    api: &Arc<FakeApi>,
-    config: OpenAiModerationGatewayConfig,
-) -> Arc<OpenAiModerationGateway> {
-    Arc::new(OpenAiModerationGateway::new(api.clone(), config))
+fn start_gateway(api: &Arc<FakeApi>, config: OpenAiGatewayConfig) -> Arc<OpenAiGateway> {
+    Arc::new(OpenAiGateway::new(api.clone(), api.clone(), config))
 }
 
 /// Yields to the dispatcher until `condition` holds, or fails the test.
@@ -176,13 +231,13 @@ async fn test_classify_translates_openai_names_and_ignores_unknown_categories() 
 #[tokio::test]
 async fn test_classify_fails_whenever_openai_gives_no_verdict() {
     let failures = [
-        ModerationApiError::Unauthorized,
-        ModerationApiError::Forbidden,
-        ModerationApiError::InsufficientQuota,
-        ModerationApiError::RateLimited { retry_after: None },
-        ModerationApiError::Server { status: 503 },
-        ModerationApiError::Malformed("x".into()),
-        ModerationApiError::Transport("x".into()),
+        OpenAiApiError::Unauthorized,
+        OpenAiApiError::Forbidden,
+        OpenAiApiError::InsufficientQuota,
+        OpenAiApiError::RateLimited { retry_after: None },
+        OpenAiApiError::Server { status: 503 },
+        OpenAiApiError::Malformed("x".into()),
+        OpenAiApiError::Transport("x".into()),
     ];
     for failure in failures {
         let api = FakeApi::new();
@@ -203,10 +258,10 @@ async fn test_classify_fails_whenever_openai_gives_no_verdict() {
 async fn test_verify_reads_openai_answers_about_the_key_without_retrying() {
     let cases = [
         (Ok(RawModeration::default()), KeyCheck::Valid),
-        (Err(ModerationApiError::Unauthorized), KeyCheck::Rejected),
-        (Err(ModerationApiError::Forbidden), KeyCheck::Forbidden),
+        (Err(OpenAiApiError::Unauthorized), KeyCheck::Rejected),
+        (Err(OpenAiApiError::Forbidden), KeyCheck::Forbidden),
         (
-            Err(ModerationApiError::InsufficientQuota),
+            Err(OpenAiApiError::InsufficientQuota),
             KeyCheck::QuotaExceeded,
         ),
     ];
@@ -222,12 +277,12 @@ async fn test_verify_reads_openai_answers_about_the_key_without_retrying() {
 #[tokio::test(start_paused = true)]
 async fn test_verify_retries_a_transient_failure_once() {
     let transient = [
-        ModerationApiError::RateLimited {
+        OpenAiApiError::RateLimited {
             retry_after: Some(Duration::from_secs(1)),
         },
-        ModerationApiError::Server { status: 503 },
-        ModerationApiError::Malformed("x".into()),
-        ModerationApiError::Transport("x".into()),
+        OpenAiApiError::Server { status: 503 },
+        OpenAiApiError::Malformed("x".into()),
+        OpenAiApiError::Transport("x".into()),
     ];
     for failure in transient {
         let api = FakeApi::new();
@@ -260,7 +315,7 @@ async fn test_verify_is_not_charged_to_the_token_bucket() {
     let api = FakeApi::new();
     let gateway = start_gateway(
         &api,
-        OpenAiModerationGatewayConfig {
+        OpenAiGatewayConfig {
             requests_per_minute_per_key: 1,
             ..config()
         },
@@ -283,7 +338,7 @@ async fn test_a_key_past_its_rate_is_refused_without_asking_openai() {
     let api = FakeApi::new();
     let gateway = start_gateway(
         &api,
-        OpenAiModerationGatewayConfig {
+        OpenAiGatewayConfig {
             requests_per_minute_per_key: 2,
             ..config()
         },
@@ -304,7 +359,7 @@ async fn test_a_key_bucket_refills_over_time() {
     let api = FakeApi::new();
     let gateway = start_gateway(
         &api,
-        OpenAiModerationGatewayConfig {
+        OpenAiGatewayConfig {
             requests_per_minute_per_key: 2,
             ..config()
         },
@@ -325,7 +380,7 @@ async fn test_a_rate_limited_key_rests_until_retry_after() {
     let api = FakeApi::new();
     api.answer(
         "sk-one",
-        vec![Err(ModerationApiError::RateLimited {
+        vec![Err(OpenAiApiError::RateLimited {
             retry_after: Some(Duration::from_secs(30)),
         })],
     );
@@ -347,11 +402,11 @@ async fn test_a_rate_limited_key_without_retry_after_rests_for_the_default() {
     let api = FakeApi::new();
     api.answer(
         "sk-one",
-        vec![Err(ModerationApiError::RateLimited { retry_after: None })],
+        vec![Err(OpenAiApiError::RateLimited { retry_after: None })],
     );
     let gateway = start_gateway(
         &api,
-        OpenAiModerationGatewayConfig {
+        OpenAiGatewayConfig {
             default_rate_limit_cooldown: Duration::from_secs(20),
             ..config()
         },
@@ -367,15 +422,12 @@ async fn test_a_rate_limited_key_without_retry_after_rests_for_the_default() {
 
 #[tokio::test(start_paused = true)]
 async fn test_a_key_openai_refused_is_refused_locally_for_a_while() {
-    for refusal in [
-        ModerationApiError::Unauthorized,
-        ModerationApiError::Forbidden,
-    ] {
+    for refusal in [OpenAiApiError::Unauthorized, OpenAiApiError::Forbidden] {
         let api = FakeApi::new();
         api.answer("sk-one", vec![Err(refusal.clone())]);
         let gateway = start_gateway(
             &api,
-            OpenAiModerationGatewayConfig {
+            OpenAiGatewayConfig {
                 rejected_key_ttl: Duration::from_secs(600),
                 ..config()
             },
@@ -396,7 +448,7 @@ async fn test_a_key_openai_refused_is_refused_locally_for_a_while() {
 #[tokio::test(start_paused = true)]
 async fn test_verify_asks_about_a_refused_key_and_a_valid_answer_lifts_the_refusal() {
     let api = FakeApi::new();
-    api.answer("sk-one", vec![Err(ModerationApiError::Forbidden)]);
+    api.answer("sk-one", vec![Err(OpenAiApiError::Forbidden)]);
     let gateway = start_gateway(&api, config());
     assert!(gateway.classify("sk-one", "a").await.is_err());
 
@@ -415,7 +467,7 @@ async fn test_no_more_than_max_in_flight_requests_run_at_once() {
     let (api, gate) = FakeApi::gated();
     let gateway = start_gateway(
         &api,
-        OpenAiModerationGatewayConfig {
+        OpenAiGatewayConfig {
             max_in_flight: 2,
             ..config()
         },
@@ -444,7 +496,7 @@ async fn test_one_key_cannot_take_more_than_its_share_of_the_queue() {
     let (api, gate) = FakeApi::gated();
     let gateway = start_gateway(
         &api,
-        OpenAiModerationGatewayConfig {
+        OpenAiGatewayConfig {
             max_in_flight: 1,
             max_pending_per_key: 1,
             ..config()
@@ -484,7 +536,7 @@ async fn test_key_checks_jump_the_queue() {
     let (api, gate) = FakeApi::gated();
     let gateway = start_gateway(
         &api,
-        OpenAiModerationGatewayConfig {
+        OpenAiGatewayConfig {
             max_in_flight: 1,
             ..config()
         },
@@ -518,7 +570,7 @@ async fn test_classify_gives_up_at_its_deadline() {
     let (api, _gate) = FakeApi::gated();
     let gateway = start_gateway(
         &api,
-        OpenAiModerationGatewayConfig {
+        OpenAiGatewayConfig {
             classify_deadline: Duration::from_millis(50),
             ..config()
         },
@@ -535,7 +587,7 @@ async fn test_a_job_that_waited_past_its_deadline_is_never_sent() {
     let (api, gate) = FakeApi::gated();
     let gateway = start_gateway(
         &api,
-        OpenAiModerationGatewayConfig {
+        OpenAiGatewayConfig {
             max_in_flight: 1,
             classify_deadline: Duration::from_millis(50),
             ..config()
@@ -553,4 +605,192 @@ async fn test_a_job_that_waited_past_its_deadline_is_never_sent() {
     let _ = first.await.unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert_eq!(api.keys_called(), vec!["sk-one"], "a stale job was sent");
+}
+
+// ---------------------------------------------------------------------------
+// Models following an instruction
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_matches_instruction_sends_model_instruction_and_text_and_reads_the_verdict() {
+    let api = FakeApi::new();
+    api.judge_as("sk-one", vec![Ok(true), Ok(false)]);
+    let gateway = start_gateway(&api, config());
+
+    let first = gateway
+        .matches_instruction("sk-one", "gpt-4o-mini", "Block ads.", "  buy  ")
+        .await
+        .unwrap();
+    assert!(first.matches);
+    assert_eq!(first.reason, "reason: true");
+    let second = gateway
+        .matches_instruction("sk-one", "gpt-4o-mini", "Block ads.", "hi")
+        .await
+        .unwrap();
+    assert!(!second.matches);
+    assert_eq!(
+        api.judged(),
+        vec![
+            (
+                "sk-one".to_string(),
+                "gpt-4o-mini".to_string(),
+                "Block ads.".to_string()
+            ),
+            (
+                "sk-one".to_string(),
+                "gpt-4o-mini".to_string(),
+                "Block ads.".to_string()
+            ),
+        ]
+    );
+    assert_eq!(api.calls()[0].1, "  buy  ");
+}
+
+#[tokio::test]
+async fn test_matches_instruction_fails_whenever_openai_gives_no_verdict() {
+    for failure in [
+        OpenAiApiError::Unauthorized,
+        OpenAiApiError::Server { status: 404 },
+        OpenAiApiError::Malformed("refused".into()),
+        OpenAiApiError::Transport("x".into()),
+    ] {
+        let api = FakeApi::new();
+        api.judge_as("sk-one", vec![Err(failure.clone())]);
+        let gateway = start_gateway(&api, config());
+        assert!(
+            gateway
+                .matches_instruction("sk-one", "gpt-4o-mini", "i", "t")
+                .await
+                .is_err(),
+            "{failure:?} should be an error"
+        );
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn test_one_key_shares_its_rate_between_both_endpoints() {
+    // OpenAI's limits belong to the key, whatever endpoint it calls.
+    let api = FakeApi::new();
+    let gateway = start_gateway(
+        &api,
+        OpenAiGatewayConfig {
+            requests_per_minute_per_key: 2,
+            ..config()
+        },
+    );
+
+    assert!(gateway.classify("sk-one", "a").await.is_ok());
+    assert!(
+        gateway
+            .matches_instruction("sk-one", "gpt-4o-mini", "i", "b")
+            .await
+            .is_ok()
+    );
+    assert!(
+        gateway
+            .matches_instruction("sk-one", "gpt-4o-mini", "i", "c")
+            .await
+            .is_err()
+    );
+    assert!(gateway.classify("sk-one", "d").await.is_err());
+    assert_eq!(api.call_count(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn test_a_key_refused_by_one_endpoint_is_refused_for_both() {
+    let api = FakeApi::new();
+    api.judge_as("sk-one", vec![Err(OpenAiApiError::Unauthorized)]);
+    let gateway = start_gateway(&api, config());
+
+    assert!(
+        gateway
+            .matches_instruction("sk-one", "gpt-4o-mini", "i", "a")
+            .await
+            .is_err()
+    );
+    assert!(gateway.classify("sk-one", "b").await.is_err());
+    assert_eq!(api.call_count(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn test_verify_model_asks_that_model_and_reads_its_answers() {
+    let cases = [
+        (Ok(false), KeyCheck::Valid),
+        (Ok(true), KeyCheck::Valid),
+        (Err(OpenAiApiError::Unauthorized), KeyCheck::Rejected),
+        (Err(OpenAiApiError::Forbidden), KeyCheck::Forbidden),
+        (
+            Err(OpenAiApiError::InsufficientQuota),
+            KeyCheck::QuotaExceeded,
+        ),
+        (
+            Err(OpenAiApiError::Server { status: 404 }),
+            KeyCheck::ModelUnavailable,
+        ),
+        (
+            Err(OpenAiApiError::Server { status: 400 }),
+            KeyCheck::ModelUnavailable,
+        ),
+    ];
+    for (answer, expected) in cases {
+        let api = FakeApi::new();
+        api.judge_as("sk-one", vec![answer.clone()]);
+        let gateway = start_gateway(&api, config());
+
+        assert_eq!(
+            gateway.verify_model("sk-one", "gpt-4.1-mini").await,
+            expected,
+            "{answer:?}"
+        );
+        assert_eq!(
+            api.call_count(),
+            1,
+            "{answer:?}: a definite answer is not retried"
+        );
+        assert_eq!(api.judged()[0].1, "gpt-4.1-mini");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn test_verify_model_retries_a_transient_failure_once() {
+    let api = FakeApi::new();
+    api.judge_as(
+        "sk-one",
+        vec![Err(OpenAiApiError::Server { status: 503 }), Ok(false)],
+    );
+    let gateway = start_gateway(&api, config());
+    assert_eq!(
+        gateway.verify_model("sk-one", "gpt-4o-mini").await,
+        KeyCheck::Valid
+    );
+    assert_eq!(api.call_count(), 2);
+
+    let api = FakeApi::new();
+    api.judge_as(
+        "sk-one",
+        vec![
+            Err(OpenAiApiError::Transport("x".into())),
+            Err(OpenAiApiError::Transport("x".into())),
+        ],
+    );
+    let gateway = start_gateway(&api, config());
+    assert_eq!(
+        gateway.verify_model("sk-one", "gpt-4o-mini").await,
+        KeyCheck::Unreachable
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn test_a_moderation_key_check_does_not_read_400_as_a_model_problem() {
+    // Only a model check has a model to blame.
+    let api = FakeApi::new();
+    api.answer(
+        "sk-one",
+        vec![
+            Err(OpenAiApiError::Server { status: 400 }),
+            Err(OpenAiApiError::Server { status: 400 }),
+        ],
+    );
+    let gateway = start_gateway(&api, config());
+    assert_eq!(gateway.verify("sk-one").await, KeyCheck::Unreachable);
 }

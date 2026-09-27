@@ -1,10 +1,12 @@
-//! The one way the bot talks to OpenAI's Moderation API: an in-process queue
-//! in front of the [`ModerationApi`] driver.
+//! The one way the bot talks to OpenAI: an in-process queue in front of the
+//! [`ModerationApi`] and [`ResponsesApi`] drivers.
 //!
-//! Implements both OpenAI ports of the moderator context. Every request, a
-//! message to classify or a key to verify, becomes a job on one bounded queue
+//! Implements both OpenAI ports of the moderator context. Every request — a
+//! message for the moderation model, a message for a model following an
+//! instruction, or a key to verify — becomes a job on one bounded queue
 //! that a single dispatcher drains, so how fast the bot talks to OpenAI is
-//! decided in one place:
+//! decided in one place, and per key whichever endpoint the key is used for —
+//! OpenAI's rate limits are the key's, not the endpoint's:
 //! - a token bucket per key (`requests_per_minute_per_key`) keeps a flooded
 //!   group from burning its owner's quota — a job with no token is refused,
 //!   not delayed;
@@ -30,18 +32,18 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 use tokio::time::Instant;
 
 use crate::domain::moderator::ports::{
-    Err, KeyCheck, OpenAiCategory, OpenAiKeyVerifier, OpenAiModerationClassifier,
-    OpenAiModerationResult,
+    Err, KeyCheck, OpenAiCategory, OpenAiInstructionVerdict, OpenAiKeyVerifier,
+    OpenAiModerationClassifier, OpenAiModerationResult,
 };
-use crate::infrastructure::drivers::openai_moderation::{
-    ModerationApi, ModerationApiError, RawModeration,
-};
+use crate::infrastructure::drivers::openai::OpenAiApiError;
+use crate::infrastructure::drivers::openai_moderation::{ModerationApi, RawModeration};
+use crate::infrastructure::drivers::openai_responses::{Judgement, ResponsesApi};
 
 #[cfg(test)]
 mod tests;
 
 #[derive(Clone, Debug)]
-pub struct OpenAiModerationGatewayConfig {
+pub struct OpenAiGatewayConfig {
     /// Requests one key may make per minute; also the size of its burst.
     pub requests_per_minute_per_key: u32,
     /// Jobs of one key that may wait for a free slot at the same time.
@@ -50,8 +52,12 @@ pub struct OpenAiModerationGatewayConfig {
     pub max_in_flight: usize,
     /// Jobs the queue holds before refusing new ones.
     pub queue_capacity: usize,
-    /// How long a message waits for its verdict, queueing included.
+    /// How long a message waits for the moderation model, queueing included.
     pub classify_deadline: Duration,
+    /// How long a message waits for a model following an instruction,
+    /// queueing included. Longer: a chat model answers slower than the
+    /// moderation endpoint.
+    pub judge_deadline: Duration,
     /// How long a key check waits, queueing and its one retry included.
     pub verify_deadline: Duration,
     /// How long a key OpenAI refused is refused locally.
@@ -66,7 +72,7 @@ const REQUESTS_PER_MINUTE_PER_KEY: u32 = 200;
 /// HTTP requests to OpenAI running at the same time, over all keys.
 const MAX_IN_FLIGHT: usize = 8;
 
-impl Default for OpenAiModerationGatewayConfig {
+impl Default for OpenAiGatewayConfig {
     fn default() -> Self {
         Self {
             requests_per_minute_per_key: REQUESTS_PER_MINUTE_PER_KEY,
@@ -74,6 +80,7 @@ impl Default for OpenAiModerationGatewayConfig {
             max_in_flight: MAX_IN_FLIGHT,
             queue_capacity: 1_000,
             classify_deadline: Duration::from_secs(2),
+            judge_deadline: Duration::from_secs(4),
             verify_deadline: Duration::from_secs(10),
             rejected_key_ttl: Duration::from_secs(10 * 60),
             default_rate_limit_cooldown: Duration::from_secs(20),
@@ -84,13 +91,17 @@ impl Default for OpenAiModerationGatewayConfig {
 /// What a key check sends: harmless, short, and the same every time.
 const KEY_CHECK_TEXT: &str = "hello";
 
+/// What a model check asks the model to do with it: the shortest instruction
+/// that still exercises the whole request, schema included.
+const KEY_CHECK_INSTRUCTION: &str = "Answer false.";
+
 /// Past this many keys, keys with nothing going on are forgotten.
 const KEY_STATES_SOFT_LIMIT: usize = 1_024;
 
-pub struct OpenAiModerationGateway {
+pub struct OpenAiGateway {
     jobs: mpsc::UnboundedSender<Job>,
     keys: Arc<Mutex<KeyStates>>,
-    config: OpenAiModerationGatewayConfig,
+    config: OpenAiGatewayConfig,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,12 +112,57 @@ enum Priority {
     Classify,
 }
 
+/// What a job asks OpenAI.
+enum Call {
+    /// The moderation model's scores for a text.
+    Moderate { text: String },
+    /// A model's yes/no on whether a text is what an instruction describes.
+    Judge {
+        model: String,
+        instruction: String,
+        text: String,
+    },
+}
+
+/// What OpenAI answered to a [`Call`], in the driver's terms.
+enum Answer {
+    Moderation(RawModeration),
+    Verdict(Judgement),
+}
+
+/// The drivers, one per endpoint.
+struct Apis {
+    moderation: Arc<dyn ModerationApi>,
+    responses: Arc<dyn ResponsesApi>,
+}
+
+impl Apis {
+    async fn call(&self, api_key: &str, call: &Call) -> Result<Answer, OpenAiApiError> {
+        match call {
+            Call::Moderate { text } => self
+                .moderation
+                .moderate(api_key, text)
+                .await
+                .map(Answer::Moderation),
+            Call::Judge {
+                model,
+                instruction,
+                text,
+            } => self
+                .responses
+                .judge(api_key, model, instruction, text)
+                .await
+                .map(Answer::Verdict),
+        }
+    }
+}
+
 struct Job {
     api_key: String,
-    text: String,
+    call: Call,
     priority: Priority,
     deadline: Instant,
-    reply: oneshot::Sender<Result<RawModeration, ModerationApiError>>,
+    reply: oneshot::Sender<Result<Answer, OpenAiApiError>>,
 }
 
 /// Why a job got no answer from OpenAI.
@@ -118,17 +174,24 @@ enum Refusal {
     /// Waited past its deadline.
     Timeout,
     /// OpenAI answered with an error.
-    Api(ModerationApiError),
+    Api(OpenAiApiError),
 }
 
-impl OpenAiModerationGateway {
+impl OpenAiGateway {
     /// Starts the dispatcher on the current Tokio runtime.
-    pub fn new(api: Arc<dyn ModerationApi>, config: OpenAiModerationGatewayConfig) -> Self {
+    pub fn new(
+        moderation: Arc<dyn ModerationApi>,
+        responses: Arc<dyn ResponsesApi>,
+        config: OpenAiGatewayConfig,
+    ) -> Self {
         let (jobs, receiver) = mpsc::unbounded_channel();
         let keys = Arc::new(Mutex::new(KeyStates::default()));
         tokio::spawn(dispatch(
             receiver,
-            api,
+            Arc::new(Apis {
+                moderation,
+                responses,
+            }),
             Arc::new(Semaphore::new(config.max_in_flight.max(1))),
             keys.clone(),
             config.clone(),
@@ -140,14 +203,14 @@ impl OpenAiModerationGateway {
     async fn submit(
         &self,
         api_key: &str,
-        text: &str,
+        call: Call,
         priority: Priority,
         deadline: Instant,
-    ) -> Result<RawModeration, Refusal> {
+    ) -> Result<Answer, Refusal> {
         let (reply, answer) = oneshot::channel();
         let job = Job {
             api_key: api_key.to_string(),
-            text: text.to_string(),
+            call,
             priority,
             deadline,
             reply,
@@ -164,62 +227,61 @@ impl OpenAiModerationGateway {
             Ok(Err(_)) | Err(_) => Err(Refusal::Timeout),
         }
     }
-}
 
-#[async_trait]
-impl OpenAiModerationClassifier for OpenAiModerationGateway {
-    async fn classify(&self, api_key: &str, text: &str) -> Result<OpenAiModerationResult, Err> {
+    /// A message's call: admitted against the key's pacing, then queued. A
+    /// refusal is logged here, so the ports can just say "no verdict".
+    async fn ask(&self, api_key: &str, call: Call) -> Result<Answer, Err> {
         let now = Instant::now();
-        let deadline = now + self.config.classify_deadline;
+        let deadline = now
+            + match call {
+                Call::Moderate { .. } => self.config.classify_deadline,
+                Call::Judge { .. } => self.config.judge_deadline,
+            };
         let admitted = lock(&self.keys).admit(api_key, now, &self.config);
         let result = match admitted {
             Ok(()) => {
-                self.submit(api_key, text, Priority::Classify, deadline)
+                self.submit(api_key, call, Priority::Classify, deadline)
                     .await
             }
             Err(refusal) => Err(refusal),
         };
-        match result {
-            Ok(raw) => Ok(translate(raw)),
-            Err(refusal) => {
-                match &refusal {
-                    Refusal::Local(why) => {
-                        debug!("OpenAI moderation skipped for key {}: {why}", hint(api_key))
-                    }
-                    other => warn!(
-                        "OpenAI moderation failed for key {}: {other:?}",
-                        hint(api_key)
-                    ),
+        result.map_err(|refusal| {
+            match &refusal {
+                Refusal::Local(why) => {
+                    debug!("OpenAI request skipped for key {}: {why}", hint(api_key))
                 }
-                Err(format!("no OpenAI verdict: {refusal:?}").into())
+                other => warn!("OpenAI request failed for key {}: {other:?}", hint(api_key)),
             }
-        }
+            format!("no OpenAI verdict: {refusal:?}").into()
+        })
     }
-}
 
-#[async_trait]
-impl OpenAiKeyVerifier for OpenAiModerationGateway {
-    /// A key check asks OpenAI even when the key is being refused locally —
-    /// the owner may just have fixed its permissions — and a `Valid` answer
+    /// A key check. It asks OpenAI even when the key is being refused locally
+    /// — the owner may just have fixed its permissions — and a `Valid` answer
     /// lifts that refusal. It is not charged to the key's token bucket, and a
     /// transient failure is retried once before it reads as `Unreachable`.
-    async fn verify(&self, api_key: &str) -> KeyCheck {
+    /// `about_model` turns a 400 or 404 into `ModelUnavailable`: for a model
+    /// check that is the model, not OpenAI, saying no.
+    async fn check(&self, api_key: &str, call: impl Fn() -> Call, about_model: bool) -> KeyCheck {
         let deadline = Instant::now() + self.config.verify_deadline;
         for attempt in 0..2 {
             let refusal = match self
-                .submit(api_key, KEY_CHECK_TEXT, Priority::Verify, deadline)
+                .submit(api_key, call(), Priority::Verify, deadline)
                 .await
             {
                 Ok(_) => return KeyCheck::Valid,
                 Err(refusal) => refusal,
             };
             let backoff = match refusal {
-                Refusal::Api(ModerationApiError::Unauthorized) => return KeyCheck::Rejected,
-                Refusal::Api(ModerationApiError::Forbidden) => return KeyCheck::Forbidden,
-                Refusal::Api(ModerationApiError::InsufficientQuota) => {
+                Refusal::Api(OpenAiApiError::Unauthorized) => return KeyCheck::Rejected,
+                Refusal::Api(OpenAiApiError::Forbidden) => return KeyCheck::Forbidden,
+                Refusal::Api(OpenAiApiError::InsufficientQuota) => {
                     return KeyCheck::QuotaExceeded;
                 }
-                Refusal::Api(ModerationApiError::RateLimited { retry_after }) => retry_after
+                Refusal::Api(OpenAiApiError::Server { status: 400 | 404 }) if about_model => {
+                    return KeyCheck::ModelUnavailable;
+                }
+                Refusal::Api(OpenAiApiError::RateLimited { retry_after }) => retry_after
                     .unwrap_or(Duration::from_secs(1))
                     .min(Duration::from_secs(2)),
                 Refusal::Api(_) => Duration::from_millis(500),
@@ -236,6 +298,59 @@ impl OpenAiKeyVerifier for OpenAiModerationGateway {
             tokio::time::sleep(backoff).await;
         }
         KeyCheck::Unreachable
+    }
+}
+
+#[async_trait]
+impl OpenAiModerationClassifier for OpenAiGateway {
+    async fn classify(&self, api_key: &str, text: &str) -> Result<OpenAiModerationResult, Err> {
+        let call = Call::Moderate {
+            text: text.to_string(),
+        };
+        match self.ask(api_key, call).await? {
+            Answer::Moderation(raw) => Ok(translate(raw)),
+            Answer::Verdict(_) => Err("OpenAI answered a moderation call with a verdict".into()),
+        }
+    }
+
+    async fn matches_instruction(
+        &self,
+        api_key: &str,
+        model: &str,
+        instruction: &str,
+        text: &str,
+    ) -> Result<OpenAiInstructionVerdict, Err> {
+        let call = Call::Judge {
+            model: model.to_string(),
+            instruction: instruction.to_string(),
+            text: text.to_string(),
+        };
+        match self.ask(api_key, call).await? {
+            Answer::Verdict(judgement) => Ok(OpenAiInstructionVerdict {
+                matches: judgement.matches,
+                reason: judgement.reason,
+            }),
+            Answer::Moderation(_) => Err("OpenAI answered a model call with moderation".into()),
+        }
+    }
+}
+
+#[async_trait]
+impl OpenAiKeyVerifier for OpenAiGateway {
+    async fn verify(&self, api_key: &str) -> KeyCheck {
+        let call = || Call::Moderate {
+            text: KEY_CHECK_TEXT.to_string(),
+        };
+        self.check(api_key, call, false).await
+    }
+
+    async fn verify_model(&self, api_key: &str, model: &str) -> KeyCheck {
+        let call = || Call::Judge {
+            model: model.to_string(),
+            instruction: KEY_CHECK_INSTRUCTION.to_string(),
+            text: KEY_CHECK_TEXT.to_string(),
+        };
+        self.check(api_key, call, true).await
     }
 }
 
@@ -300,7 +415,7 @@ impl KeyStates {
         &mut self,
         api_key: &str,
         now: Instant,
-        config: &OpenAiModerationGatewayConfig,
+        config: &OpenAiGatewayConfig,
     ) -> Result<(), Refusal> {
         if self.keys.len() > KEY_STATES_SOFT_LIMIT {
             self.forget_idle_keys(now);
@@ -352,30 +467,30 @@ impl KeyStates {
     fn record(
         &mut self,
         api_key: &str,
-        result: &Result<RawModeration, ModerationApiError>,
+        error: Option<&OpenAiApiError>,
         now: Instant,
-        config: &OpenAiModerationGatewayConfig,
+        config: &OpenAiGatewayConfig,
     ) {
         let Some(state) = self.keys.get_mut(api_key) else {
             // A key check for a key no message has used: nothing to lift, and
             // a refusal is only worth remembering for keys that send messages.
             return;
         };
-        match result {
-            Ok(_) => {
+        match error {
+            None => {
                 state.refused_until = None;
                 state.resting_until = None;
             }
-            Err(
-                ModerationApiError::Unauthorized
-                | ModerationApiError::Forbidden
-                | ModerationApiError::InsufficientQuota,
+            Some(
+                OpenAiApiError::Unauthorized
+                | OpenAiApiError::Forbidden
+                | OpenAiApiError::InsufficientQuota,
             ) => state.refused_until = Some(now + config.rejected_key_ttl),
-            Err(ModerationApiError::RateLimited { retry_after }) => {
+            Some(OpenAiApiError::RateLimited { retry_after }) => {
                 state.resting_until =
                     Some(now + retry_after.unwrap_or(config.default_rate_limit_cooldown));
             }
-            Err(_) => {}
+            Some(_) => {}
         }
     }
 
@@ -400,10 +515,10 @@ impl KeyStates {
 /// time, key checks first, each queue in arrival order.
 async fn dispatch(
     mut receiver: mpsc::UnboundedReceiver<Job>,
-    api: Arc<dyn ModerationApi>,
+    apis: Arc<Apis>,
     slots: Arc<Semaphore>,
     keys: Arc<Mutex<KeyStates>>,
-    config: OpenAiModerationGatewayConfig,
+    config: OpenAiGatewayConfig,
 ) {
     let mut checks: VecDeque<Job> = VecDeque::new();
     let mut messages: VecDeque<Job> = VecDeque::new();
@@ -449,12 +564,12 @@ async fn dispatch(
             drop(slot);
             continue;
         };
-        let api = api.clone();
+        let apis = apis.clone();
         let keys = keys.clone();
         let config = config.clone();
         tokio::spawn(async move {
-            let result = api.moderate(&job.api_key, &job.text).await;
-            lock(&keys).record(&job.api_key, &result, Instant::now(), &config);
+            let result = apis.call(&job.api_key, &job.call).await;
+            lock(&keys).record(&job.api_key, result.as_ref().err(), Instant::now(), &config);
             // The caller may have given up already; nobody to tell then.
             let _ = job.reply.send(result);
             drop(slot);
