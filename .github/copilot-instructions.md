@@ -99,13 +99,12 @@ Each bounded context follows the same internal shape:
   local. `drivers/simplex/` is the SimpleX Chat websocket client that produces
   `SimplexEvent`s and exposes raw operations. `drivers/sliding_window_counter.rs`
   is the per-key counter with TTL eviction that every "how much did this member
-  do recently" adapter is built on. `drivers/openai_moderation.rs` and
-  `drivers/openai_responses.rs` are the clients for OpenAI's Moderation and
-  Responses APIs, in OpenAI's own words (category names like
-  `hate/threatening`, statuses, `insufficient_quota`), and `drivers/openai.rs`
-  is what they share: the errors, and the POST with its retries of transient
-  failures — it is generic over its key and knows
-  nothing about members, messages or groups. What makes something a driver is
+  do recently" adapter is built on. `drivers/openai.rs` is the one client for
+  OpenAI (`OpenAiApi`, implemented over HTTP by `HttpOpenAiApi`): the
+  Moderation and Responses endpoints, their URLs, the POST with its retries of
+  transient failures and the error mapping, all in OpenAI's own words
+  (category names like `hate/threatening`, statuses, `insufficient_quota`) —
+  it knows nothing about members, messages or groups. What makes something a driver is
   not that it is remote but that it holds no domain type: a driver is where the
   storage could be swapped (memory for Redis) without any port or adapter
   moving. Retention policy is *not* the driver's — the counter honours whatever
@@ -194,7 +193,7 @@ A rule's condition is a **tree**, not a single predicate: besides the leaves the
 6. **Bug template:** Update `moderation-rule-bug.yml` to add the new rule's title (as it appears in `rules-schema.json`) to the `rule-type` dropdown options list so bug reporters can select it.
 
 ### Renaming or replacing a condition
-Stored rules are the only thing that has to survive: the bot always sends the owner a freshly generated editor link, so old type tags never come back through a link. Do **not** add `#[serde(alias = ...)]`s or compatibility deserializers for old shapes. Instead, add a migration that rewrites the stored rows — update `moderation_conditions.type` and rename the condition's tables (`ALTER TABLE ... RENAME TO`) for a rename, or rebuild the affected nodes for a condition replaced by differently shaped ones. Precedents: `0025_neutral_condition_names.sql`, and `0032_flagged_by_omni_moderation.sql` for a plain rename.
+Stored rules are the only thing that has to survive: the bot always sends the owner a freshly generated editor link, so old type tags never come back through a link. Do **not** add `#[serde(alias = ...)]`s or compatibility deserializers for old shapes. Instead, add a migration that rewrites the stored rows — update `moderation_conditions.type` and rename the condition's tables (`ALTER TABLE ... RENAME TO`) for a rename, or rebuild the affected nodes for a condition replaced by differently shaped ones. Precedents: `0025_neutral_condition_names.sql`, and `0031_openai_instruction_and_omni_rename.sql` for a plain rename.
 
 ## Adding a new moderation action type (do all of these)
 `ModerationAction` (in `domain/moderator/message_filter/moderation_action.rs`) is the **single source of truth** for actions: a `#[serde(tag = "type")]` enum (`ModerateMessage`, `SetAuthorObserver { duration_minutes: u32 }`, `KickAuthor { delete_all_messages: bool }`). Like conditions, the PascalCase variant name is the serde `type` tag (URL hash, `rules-schema.json`, and the `moderation_actions.type` column), and its snake_case form is the `<name>` used for the `moderation_action__<name>` settings table.

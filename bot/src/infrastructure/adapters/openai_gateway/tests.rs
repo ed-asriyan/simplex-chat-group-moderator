@@ -1,8 +1,6 @@
 use super::{OpenAiGateway, OpenAiGatewayConfig};
 use crate::domain::moderator::ports::{KeyCheck, OpenAi, OpenAiCategory};
-use crate::infrastructure::drivers::openai::OpenAiApiError;
-use crate::infrastructure::drivers::openai_moderation::{ModerationApi, RawModeration};
-use crate::infrastructure::drivers::openai_responses::{Judgement, ResponsesApi};
+use crate::infrastructure::drivers::openai::{Judgement, OpenAiApi, OpenAiApiError, RawModeration};
 use async_trait::async_trait;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -11,7 +9,7 @@ use std::time::Duration;
 use tokio::sync::Semaphore;
 
 // ---------------------------------------------------------------------------
-// Scripted Moderation and Responses APIs
+// A scripted OpenAI API
 // ---------------------------------------------------------------------------
 
 type Answer = Result<RawModeration, OpenAiApiError>;
@@ -105,7 +103,17 @@ impl FakeApi {
 }
 
 #[async_trait]
-impl ResponsesApi for FakeApi {
+impl OpenAiApi for FakeApi {
+    async fn moderate(&self, api_key: &str, text: &str) -> Answer {
+        self.enter(api_key, text).await;
+        self.script
+            .lock()
+            .unwrap()
+            .get_mut(api_key)
+            .and_then(VecDeque::pop_front)
+            .unwrap_or_else(|| Ok(RawModeration::default()))
+    }
+
     async fn judge(
         &self,
         api_key: &str,
@@ -131,19 +139,6 @@ impl ResponsesApi for FakeApi {
     }
 }
 
-#[async_trait]
-impl ModerationApi for FakeApi {
-    async fn moderate(&self, api_key: &str, text: &str) -> Answer {
-        self.enter(api_key, text).await;
-        self.script
-            .lock()
-            .unwrap()
-            .get_mut(api_key)
-            .and_then(VecDeque::pop_front)
-            .unwrap_or_else(|| Ok(RawModeration::default()))
-    }
-}
-
 fn config() -> OpenAiGatewayConfig {
     OpenAiGatewayConfig {
         requests_per_minute_per_key: 100,
@@ -159,7 +154,7 @@ fn config() -> OpenAiGatewayConfig {
 }
 
 fn start_gateway(api: &Arc<FakeApi>, config: OpenAiGatewayConfig) -> Arc<OpenAiGateway> {
-    Arc::new(OpenAiGateway::start(api.clone(), api.clone(), config))
+    Arc::new(OpenAiGateway::start(api.clone(), config))
 }
 
 /// Yields to the dispatcher until `condition` holds, or fails the test.

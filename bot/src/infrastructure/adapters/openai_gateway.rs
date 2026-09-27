@@ -1,5 +1,5 @@
 //! The one way the bot talks to OpenAI: an in-process queue in front of the
-//! [`ModerationApi`] and [`ResponsesApi`] drivers.
+//! [`OpenAiApi`] driver.
 //!
 //! Implements the moderator context's `OpenAi` port. Every request — a
 //! message for the moderation model, a message for a model following an
@@ -34,11 +34,9 @@ use tokio::time::Instant;
 use crate::domain::moderator::ports::{
     Err, KeyCheck, OpenAi, OpenAiCategory, OpenAiInstructionVerdict, OpenAiModerationResult,
 };
-use crate::infrastructure::drivers::openai::OpenAiApiError;
-use crate::infrastructure::drivers::openai_moderation::{
-    HttpModerationApi, ModerationApi, RawModeration,
+use crate::infrastructure::drivers::openai::{
+    HttpOpenAiApi, Judgement, OpenAiApi, OpenAiApiError, RawModeration,
 };
-use crate::infrastructure::drivers::openai_responses::{HttpResponsesApi, Judgement, ResponsesApi};
 
 #[cfg(test)]
 mod tests;
@@ -139,26 +137,15 @@ enum Answer {
     Verdict(Judgement),
 }
 
-/// The drivers, one per endpoint.
-struct Apis {
-    moderation: Arc<dyn ModerationApi>,
-    responses: Arc<dyn ResponsesApi>,
-}
-
-impl Apis {
-    async fn call(&self, api_key: &str, call: &Call) -> Result<Answer, OpenAiApiError> {
-        match call {
-            Call::Moderate { text } => self
-                .moderation
-                .moderate(api_key, text)
-                .await
-                .map(Answer::Moderation),
+impl Call {
+    async fn send(&self, api: &dyn OpenAiApi, api_key: &str) -> Result<Answer, OpenAiApiError> {
+        match self {
+            Call::Moderate { text } => api.moderate(api_key, text).await.map(Answer::Moderation),
             Call::Judge {
                 model,
                 instruction,
                 text,
-            } => self
-                .responses
+            } => api
                 .judge(api_key, model, instruction, text)
                 .await
                 .map(Answer::Verdict),
@@ -187,31 +174,23 @@ enum Refusal {
 }
 
 impl OpenAiGateway {
-    /// The gateway over HTTPS, with its own drivers and the default pacing.
+    /// The gateway over HTTPS, with its own driver and the default pacing.
     /// Starts the dispatcher on the current Tokio runtime.
     pub fn new() -> Result<Self, Err> {
         Ok(Self::start(
-            Arc::new(HttpModerationApi::new(HTTP_TIMEOUT, HTTP_MAX_ATTEMPTS)?),
-            Arc::new(HttpResponsesApi::new(HTTP_TIMEOUT, HTTP_MAX_ATTEMPTS)?),
+            Arc::new(HttpOpenAiApi::new(HTTP_TIMEOUT, HTTP_MAX_ATTEMPTS)?),
             OpenAiGatewayConfig::default(),
         ))
     }
 
-    /// The gateway over any drivers: what `new` builds on, and what the tests
-    /// hand their scripted APIs to.
-    fn start(
-        moderation: Arc<dyn ModerationApi>,
-        responses: Arc<dyn ResponsesApi>,
-        config: OpenAiGatewayConfig,
-    ) -> Self {
+    /// The gateway over any driver: what `new` builds on, and what the tests
+    /// hand their scripted API to.
+    fn start(api: Arc<dyn OpenAiApi>, config: OpenAiGatewayConfig) -> Self {
         let (jobs, receiver) = mpsc::unbounded_channel();
         let keys = Arc::new(Mutex::new(KeyStates::default()));
         tokio::spawn(dispatch(
             receiver,
-            Arc::new(Apis {
-                moderation,
-                responses,
-            }),
+            api,
             Arc::new(Semaphore::new(config.max_in_flight.max(1))),
             keys.clone(),
             config.clone(),
@@ -532,7 +511,7 @@ impl KeyStates {
 /// time, key checks first, each queue in arrival order.
 async fn dispatch(
     mut receiver: mpsc::UnboundedReceiver<Job>,
-    apis: Arc<Apis>,
+    api: Arc<dyn OpenAiApi>,
     slots: Arc<Semaphore>,
     keys: Arc<Mutex<KeyStates>>,
     config: OpenAiGatewayConfig,
@@ -581,11 +560,11 @@ async fn dispatch(
             drop(slot);
             continue;
         };
-        let apis = apis.clone();
+        let api = api.clone();
         let keys = keys.clone();
         let config = config.clone();
         tokio::spawn(async move {
-            let result = apis.call(&job.api_key, &job.call).await;
+            let result = job.call.send(api.as_ref(), &job.api_key).await;
             lock(&keys).record(&job.api_key, result.as_ref().err(), Instant::now(), &config);
             // The caller may have given up already; nobody to tell then.
             let _ = job.reply.send(result);

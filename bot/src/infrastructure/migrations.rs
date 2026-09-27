@@ -81,7 +81,7 @@ mod tests {
         let version: i64 = guard
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 32);
+        assert_eq!(version, 31);
     }
 
     /// 0022 rebuilds every rule as a `moderation_rules` row plus a condition
@@ -617,14 +617,14 @@ mod tests {
         }
     }
 
-    /// 0032 renames `FlaggedByOpenAiModeration` to `FlaggedByOmniModeration`.
+    /// 0031 renames `FlaggedByOpenAiModeration` to `FlaggedByOmniModeration`.
     /// A stored condition has to come back under the new name with its key and
     /// every category trigger intact.
     #[tokio::test]
-    async fn test_0032_renames_the_openai_moderation_condition_to_omni() {
+    async fn test_0031_renames_the_openai_moderation_condition_to_omni() {
         let mut conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-        apply_through(&mut conn, 31).unwrap();
+        apply_through(&mut conn, 30).unwrap();
 
         conn.execute_batch(
             "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name)
