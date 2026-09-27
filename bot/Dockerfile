@@ -1,4 +1,4 @@
-FROM rust:1.98 AS dev
+FROM rust:1.98-bookworm AS dev
 WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
