@@ -181,6 +181,8 @@ function kindOf(pr) {
     if (pr.type === "integer" || pr.type === "number") return "int";
     /* A string the owner would not want read over their shoulder. */
     if (pr.type === "string" && pr.format === "password") return "password";
+    /* Prose rather than a word: several lines, and a diff that counts. */
+    if (pr.type === "string" && pr.format === "textarea") return "textarea";
     /* A few named values and, optionally, a number of the owner's own:
        `oneOf` of `const`s plus at most one integer branch. */
     if (pr.oneOf) return "choice";
@@ -432,6 +434,18 @@ function params(s, val, path) {
           autocomplete="off" spellcheck="false" ${f.maxLength ? `maxlength="${f.maxLength}"` : ""}
           data-op="text" data-p="${path}" data-k="${f.k}">
         <button type="button" class="lnk" data-op="reveal" data-key="${key}">${shown ? "hide" : "show"}</button></div></label>`;
+            }
+
+            if (f.kind === "text")
+                return `<label class="fld" style="flex:1 1 100%"><span>${esc(f.label)}</span>
+        <input type="text" class="txt" id="f-${path}-${f.k}" value="${esc(val[f.k] ?? "")}" spellcheck="false"
+          ${f.maxLength ? `maxlength="${f.maxLength}"` : ""} data-op="text" data-p="${path}" data-k="${f.k}"></label>`;
+
+            if (f.kind === "textarea") {
+                const n = String(val[f.k] ?? "").length;
+                return `<label class="fld" style="flex:1 1 100%"><span>${esc(f.label)} · ${n}${f.maxLength ? ` / ${f.maxLength}` : ""}</span>
+        <textarea class="bulk prose" id="f-${path}-${f.k}" rows="8" ${f.maxLength ? `maxlength="${f.maxLength}"` : ""}
+          data-op="text" data-p="${path}" data-k="${f.k}">${esc(val[f.k] ?? "")}</textarea></label>`;
             }
 
             if (f.kind === "choice") {
@@ -1110,6 +1124,9 @@ function conditionDetails(a, b, out, where = "") {
             /* The dialog is the one place the owner looks before copying; it
                says the secret changed without showing it. */
             if (x !== y) out.push({ text: `${where}${f.k}: replaced (${secretHint(x)} → ${secretHint(y)})` });
+        } else if (f.kind === "textarea") {
+            /* A paragraph does not fit on a diff line; its size does. */
+            if (x !== y) out.push({ text: `${where}${f.k}: rewritten (${String(x ?? "").length} → ${String(y ?? "").length} characters)` });
         } else if (f.kind === "choice") {
             if (x !== y) out.push({ text: `${where}${f.label}: ${choiceText(f, x)} → ${choiceText(f, y)}` });
         } else if (x !== y) out.push({ text: `${where}${f.k}: ${x} → ${y}` });

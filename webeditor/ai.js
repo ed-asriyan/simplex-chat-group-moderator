@@ -412,7 +412,7 @@ function validateCondition(node, where, errors, stats, depth) {
             out[f.k] = v === undefined ? false : !!v;
         } else if (f.kind === "password") {
             out[f.k] = restoreSecret(v, f.k, where, errors);
-        } else if (f.kind === "text") {
+        } else if (f.kind === "text" || f.kind === "textarea") {
             if (typeof v !== "string") {
                 errors.push(`${where}: “${f.k}” should be text.`);
                 out[f.k] = "";

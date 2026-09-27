@@ -4,11 +4,11 @@ use crate::domain::moderator::application::tests::{
 };
 use crate::domain::moderator::message_filter::ModerationCondition;
 use crate::domain::moderator::ports::{
-    CategoryTrigger, Err, Group, GroupId, GroupMessage, MessageAttachment, MessengerGroup,
-    MessengerGroupId, ModerationAction, ModerationEngine, ModerationNotifier, ModerationRule,
-    OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationClassifier, OpenAiModerationResult,
-    OwnedModerationRule, UserCharacterActivityRepository, UserId, UserLineActivityRepository,
-    UserMessageActivityRepository, UserModerationActivityRepository,
+    CategoryTrigger, Err, Group, GroupId, GroupMessage, KeyCheck, MessageAttachment,
+    MessengerGroup, MessengerGroupId, ModerationAction, ModerationEngine, ModerationNotifier,
+    ModerationRule, OpenAi, OpenAiCategory, OpenAiCategoryTriggers, OpenAiInstructionVerdict,
+    OpenAiModerationResult, OwnedModerationRule, UserCharacterActivityRepository, UserId,
+    UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
 };
 use crate::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
 use crate::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
@@ -3364,15 +3364,32 @@ async fn test_failed_restore_bookkeeping_still_moderates_and_notifies() {
 }
 
 // ---------------------------------------------------------------------------
-// FlaggedByOpenAiModeration
+// FlaggedByOmniModeration
 // ---------------------------------------------------------------------------
 
 /// The classifier for groups whose rules never send a message to OpenAI.
 pub struct UnusedOpenAi;
 
 #[async_trait]
-impl OpenAiModerationClassifier for UnusedOpenAi {
+impl OpenAi for UnusedOpenAi {
+    async fn verify(&self, _api_key: &str) -> KeyCheck {
+        panic!("no key is checked while moderating a message")
+    }
+
+    async fn verify_model(&self, _api_key: &str, _model: &str) -> KeyCheck {
+        panic!("no key is checked while moderating a message")
+    }
+
     async fn classify(&self, _api_key: &str, _text: &str) -> Result<OpenAiModerationResult, Err> {
+        panic!("OpenAI was asked about a message no rule sends to it")
+    }
+    async fn matches_instruction(
+        &self,
+        _api_key: &str,
+        _model: &str,
+        _instruction: &str,
+        _text: &str,
+    ) -> Result<OpenAiInstructionVerdict, Err> {
         panic!("OpenAI was asked about a message no rule sends to it")
     }
 }
@@ -3384,10 +3401,32 @@ pub struct ScriptedOpenAi {
 }
 
 #[async_trait]
-impl OpenAiModerationClassifier for ScriptedOpenAi {
+impl OpenAi for ScriptedOpenAi {
+    async fn verify(&self, _api_key: &str) -> KeyCheck {
+        panic!("no key is checked while moderating a message")
+    }
+
+    async fn verify_model(&self, _api_key: &str, _model: &str) -> KeyCheck {
+        panic!("no key is checked while moderating a message")
+    }
+
     async fn classify(&self, _api_key: &str, text: &str) -> Result<OpenAiModerationResult, Err> {
         self.texts.lock().unwrap().push(text.to_string());
         self.answer.clone().map_err(Err::from)
+    }
+
+    async fn matches_instruction(
+        &self,
+        _api_key: &str,
+        _model: &str,
+        _instruction: &str,
+        text: &str,
+    ) -> Result<OpenAiInstructionVerdict, Err> {
+        self.texts.lock().unwrap().push(text.to_string());
+        Ok(OpenAiInstructionVerdict {
+            matches: true,
+            reason: "Promotes a coin.".to_string(),
+        })
     }
 }
 
@@ -3405,7 +3444,7 @@ fn app_with_openai_rule(
                 id: 1,
                 rule: ModerationRule {
                     actions: vec![ModerationAction::ModerateMessage],
-                    condition: ModerationCondition::FlaggedByOpenAiModeration {
+                    condition: ModerationCondition::FlaggedByOmniModeration {
                         api_key: "sk-owner".to_string(),
                         triggers,
                     },
@@ -3453,10 +3492,7 @@ async fn test_a_message_openai_flags_is_deleted_and_reported() {
     assert_eq!(*deleted.lock().unwrap(), vec![(10, 1)]);
     let notifications = notifications.lock().unwrap();
     assert_eq!(notifications.len(), 1);
-    assert_eq!(
-        notifications[0].4,
-        "flagged by OpenAI moderation: hate (OpenAI)"
-    );
+    assert_eq!(notifications[0].4, "flagged by OpenAI Omni: hate (OpenAI)");
 }
 
 #[tokio::test]
@@ -3502,4 +3538,54 @@ async fn test_an_edit_is_sent_to_openai_too() {
         vec!["edited into something hateful".to_string()]
     );
     assert_eq!(*deleted.lock().unwrap(), vec![(10, 1)]);
+}
+
+#[tokio::test]
+async fn test_a_message_a_model_says_matches_the_instruction_is_deleted() {
+    let openai = Arc::new(ScriptedOpenAi {
+        answer: Err("no moderation scripted".to_string()),
+        texts: Mutex::new(Vec::new()),
+    });
+    let deleted = Arc::new(Mutex::new(Vec::new()));
+    let notifications = Arc::new(Mutex::new(Vec::new()));
+    let app = MessageModerationApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(edit_test_group()),
+            rules: vec![OwnedModerationRule {
+                id: 1,
+                rule: ModerationRule {
+                    actions: vec![ModerationAction::ModerateMessage],
+                    condition: ModerationCondition::FlaggedByOpenAiInstruction {
+                        api_key: "sk-owner".to_string(),
+                        model: "gpt-4o-mini".to_string(),
+                        instruction: "Block crypto ads.".to_string(),
+                    },
+                },
+            }],
+        }),
+        Arc::new(MockGroupModerator {
+            deleted_messages: deleted.clone(),
+            ..Default::default()
+        }),
+        Arc::new(MockModerationNotifier {
+            notifications: notifications.clone(),
+            ..Default::default()
+        }),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
+        Arc::new(InMemoryUserLineActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(MockMemberRestoreRepository::default()),
+        openai.clone(),
+    );
+
+    app.process_group_message(edit_test_message("buy my coin", false))
+        .await
+        .unwrap();
+
+    assert_eq!(*deleted.lock().unwrap(), vec![(10, 1)]);
+    assert_eq!(
+        notifications.lock().unwrap()[0].4,
+        "OpenAI gpt-4o-mini: Promotes a coin."
+    );
 }

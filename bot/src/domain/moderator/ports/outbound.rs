@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use super::types::{
     Err, Group, GroupId, GroupMemberRole, KeyCheck, MessageId, MessengerGroupId, ModerationAction,
-    ModerationRule, OpenAiModerationResult, OwnedModerationRule, ScheduledMemberRestore, UserId,
+    ModerationRule, OpenAiInstructionVerdict, OpenAiModerationResult, OwnedModerationRule,
+    ScheduledMemberRestore, UserId,
 };
 
 /// Outbound port: notify a group owner that moderation actions were performed.
@@ -224,19 +225,34 @@ pub trait UserModerationActivityRepository: Send + Sync {
     ) -> Result<u32, Err>;
 }
 
-/// Outbound port: OpenAI's moderation verdict on one text, asked with the
-/// owner's key.
+/// Outbound port: everything the moderator asks OpenAI, always with the
+/// owner's own key.
 ///
-/// An `Err` means there is no verdict — OpenAI was unreachable, refused the
-/// key, rate limited it, or the request waited too long. Callers treat that as
+/// Verdicts on one text come from the moderation model (`classify`) or from a
+/// model following the owner's instruction (`matches_instruction`). An `Err`
+/// there means there is no verdict — OpenAI was unreachable, refused the key,
+/// rate limited it, or the request waited too long — and callers treat it as
 /// "no match": a failing provider must not stop the rest of moderation.
+///
+/// Key checks (`verify`, `verify_model`) are asked when an owner saves rules.
 #[async_trait]
-pub trait OpenAiModerationClassifier: Send + Sync {
+pub trait OpenAi: Send + Sync {
     async fn classify(&self, api_key: &str, text: &str) -> Result<OpenAiModerationResult, Err>;
-}
 
-/// Outbound port: ask OpenAI whether a key an owner is saving works.
-#[async_trait]
-pub trait OpenAiKeyVerifier: Send + Sync {
+    /// Whether `model`, given the owner's `instruction`, says `text` is what
+    /// the instruction describes, and why.
+    async fn matches_instruction(
+        &self,
+        api_key: &str,
+        model: &str,
+        instruction: &str,
+        text: &str,
+    ) -> Result<OpenAiInstructionVerdict, Err>;
+
+    /// Whether a key can call the moderation endpoint.
     async fn verify(&self, api_key: &str) -> KeyCheck;
+
+    /// Whether a key can have `model` answer through the Responses API — a
+    /// real request, a few tokens long.
+    async fn verify_model(&self, api_key: &str, model: &str) -> KeyCheck;
 }

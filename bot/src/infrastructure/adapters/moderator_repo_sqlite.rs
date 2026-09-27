@@ -121,7 +121,8 @@ fn insert_condition(
             "AuthorHitsModerationRateLimit"
         }
         ModerationCondition::AuthorJoinedRecently { .. } => "AuthorJoinedRecently",
-        ModerationCondition::FlaggedByOpenAiModeration { .. } => "FlaggedByOpenAiModeration",
+        ModerationCondition::FlaggedByOmniModeration { .. } => "FlaggedByOmniModeration",
+        ModerationCondition::FlaggedByOpenAiInstruction { .. } => "FlaggedByOpenAiInstruction",
     };
     tx.execute(
         "INSERT INTO moderation_conditions (rule_id, parent_id, rank, type) VALUES (?1, ?2, ?3, ?4)",
@@ -282,15 +283,15 @@ fn insert_condition(
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::FlaggedByOpenAiModeration { api_key, triggers } => {
+        ModerationCondition::FlaggedByOmniModeration { api_key, triggers } => {
             tx.execute(
-                "INSERT INTO moderation_condition__flagged_by_openai_moderation (condition_id, api_key) VALUES (?1, ?2)",
+                "INSERT INTO moderation_condition__flagged_by_omni_moderation (condition_id, api_key) VALUES (?1, ?2)",
                 params![condition_id, api_key],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
             let mut stmt = tx
                 .prepare(
-                    "INSERT INTO moderation_condition__flagged_by_openai_moderation__categories (condition_id, category, min_score_percent) VALUES (?1, ?2, ?3)",
+                    "INSERT INTO moderation_condition__flagged_by_omni_moderation__categories (condition_id, category, min_score_percent) VALUES (?1, ?2, ?3)",
                 )
                 .map_err(|e| -> Err { e.to_string().into() })?;
             // An "off" category has no row; "OpenAI decides" is a NULL score.
@@ -303,6 +304,17 @@ fn insert_condition(
                 stmt.execute(params![condition_id, category.name(), min_score_percent])
                     .map_err(|e| -> Err { e.to_string().into() })?;
             }
+        }
+        ModerationCondition::FlaggedByOpenAiInstruction {
+            api_key,
+            model,
+            instruction,
+        } => {
+            tx.execute(
+                "INSERT INTO moderation_condition__flagged_by_openai_instruction (condition_id, api_key, model, instruction) VALUES (?1, ?2, ?3, ?4)",
+                params![condition_id, api_key, model, instruction],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
         }
     }
     Ok(())

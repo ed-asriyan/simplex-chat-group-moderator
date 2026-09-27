@@ -94,8 +94,8 @@ pub use moderation_rule::ModerationRule;
 pub use screen_lines::count_effective_lines;
 
 use super::ports::{
-    Err, GroupMessage, OpenAiModerationClassifier, UserCharacterActivityRepository,
-    UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
+    Err, GroupMessage, OpenAi, UserCharacterActivityRepository, UserLineActivityRepository,
+    UserMessageActivityRepository, UserModerationActivityRepository,
 };
 use moderation_condition::{ConditionContext, check_condition};
 
@@ -116,7 +116,7 @@ pub async fn should_moderate(
     character_activity_repo: &dyn UserCharacterActivityRepository,
     line_activity_repo: &dyn UserLineActivityRepository,
     moderation_activity_repo: &dyn UserModerationActivityRepository,
-    openai_classifier: &dyn OpenAiModerationClassifier,
+    openai: &dyn OpenAi,
 ) -> Result<Option<ModerationMatch>, Err> {
     let mut ctx = ConditionContext::new(
         group_message,
@@ -124,7 +124,7 @@ pub async fn should_moderate(
         character_activity_repo,
         line_activity_repo,
         moderation_activity_repo,
-        openai_classifier,
+        openai,
     );
 
     // Only pay for the pre-pass when some rule actually asks how many of the

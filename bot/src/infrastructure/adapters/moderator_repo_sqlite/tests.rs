@@ -596,13 +596,13 @@ async fn test_round_trips_observer_duration() {
 }
 
 // ---------------------------------------------------------------------------
-// FlaggedByOpenAiModeration
+// FlaggedByOmniModeration
 // ---------------------------------------------------------------------------
 
 use crate::domain::moderator::ports::{CategoryTrigger, OpenAiCategoryTriggers};
 
 fn openai_condition(api_key: &str) -> ModerationCondition {
-    ModerationCondition::FlaggedByOpenAiModeration {
+    ModerationCondition::FlaggedByOmniModeration {
         api_key: api_key.to_string(),
         triggers: OpenAiCategoryTriggers {
             hate: CategoryTrigger::OpenAiDecides,
@@ -645,7 +645,7 @@ async fn test_round_trips_openai_moderation_condition() {
 async fn test_round_trips_openai_moderation_condition_with_every_category_on() {
     assert_round_trips(
         2102,
-        ModerationCondition::FlaggedByOpenAiModeration {
+        ModerationCondition::FlaggedByOmniModeration {
             api_key: "sk-proj-abc".to_string(),
             triggers: OpenAiCategoryTriggers::all(CategoryTrigger::OpenAiDecides),
         },
@@ -685,7 +685,7 @@ async fn test_openai_categories_store_one_row_per_category_that_is_not_off() {
     let guard = conn.lock().unwrap();
     let api_key: String = guard
         .query_row(
-            "SELECT api_key FROM moderation_condition__flagged_by_openai_moderation",
+            "SELECT api_key FROM moderation_condition__flagged_by_omni_moderation",
             [],
             |row| row.get(0),
         )
@@ -695,7 +695,7 @@ async fn test_openai_categories_store_one_row_per_category_that_is_not_off() {
     let mut stmt = guard
         .prepare(
             "SELECT category, min_score_percent
-               FROM moderation_condition__flagged_by_openai_moderation__categories
+               FROM moderation_condition__flagged_by_omni_moderation__categories
               ORDER BY category",
         )
         .unwrap();
@@ -727,27 +727,82 @@ async fn test_openai_rows_go_with_replaced_rules_and_with_the_group() {
     repo.set_group_rules(&group_id, &with_openai).await.unwrap();
     repo.set_group_rules(&group_id, &with_openai).await.unwrap();
     assert_eq!(
-        count(&conn, "moderation_condition__flagged_by_openai_moderation"),
+        count(&conn, "moderation_condition__flagged_by_omni_moderation"),
         1
     );
     assert_eq!(
         count(
             &conn,
-            "moderation_condition__flagged_by_openai_moderation__categories"
+            "moderation_condition__flagged_by_omni_moderation__categories"
         ),
         4
     );
 
     repo.delete_group_data(&2105).await.unwrap();
     assert_eq!(
-        count(&conn, "moderation_condition__flagged_by_openai_moderation"),
+        count(&conn, "moderation_condition__flagged_by_omni_moderation"),
         0
     );
     assert_eq!(
         count(
             &conn,
-            "moderation_condition__flagged_by_openai_moderation__categories"
+            "moderation_condition__flagged_by_omni_moderation__categories"
         ),
+        0
+    );
+}
+
+// ---------------------------------------------------------------------------
+// FlaggedByOpenAiInstruction
+// ---------------------------------------------------------------------------
+
+fn instructed(api_key: &str, model: &str) -> ModerationCondition {
+    ModerationCondition::FlaggedByOpenAiInstruction {
+        api_key: api_key.to_string(),
+        model: model.to_string(),
+        instruction: "Block crypto ads.\nAllow \"quotes\" and ünïcode — всё.".to_string(),
+    }
+}
+
+#[tokio::test]
+async fn test_round_trips_openai_instruction_condition() {
+    assert_round_trips(2201, instructed("sk-proj-abc", "gpt-4o-mini")).await;
+}
+
+#[tokio::test]
+async fn test_round_trips_openai_instruction_beside_openai_moderation_in_one_tree() {
+    assert_round_trips(
+        2202,
+        ModerationCondition::All {
+            conditions: vec![
+                openai_condition("sk-one"),
+                ModerationCondition::Not {
+                    condition: Box::new(instructed("sk-two", "gpt-4.1-mini")),
+                },
+            ],
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_openai_instruction_rows_go_with_replaced_rules_and_with_the_group() {
+    let (conn, repo, group_id) = openai_repo(2203).await;
+    let rules = [ModerationRule {
+        actions: vec![ModerationAction::ModerateMessage],
+        condition: instructed("sk-proj-abc", "gpt-4o-mini"),
+    }];
+
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+    assert_eq!(
+        count(&conn, "moderation_condition__flagged_by_openai_instruction"),
+        1
+    );
+
+    repo.delete_group_data(&2203).await.unwrap();
+    assert_eq!(
+        count(&conn, "moderation_condition__flagged_by_openai_instruction"),
         0
     );
 }

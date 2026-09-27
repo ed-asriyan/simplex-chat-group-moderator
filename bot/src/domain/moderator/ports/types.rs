@@ -104,7 +104,18 @@ pub enum KeyCheck {
     /// The account behind the key has no quota or no billing set up
     /// (429 `insufficient_quota`). Retrying does not help.
     QuotaExceeded,
+    /// The key may not use the model, or the model does not take the request
+    /// (400/404): a project that does not allow it, or a model OpenAI retired.
+    ModelUnavailable,
     /// OpenAI could not be asked: network trouble, 5xx, rate limiting, or an
     /// answer that could not be read. Says nothing about the key itself.
     Unreachable,
+}
+
+/// A model's answer about one message: whether it is what the owner's
+/// instruction describes, and the model's own one-sentence reason.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenAiInstructionVerdict {
+    pub matches: bool,
+    pub reason: String,
 }

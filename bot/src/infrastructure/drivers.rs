@@ -1,3 +1,3 @@
-pub mod openai_moderation;
+pub mod openai;
 pub mod simplex;
 pub mod sliding_window_counter;

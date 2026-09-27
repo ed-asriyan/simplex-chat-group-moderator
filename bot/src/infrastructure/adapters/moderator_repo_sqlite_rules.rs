@@ -124,7 +124,7 @@ where
     Ok(out)
 }
 
-/// Load a whole group's `FlaggedByOpenAiModeration` category rows, grouped by
+/// Load a whole group's `FlaggedByOmniModeration` category rows, grouped by
 /// condition id. A category with no row stays off; so does one this build does
 /// not know, which is how a category added to the schema later reads on an
 /// older bot.
@@ -134,7 +134,7 @@ fn load_openai_category_triggers(
 ) -> Result<HashMap<i64, OpenAiCategoryTriggers>, Err> {
     let mut stmt = guard.prepare(
         "SELECT s.condition_id, s.category, s.min_score_percent
-           FROM moderation_condition__flagged_by_openai_moderation__categories s
+           FROM moderation_condition__flagged_by_omni_moderation__categories s
            JOIN moderation_conditions c ON c.id = s.condition_id
            JOIN moderation_rules r ON r.id = c.rule_id
           WHERE r.group_id = ?1",
@@ -184,6 +184,7 @@ struct ConditionData {
     joined_recently: HashMap<i64, u32>,
     openai_api_keys: HashMap<i64, String>,
     openai_triggers: HashMap<i64, OpenAiCategoryTriggers>,
+    openai_instructions: HashMap<i64, (String, String, String)>,
 }
 
 impl ConditionData {
@@ -304,11 +305,18 @@ impl ConditionData {
             openai_api_keys: load_condition_settings(
                 guard,
                 "s.api_key",
-                "moderation_condition__flagged_by_openai_moderation",
+                "moderation_condition__flagged_by_omni_moderation",
                 gid,
                 |row| row.get::<_, String>(1),
             )?,
             openai_triggers: load_openai_category_triggers(guard, gid)?,
+            openai_instructions: load_condition_settings(
+                guard,
+                "s.api_key, s.model, s.instruction",
+                "moderation_condition__flagged_by_openai_instruction",
+                gid,
+                |row| Ok((row.get(1)?, row.get(2)?, row.get(3)?)),
+            )?,
         })
     }
 }
@@ -455,10 +463,22 @@ fn build_condition(
         "AuthorJoinedRecently" => Ok(ModerationCondition::AuthorJoinedRecently {
             time_window_minutes: data.joined_recently.get(&id).copied().unwrap_or(0),
         }),
-        "FlaggedByOpenAiModeration" => Ok(ModerationCondition::FlaggedByOpenAiModeration {
+        "FlaggedByOmniModeration" => Ok(ModerationCondition::FlaggedByOmniModeration {
             api_key: data.openai_api_keys.get(&id).cloned().unwrap_or_default(),
             triggers: data.openai_triggers.get(&id).copied().unwrap_or_default(),
         }),
+        "FlaggedByOpenAiInstruction" => {
+            let (api_key, model, instruction) = data
+                .openai_instructions
+                .get(&id)
+                .cloned()
+                .unwrap_or_default();
+            Ok(ModerationCondition::FlaggedByOpenAiInstruction {
+                api_key,
+                model,
+                instruction,
+            })
+        }
         other => Err(format!("unknown condition type '{other}' on condition {id}").into()),
     }
 }

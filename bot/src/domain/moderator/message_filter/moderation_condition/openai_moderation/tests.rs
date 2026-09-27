@@ -179,7 +179,7 @@ fn test_openai_decides_matches_what_openai_flags() {
     let v = verdict(&[OpenAiCategory::Hate], &[(OpenAiCategory::Hate, 0.4)]);
     assert_eq!(
         should_moderate(&triggers, &v),
-        Some("flagged by OpenAI moderation: hate (OpenAI)".to_string())
+        Some("flagged by OpenAI Omni: hate (OpenAI)".to_string())
     );
 }
 
@@ -203,7 +203,7 @@ fn test_min_score_is_inclusive() {
             &triggers,
             &verdict(&[], &[(OpenAiCategory::Violence, 0.80)])
         ),
-        Some("flagged by OpenAI moderation: violence 80% ≥ 80%".to_string())
+        Some("flagged by OpenAI Omni: violence 80% ≥ 80%".to_string())
     );
     assert_eq!(
         should_moderate(
@@ -260,7 +260,7 @@ fn test_min_score_can_be_stricter_than_openai() {
     let v = verdict(&[], &[(OpenAiCategory::Harassment, 0.35)]);
     assert_eq!(
         should_moderate(&triggers, &v),
-        Some("flagged by OpenAI moderation: harassment 35% ≥ 30%".to_string())
+        Some("flagged by OpenAI Omni: harassment 35% ≥ 30%".to_string())
     );
 }
 
@@ -301,6 +301,6 @@ fn test_one_category_is_enough_and_the_reason_lists_all_that_tripped() {
     );
     assert_eq!(
         should_moderate(&triggers, &v),
-        Some("flagged by OpenAI moderation: hate (OpenAI), violence 91% ≥ 80%".to_string())
+        Some("flagged by OpenAI Omni: hate (OpenAI), violence 91% ≥ 80%".to_string())
     );
 }

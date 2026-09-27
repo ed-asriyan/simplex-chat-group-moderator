@@ -1,4 +1,4 @@
-//! `FlaggedByOpenAiModeration`: reading OpenAI's moderation verdict on a
+//! `FlaggedByOmniModeration`: reading OpenAI's moderation verdict on a
 //! message against the owner's per-category triggers.
 //!
 //! OpenAI answers with two things per category: its own yes/no (`categories`,
@@ -260,7 +260,7 @@ pub struct OpenAiModerationResult {
 ///
 /// Categories are ORed: one is enough. The reason lists every category that
 /// tripped, in [`OpenAiCategory::ALL`] order, e.g.
-/// `flagged by OpenAI moderation: hate (OpenAI), violence 91% ≥ 80%`.
+/// `flagged by OpenAI Omni: hate (OpenAI), violence 91% ≥ 80%`.
 pub fn should_moderate(
     triggers: &OpenAiCategoryTriggers,
     verdict: &OpenAiModerationResult,
@@ -283,10 +283,7 @@ pub fn should_moderate(
     if tripped.is_empty() {
         None
     } else {
-        Some(format!(
-            "flagged by OpenAI moderation: {}",
-            tripped.join(", ")
-        ))
+        Some(format!("flagged by OpenAI Omni: {}", tripped.join(", ")))
     }
 }
 

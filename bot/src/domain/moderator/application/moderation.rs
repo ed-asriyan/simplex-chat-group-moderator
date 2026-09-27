@@ -6,9 +6,9 @@ use std::time::Duration;
 use crate::domain::moderator::message_filter::{count_effective_lines, should_moderate};
 use crate::domain::moderator::ports::{
     Err, GroupMemberRole, GroupMessage, GroupModerator, MemberRestoreRepository, ModerationAction,
-    ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule,
-    OpenAiModerationClassifier, UserCharacterActivityRepository, UserLineActivityRepository,
-    UserMessageActivityRepository, UserModerationActivityRepository,
+    ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule, OpenAi,
+    UserCharacterActivityRepository, UserLineActivityRepository, UserMessageActivityRepository,
+    UserModerationActivityRepository,
 };
 
 #[cfg(test)]
@@ -23,7 +23,7 @@ pub struct MessageModerationApplication {
     line_activity_repository: Arc<dyn UserLineActivityRepository>,
     moderation_activity_repository: Arc<dyn UserModerationActivityRepository>,
     restores: Arc<dyn MemberRestoreRepository>,
-    openai_classifier: Arc<dyn OpenAiModerationClassifier>,
+    openai: Arc<dyn OpenAi>,
 }
 
 impl MessageModerationApplication {
@@ -36,7 +36,7 @@ impl MessageModerationApplication {
         line_activity_repository: Arc<dyn UserLineActivityRepository>,
         moderation_activity_repository: Arc<dyn UserModerationActivityRepository>,
         restores: Arc<dyn MemberRestoreRepository>,
-        openai_classifier: Arc<dyn OpenAiModerationClassifier>,
+        openai: Arc<dyn OpenAi>,
     ) -> Self {
         Self {
             repository,
@@ -47,7 +47,7 @@ impl MessageModerationApplication {
             line_activity_repository,
             moderation_activity_repository,
             restores,
-            openai_classifier,
+            openai,
         }
     }
 
@@ -211,7 +211,7 @@ impl ModerationEngine for MessageModerationApplication {
             self.character_activity_repository.as_ref(),
             self.line_activity_repository.as_ref(),
             self.moderation_activity_repository.as_ref(),
-            self.openai_classifier.as_ref(),
+            self.openai.as_ref(),
         )
         .await?
         {

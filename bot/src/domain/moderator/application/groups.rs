@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::domain::moderator::ports::{
     Err, Group, GroupAdministration, GroupId, GroupInvitation, GroupModerator, KeyCheck,
-    MessengerGroupId, ModerationCondition, ModerationRepository, ModerationRule, OpenAiKeyVerifier,
+    MessengerGroupId, ModerationCondition, ModerationRepository, ModerationRule, OpenAi,
     OwnedModerationRule, UserId,
 };
 
@@ -15,19 +15,19 @@ pub struct GroupAdministrationApplication {
     repository: Arc<dyn ModerationRepository>,
     group_moderator: Arc<dyn GroupModerator>,
     /// Asks OpenAI about every key a saved rule set carries, before it is stored.
-    key_verifier: Arc<dyn OpenAiKeyVerifier>,
+    openai: Arc<dyn OpenAi>,
 }
 
 impl GroupAdministrationApplication {
     pub fn new(
         repository: Arc<dyn ModerationRepository>,
         group_moderator: Arc<dyn GroupModerator>,
-        key_verifier: Arc<dyn OpenAiKeyVerifier>,
+        openai: Arc<dyn OpenAi>,
     ) -> Self {
         Self {
             repository,
             group_moderator,
-            key_verifier,
+            openai,
         }
     }
 
@@ -42,29 +42,48 @@ impl GroupAdministrationApplication {
     }
 
     /// Ask OpenAI about every distinct key in `rules`, wherever in a tree it
-    /// sits. The first key OpenAI does not accept stops the save.
+    /// sits: for the moderation endpoint, and for each model a key is to ask.
+    /// The first check OpenAI does not pass stops the save.
     async fn verify_openai_keys(&self, rules: &[ModerationRule]) -> Result<(), Err> {
-        let mut keys = BTreeSet::new();
+        let mut checks = BTreeSet::new();
         for rule in rules {
-            rule.condition.walk(&mut |condition| {
-                if let ModerationCondition::FlaggedByOpenAiModeration { api_key, .. } = condition {
-                    keys.insert(api_key.clone());
+            rule.condition.walk(&mut |condition| match condition {
+                ModerationCondition::FlaggedByOmniModeration { api_key, .. } => {
+                    checks.insert(KeyUse::Moderation(api_key.clone()));
                 }
+                ModerationCondition::FlaggedByOpenAiInstruction { api_key, model, .. } => {
+                    checks.insert(KeyUse::Model(api_key.clone(), model.clone()));
+                }
+                _ => {}
             });
         }
-        for key in &keys {
-            let check = self.key_verifier.verify(key).await;
+        for key_use in &checks {
+            let check = match key_use {
+                KeyUse::Moderation(key) => self.openai.verify(key).await,
+                KeyUse::Model(key, model) => self.openai.verify_model(key, model).await,
+            };
             if check != KeyCheck::Valid {
-                return Err(key_check_error(key, check).into());
+                return Err(key_check_error(key_use, check).into());
             }
         }
         Ok(())
     }
 }
 
+/// One thing a key is saved to do.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum KeyUse {
+    Moderation(String),
+    Model(String, String),
+}
+
 /// What to tell the owner about a key OpenAI did not accept. The key is named
 /// by its last characters only: the message goes to the chat and the logs.
-fn key_check_error(key: &str, check: KeyCheck) -> String {
+fn key_check_error(key_use: &KeyUse, check: KeyCheck) -> String {
+    let (key, endpoint, model) = match key_use {
+        KeyUse::Moderation(key) => (key, "Moderations", None),
+        KeyUse::Model(key, model) => (key, "Responses", Some(model.as_str())),
+    };
     let tail: String = {
         let mut tail: Vec<char> = key.chars().rev().take(4).collect();
         tail.reverse();
@@ -77,10 +96,14 @@ fn key_check_error(key: &str, check: KeyCheck) -> String {
             "OpenAI rejected the API key {key}. Check that it was copied whole and has not been revoked."
         ),
         KeyCheck::Forbidden => format!(
-            "The OpenAI API key {key} may not use Moderations. Allow Moderations in the key's permissions on the OpenAI platform."
+            "The OpenAI API key {key} may not use {endpoint}. Allow {endpoint} in the key's permissions on the OpenAI platform."
         ),
         KeyCheck::QuotaExceeded => format!(
             "OpenAI refused the API key {key}: the account's quota is exhausted or its billing is not set up."
+        ),
+        KeyCheck::ModelUnavailable => format!(
+            "The OpenAI API key {key} cannot use the model {}. Check that the key's project allows it.",
+            model.unwrap_or("asked for")
         ),
         KeyCheck::Unreachable => format!(
             "Could not reach OpenAI to check the API key {key}. Send the link again in a minute."
