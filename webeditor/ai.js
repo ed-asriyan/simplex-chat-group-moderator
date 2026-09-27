@@ -24,7 +24,18 @@ const AI_BIG_LIST = 100;
 const MARKER = (id, n) => `<<KEEP LIST ${id}: ${n} ENTRIES>>`;
 const MARKER_RE = /^<<KEEP LIST (\d+): (\d+) ENTRIES>>$/;
 
-const ai = { lists: new Map(), include: new Set(), loaded: null };
+/* A secret field (`format: password`) travels as a marker too, always: the
+   prompt goes to a third-party AI, and a key has no business there. The model is
+   only ever asked to copy the marker, never to write a value. */
+const SECRET_MARKER = (id) => `<<KEEP SECRET ${id}>>`;
+const SECRET_RE = /^<<KEEP SECRET (\d+)>>$/;
+
+const ai = { lists: new Map(), secrets: new Map(), include: new Set(), loaded: null };
+
+const secretField = (node, key) => {
+    const s = node && typeof node.type === "string" && (C[node.type] || A[node.type]);
+    return !!s && s.p.some((f) => f.k === key && f.kind === "password");
+};
 
 /* --------------------------- prompt generation --------------------------- */
 
@@ -61,6 +72,7 @@ function fieldSpec(pr) {
         const first = pr.oneOf.find((b) => "const" in b);
         return kinds.join(" | ") + (first ? ` (left out: ${JSON.stringify(first.const)})` : "");
     }
+    if (pr.type === "string" && pr.format === "password") return "secret string (see SECRETS)";
     if (pr.type === "string") return pr.maxLength ? `string (up to ${pr.maxLength} chars)` : "string";
     return pr.type;
 }
@@ -86,11 +98,23 @@ function catalogue(kind) {
    in two places. */
 function elideLists(rules, keepFull) {
     ai.lists = new Map();
+    ai.secrets = new Map();
+    const secretIds = new Map();
     const walk = (node, ruleIdx) => {
         if (Array.isArray(node)) return node.map((x) => walk(x, ruleIdx));
         if (!node || typeof node !== "object") return node;
         const out = {};
         for (const [k, v] of Object.entries(node)) {
+            /* One marker per distinct value, so a key used in two rules reads as
+               the same key to the model too. An empty one has nothing to hide. */
+            if (secretField(node, k) && typeof v === "string" && v !== "") {
+                if (!secretIds.has(v)) {
+                    secretIds.set(v, ai.secrets.size + 1);
+                    ai.secrets.set(ai.secrets.size + 1, v);
+                }
+                out[k] = SECRET_MARKER(secretIds.get(v));
+                continue;
+            }
             const longList =
                 Array.isArray(v) && v.length > AI_BIG_LIST && v.every((x) => typeof x === "string");
             if (!longList) {
@@ -138,6 +162,7 @@ function buildPrompt() {
     const body = elideLists(state.rules, ai.include);
     const elided = [...ai.lists.keys()].filter((id) => !ai.include.has(id));
     const sample = elided.length ? MARKER(elided[0], ai.lists.get(elided[0]).values.length) : MARKER(1, 347);
+    const hasSecretFields = [...Object.values(C), ...Object.values(A)].some((s) => s.p.some((f) => f.kind === "password"));
 
     return `I run a SimpleX Chat group, and a moderation bot enforces rules in it. You are helping me
 understand and change those rules.
@@ -195,7 +220,19 @@ when I paste your answer in.
 `
         : ""
 }
-CONSTRAINTS ON THE JSON YOU PRODUCE
+${
+    hasSecretFields
+        ? `SECRETS
+Some fields are secret strings (API keys). The editor never shows them to you: a stored one appears
+below as a marker, like "${SECRET_MARKER(1)}", and the editor puts the real value back when I paste
+your answer in.
+- Copy such a marker through character for character wherever that field appears in your answer.
+- Never write a value into a secret field yourself, and never ask me for one. A new condition that
+  needs a secret gets an empty string "" there; I will type the value into the editor myself.
+
+`
+        : ""
+}CONSTRAINTS ON THE JSON YOU PRODUCE
 - Output the complete list - every rule I have, with your change applied. Never a fragment, never a diff.
 - Use only the types and field names from the catalogue below, spelled exactly as written there.
   Never invent a type, a field, or an extra key.
@@ -302,6 +339,29 @@ function expandList(values, where, errors, stats) {
     return deduped;
 }
 
+/* A secret comes back only as the marker the prompt carried, or empty for a new
+   one. Anything else is a value the model made up or was handed in the chat, and
+   neither belongs in the rules. */
+function restoreSecret(v, key, where, errors) {
+    if (v === "") return "";
+    if (typeof v !== "string") {
+        errors.push(`${where}: “${key}” is missing. Ask the AI to copy its <<KEEP SECRET …>> marker unchanged, or to write "" for a new one.`);
+        return "";
+    }
+    const m = v.match(SECRET_RE);
+    if (!m) {
+        errors.push(
+            `${where}: the AI wrote its own value into the secret field “${key}”. Secrets never go through the AI: ask it to copy the marker unchanged, or to leave "" and type the value into the editor yourself.`
+        );
+        return "";
+    }
+    if (!ai.secrets.has(+m[1])) {
+        errors.push(`${where}: the marker “${v}” in “${key}” points at nothing this prompt sent.`);
+        return "";
+    }
+    return ai.secrets.get(+m[1]);
+}
+
 function validateCondition(node, where, errors, stats, depth) {
     if (!node || typeof node !== "object" || Array.isArray(node)) {
         errors.push(`${where}: a condition is missing or is not an object.`);
@@ -350,7 +410,9 @@ function validateCondition(node, where, errors, stats, depth) {
             out[f.k] = n;
         } else if (f.kind === "bool") {
             out[f.k] = v === undefined ? false : !!v;
-        } else if (f.kind === "password" || f.kind === "text") {
+        } else if (f.kind === "password") {
+            out[f.k] = restoreSecret(v, f.k, where, errors);
+        } else if (f.kind === "text") {
             if (typeof v !== "string") {
                 errors.push(`${where}: “${f.k}” should be text.`);
                 out[f.k] = "";
