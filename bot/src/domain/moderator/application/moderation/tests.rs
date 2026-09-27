@@ -4,9 +4,9 @@ use crate::domain::moderator::application::tests::{
 };
 use crate::domain::moderator::message_filter::ModerationCondition;
 use crate::domain::moderator::ports::{
-    CategoryTrigger, Err, Group, GroupId, GroupMessage, MessageAttachment, MessengerGroup,
-    MessengerGroupId, ModerationAction, ModerationEngine, ModerationNotifier, ModerationRule,
-    OpenAiCategory, OpenAiCategoryTriggers, OpenAiInstructionVerdict, OpenAiModerationClassifier,
+    CategoryTrigger, Err, Group, GroupId, GroupMessage, KeyCheck, MessageAttachment,
+    MessengerGroup, MessengerGroupId, ModerationAction, ModerationEngine, ModerationNotifier,
+    ModerationRule, OpenAi, OpenAiCategory, OpenAiCategoryTriggers, OpenAiInstructionVerdict,
     OpenAiModerationResult, OwnedModerationRule, UserCharacterActivityRepository, UserId,
     UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
 };
@@ -3371,7 +3371,15 @@ async fn test_failed_restore_bookkeeping_still_moderates_and_notifies() {
 pub struct UnusedOpenAi;
 
 #[async_trait]
-impl OpenAiModerationClassifier for UnusedOpenAi {
+impl OpenAi for UnusedOpenAi {
+    async fn verify(&self, _api_key: &str) -> KeyCheck {
+        panic!("no key is checked while moderating a message")
+    }
+
+    async fn verify_model(&self, _api_key: &str, _model: &str) -> KeyCheck {
+        panic!("no key is checked while moderating a message")
+    }
+
     async fn classify(&self, _api_key: &str, _text: &str) -> Result<OpenAiModerationResult, Err> {
         panic!("OpenAI was asked about a message no rule sends to it")
     }
@@ -3393,7 +3401,15 @@ pub struct ScriptedOpenAi {
 }
 
 #[async_trait]
-impl OpenAiModerationClassifier for ScriptedOpenAi {
+impl OpenAi for ScriptedOpenAi {
+    async fn verify(&self, _api_key: &str) -> KeyCheck {
+        panic!("no key is checked while moderating a message")
+    }
+
+    async fn verify_model(&self, _api_key: &str, _model: &str) -> KeyCheck {
+        panic!("no key is checked while moderating a message")
+    }
+
     async fn classify(&self, _api_key: &str, text: &str) -> Result<OpenAiModerationResult, Err> {
         self.texts.lock().unwrap().push(text.to_string());
         self.answer.clone().map_err(Err::from)

@@ -5,9 +5,8 @@ use bot::domain::bot_dm::ports::{
 use bot::domain::moderator::ports::{
     GroupAdministration, GroupMessage, GroupModerator, MemberRestoreRepository,
     MemberRestoreRunner, MessageAttachment, MessengerGroup, ModerationEngine, ModerationNotifier,
-    ModerationRepository, OpenAiKeyVerifier, OpenAiModerationClassifier,
-    UserCharacterActivityRepository, UserLineActivityRepository, UserMessageActivityRepository,
-    UserModerationActivityRepository,
+    ModerationRepository, OpenAi, UserCharacterActivityRepository, UserLineActivityRepository,
+    UserMessageActivityRepository, UserModerationActivityRepository,
 };
 use bot::domain::moderator::{
     GroupAdministrationApplication, MemberRestoreApplication, MessageModerationApplication,
@@ -249,10 +248,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Arc::new(SqliteMemberRestoreRepository::new(conn.clone()));
 
     // ---- the one queue every OpenAI request goes through ----
-    let openai_gateway =
+    let openai: Arc<dyn OpenAi> =
         Arc::new(OpenAiGateway::new().map_err(|e| -> Box<dyn Error> { e.to_string().into() })?);
-    let openai_classifier: Arc<dyn OpenAiModerationClassifier> = openai_gateway.clone();
-    let openai_key_verifier: Arc<dyn OpenAiKeyVerifier> = openai_gateway;
 
     let simplex_adapter = Arc::new(SimplexAdapter::new(simplex_driver.clone()));
     let bot_messenger: Arc<dyn BotMessenger> = simplex_adapter.clone();
@@ -272,14 +269,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         user_line_activity_repo,
         user_moderation_activity_repo,
         member_restore_repo.clone(),
-        openai_classifier,
+        openai.clone(),
     ));
-    let group_administration: Arc<dyn GroupAdministration> =
-        Arc::new(GroupAdministrationApplication::new(
-            moderation_repo,
-            group_moderator.clone(),
-            openai_key_verifier,
-        ));
+    let group_administration: Arc<dyn GroupAdministration> = Arc::new(
+        GroupAdministrationApplication::new(moderation_repo, group_moderator.clone(), openai),
+    );
     let member_restore_runner: Arc<dyn MemberRestoreRunner> = Arc::new(
         MemberRestoreApplication::new(member_restore_repo, group_moderator),
     );

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::domain::moderator::ports::{
     Err, Group, GroupAdministration, GroupId, GroupInvitation, GroupModerator, KeyCheck,
-    MessengerGroupId, ModerationCondition, ModerationRepository, ModerationRule, OpenAiKeyVerifier,
+    MessengerGroupId, ModerationCondition, ModerationRepository, ModerationRule, OpenAi,
     OwnedModerationRule, UserId,
 };
 
@@ -15,19 +15,19 @@ pub struct GroupAdministrationApplication {
     repository: Arc<dyn ModerationRepository>,
     group_moderator: Arc<dyn GroupModerator>,
     /// Asks OpenAI about every key a saved rule set carries, before it is stored.
-    key_verifier: Arc<dyn OpenAiKeyVerifier>,
+    openai: Arc<dyn OpenAi>,
 }
 
 impl GroupAdministrationApplication {
     pub fn new(
         repository: Arc<dyn ModerationRepository>,
         group_moderator: Arc<dyn GroupModerator>,
-        key_verifier: Arc<dyn OpenAiKeyVerifier>,
+        openai: Arc<dyn OpenAi>,
     ) -> Self {
         Self {
             repository,
             group_moderator,
-            key_verifier,
+            openai,
         }
     }
 
@@ -59,8 +59,8 @@ impl GroupAdministrationApplication {
         }
         for key_use in &checks {
             let check = match key_use {
-                KeyUse::Moderation(key) => self.key_verifier.verify(key).await,
-                KeyUse::Model(key, model) => self.key_verifier.verify_model(key, model).await,
+                KeyUse::Moderation(key) => self.openai.verify(key).await,
+                KeyUse::Model(key, model) => self.openai.verify_model(key, model).await,
             };
             if check != KeyCheck::Valid {
                 return Err(key_check_error(key_use, check).into());

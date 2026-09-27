@@ -1,7 +1,5 @@
 use super::{OpenAiGateway, OpenAiGatewayConfig};
-use crate::domain::moderator::ports::{
-    KeyCheck, OpenAiCategory, OpenAiKeyVerifier, OpenAiModerationClassifier,
-};
+use crate::domain::moderator::ports::{KeyCheck, OpenAi, OpenAiCategory};
 use crate::infrastructure::drivers::openai::OpenAiApiError;
 use crate::infrastructure::drivers::openai_moderation::{ModerationApi, RawModeration};
 use crate::infrastructure::drivers::openai_responses::{Judgement, ResponsesApi};

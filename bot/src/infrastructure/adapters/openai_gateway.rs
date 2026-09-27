@@ -1,7 +1,7 @@
 //! The one way the bot talks to OpenAI: an in-process queue in front of the
 //! [`ModerationApi`] and [`ResponsesApi`] drivers.
 //!
-//! Implements both OpenAI ports of the moderator context. Every request — a
+//! Implements the moderator context's `OpenAi` port. Every request — a
 //! message for the moderation model, a message for a model following an
 //! instruction, or a key to verify — becomes a job on one bounded queue
 //! that a single dispatcher drains, so how fast the bot talks to OpenAI is
@@ -32,8 +32,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 use tokio::time::Instant;
 
 use crate::domain::moderator::ports::{
-    Err, KeyCheck, OpenAiCategory, OpenAiInstructionVerdict, OpenAiKeyVerifier,
-    OpenAiModerationClassifier, OpenAiModerationResult,
+    Err, KeyCheck, OpenAi, OpenAiCategory, OpenAiInstructionVerdict, OpenAiModerationResult,
 };
 use crate::infrastructure::drivers::openai::OpenAiApiError;
 use crate::infrastructure::drivers::openai_moderation::{
@@ -323,7 +322,7 @@ impl OpenAiGateway {
 }
 
 #[async_trait]
-impl OpenAiModerationClassifier for OpenAiGateway {
+impl OpenAi for OpenAiGateway {
     async fn classify(&self, api_key: &str, text: &str) -> Result<OpenAiModerationResult, Err> {
         let call = Call::Moderate {
             text: text.to_string(),
@@ -354,10 +353,7 @@ impl OpenAiModerationClassifier for OpenAiGateway {
             Answer::Moderation(_) => Err("OpenAI answered a model call with moderation".into()),
         }
     }
-}
 
-#[async_trait]
-impl OpenAiKeyVerifier for OpenAiGateway {
     async fn verify(&self, api_key: &str) -> KeyCheck {
         let call = || Call::Moderate {
             text: KEY_CHECK_TEXT.to_string(),

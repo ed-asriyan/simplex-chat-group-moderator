@@ -80,8 +80,8 @@ Each bounded context follows the same internal shape:
     SimpleX driver (`BotMessenger`, `GroupModerator`).
   - `cross_domain_router.rs` — lets `bot_dm` call into `moderator` by
     implementing `bot_dm::GroupOperations` on top of `moderator::GroupAdministration`.
-  - `openai_gateway.rs` — implements `OpenAiModerationClassifier` and
-    `OpenAiKeyVerifier` for both OpenAI conditions (`FlaggedByOmniModeration`
+  - `openai_gateway.rs` — implements the `OpenAi` port (verdicts on
+    messages and key checks) for both OpenAI conditions (`FlaggedByOmniModeration`
     and `MatchesOpenAiInstruction`, each with the owner's own key). It builds
     its own HTTP drivers, so `bin/bot.rs` only calls `OpenAiGateway::new()`;
     tests start it over scripted ones. Every OpenAI

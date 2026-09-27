@@ -1143,7 +1143,7 @@ async fn evaluate(
             if text.trim().is_empty() {
                 return Ok(None);
             }
-            match ctx.openai_classifier.classify(api_key, text).await {
+            match ctx.openai.classify(api_key, text).await {
                 Ok(verdict) => Ok(openai_moderation::should_moderate(triggers, &verdict)),
                 // No verdict is no match: OpenAI being down, rate limited or
                 // refusing the key must not stop the other rules. The adapter
@@ -1161,7 +1161,7 @@ async fn evaluate(
                 return Ok(None);
             }
             match ctx
-                .openai_classifier
+                .openai
                 .matches_instruction(api_key, model, instruction, text)
                 .await
             {

@@ -1,7 +1,7 @@
 use super::*;
 use crate::domain::moderator::ports::{
-    GroupMessage, MessageAttachment, MessengerGroup, MessengerGroupId, OpenAiInstructionVerdict,
-    OpenAiModerationClassifier, UserId, UserModerationActivityRepository,
+    GroupMessage, KeyCheck, MessageAttachment, MessengerGroup, MessengerGroupId, OpenAi,
+    OpenAiInstructionVerdict, UserId, UserModerationActivityRepository,
 };
 use crate::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
 use crate::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
@@ -1857,7 +1857,15 @@ async fn test_moderates_pictures_and_leaves_them_out_of_is_blank() {
 pub struct UnusedOpenAi;
 
 #[async_trait::async_trait]
-impl OpenAiModerationClassifier for UnusedOpenAi {
+impl OpenAi for UnusedOpenAi {
+    async fn verify(&self, _api_key: &str) -> KeyCheck {
+        panic!("no key is checked while moderating a message")
+    }
+
+    async fn verify_model(&self, _api_key: &str, _model: &str) -> KeyCheck {
+        panic!("no key is checked while moderating a message")
+    }
+
     async fn classify(&self, _api_key: &str, _text: &str) -> Result<OpenAiModerationResult, Err> {
         panic!("OpenAI was asked about a message no rule sends to it")
     }
@@ -1916,7 +1924,15 @@ impl ScriptedOpenAi {
 }
 
 #[async_trait::async_trait]
-impl OpenAiModerationClassifier for ScriptedOpenAi {
+impl OpenAi for ScriptedOpenAi {
+    async fn verify(&self, _api_key: &str) -> KeyCheck {
+        panic!("no key is checked while moderating a message")
+    }
+
+    async fn verify_model(&self, _api_key: &str, _model: &str) -> KeyCheck {
+        panic!("no key is checked while moderating a message")
+    }
+
     async fn classify(&self, api_key: &str, text: &str) -> Result<OpenAiModerationResult, Err> {
         self.calls
             .lock()

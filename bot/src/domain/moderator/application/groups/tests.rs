@@ -6,8 +6,8 @@ use crate::domain::moderator::application::tests::{MockGroupModerator, MockModer
 use crate::domain::moderator::message_filter::ModerationCondition;
 use crate::domain::moderator::ports::{
     CategoryTrigger, Err, Group, GroupAdministration, GroupId, KeyCheck, MessengerGroupId,
-    ModerationAction, ModerationRepository, ModerationRule, OpenAiCategoryTriggers,
-    OpenAiKeyVerifier, OwnedModerationRule, UserId,
+    ModerationAction, ModerationRepository, ModerationRule, OpenAi, OpenAiCategoryTriggers,
+    OpenAiInstructionVerdict, OpenAiModerationResult, OwnedModerationRule, UserId,
 };
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -17,7 +17,21 @@ use std::sync::{Arc, Mutex};
 struct UnusedKeyVerifier;
 
 #[async_trait]
-impl OpenAiKeyVerifier for UnusedKeyVerifier {
+impl OpenAi for UnusedKeyVerifier {
+    async fn classify(&self, _api_key: &str, _text: &str) -> Result<OpenAiModerationResult, Err> {
+        panic!("no message is moderated while saving rules")
+    }
+
+    async fn matches_instruction(
+        &self,
+        _api_key: &str,
+        _model: &str,
+        _instruction: &str,
+        _text: &str,
+    ) -> Result<OpenAiInstructionVerdict, Err> {
+        panic!("no message is moderated while saving rules")
+    }
+
     async fn verify(&self, _api_key: &str) -> KeyCheck {
         panic!("OpenAI was asked about a key although no rule carries one")
     }
@@ -188,7 +202,21 @@ impl FakeKeyVerifier {
 }
 
 #[async_trait]
-impl OpenAiKeyVerifier for FakeKeyVerifier {
+impl OpenAi for FakeKeyVerifier {
+    async fn classify(&self, _api_key: &str, _text: &str) -> Result<OpenAiModerationResult, Err> {
+        panic!("no message is moderated while saving rules")
+    }
+
+    async fn matches_instruction(
+        &self,
+        _api_key: &str,
+        _model: &str,
+        _instruction: &str,
+        _text: &str,
+    ) -> Result<OpenAiInstructionVerdict, Err> {
+        panic!("no message is moderated while saving rules")
+    }
+
     async fn verify(&self, api_key: &str) -> KeyCheck {
         self.asked.lock().unwrap().push(api_key.to_string());
         self.answers
