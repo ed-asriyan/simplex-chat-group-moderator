@@ -1,7 +1,7 @@
 use super::*;
 use crate::domain::moderator::ports::{
-    GroupMessage, MessageAttachment, MessengerGroup, MessengerGroupId, UserId,
-    UserModerationActivityRepository,
+    GroupMessage, MessageAttachment, MessengerGroup, MessengerGroupId, OpenAiModerationClassifier,
+    UserId, UserModerationActivityRepository,
 };
 use crate::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
 use crate::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
@@ -193,6 +193,7 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &UnusedOpenAi,
     )
     .await
     .unwrap();
@@ -245,6 +246,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &UnusedOpenAi,
     )
     .await
     .unwrap();
@@ -286,6 +288,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &UnusedOpenAi,
     )
     .await
     .unwrap();
@@ -327,7 +330,8 @@ async fn test_no_rules_match_returns_none() {
             &repo,
             &no_character_activity(),
             &no_line_activity(),
-            &mod_repo
+            &mod_repo,
+            &UnusedOpenAi,
         )
         .await
         .unwrap()
@@ -459,6 +463,7 @@ async fn test_should_moderate_with_line_rate_limit() {
         &no_character_activity(),
         &under,
         &mod_repo,
+        &UnusedOpenAi,
     )
     .await
     .unwrap();
@@ -485,6 +490,7 @@ async fn test_should_moderate_with_line_rate_limit() {
         &no_character_activity(),
         &at,
         &mod_repo,
+        &UnusedOpenAi,
     )
     .await
     .unwrap();
@@ -591,9 +597,17 @@ async fn test_should_moderate_with_character_rate_limit() {
         )
         .await
         .unwrap();
-    let res = should_moderate(&msg, &rules, &repo, &under, &no_line_activity(), &mod_repo)
-        .await
-        .unwrap();
+    let res = should_moderate(
+        &msg,
+        &rules,
+        &repo,
+        &under,
+        &no_line_activity(),
+        &mod_repo,
+        &UnusedOpenAi,
+    )
+    .await
+    .unwrap();
     assert!(res.is_none());
 
     // One more long message takes them over it.
@@ -616,9 +630,17 @@ async fn test_should_moderate_with_character_rate_limit() {
     )
     .await
     .unwrap();
-    let res = should_moderate(&msg, &rules, &repo, &at, &no_line_activity(), &mod_repo)
-        .await
-        .unwrap();
+    let res = should_moderate(
+        &msg,
+        &rules,
+        &repo,
+        &at,
+        &no_line_activity(),
+        &mod_repo,
+        &UnusedOpenAi,
+    )
+    .await
+    .unwrap();
     assert_eq!(
         res.unwrap().reasons,
         vec!["author sent 500 characters in 1 min".to_string()]
@@ -684,7 +706,8 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
             &messages,
             &characters,
             &no_line_activity(),
-            &mod_repo
+            &mod_repo,
+            &UnusedOpenAi,
         )
         .await
         .unwrap()
@@ -697,7 +720,8 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
             &messages,
             &characters,
             &no_line_activity(),
-            &mod_repo
+            &mod_repo,
+            &UnusedOpenAi,
         )
         .await
         .unwrap()
@@ -724,7 +748,8 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
             &messages,
             &characters,
             &no_line_activity(),
-            &mod_repo
+            &mod_repo,
+            &UnusedOpenAi,
         )
         .await
         .unwrap()
@@ -737,7 +762,8 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
             &messages,
             &characters,
             &no_line_activity(),
-            &mod_repo
+            &mod_repo,
+            &UnusedOpenAi,
         )
         .await
         .unwrap()
@@ -783,6 +809,7 @@ async fn test_should_moderate_with_message_rate_limit() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &UnusedOpenAi,
     )
     .await
     .unwrap();
@@ -796,6 +823,7 @@ async fn test_should_moderate_with_message_rate_limit() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &UnusedOpenAi,
     )
     .await
     .unwrap();
@@ -854,6 +882,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo_under,
+        &UnusedOpenAi,
     )
     .await
     .unwrap();
@@ -867,6 +896,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo_at,
+        &UnusedOpenAi,
     )
     .await
     .unwrap();
@@ -920,6 +950,7 @@ async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_mess
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &UnusedOpenAi,
     )
     .await
     .unwrap();
@@ -974,6 +1005,7 @@ async fn test_independent_rules_combine_and_order_deletion_before_kick() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &UnusedOpenAi,
     )
     .await
     .unwrap();
@@ -1052,6 +1084,7 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &UnusedOpenAi,
     )
     .await
     .unwrap();
@@ -1113,6 +1146,7 @@ async fn test_moderation_rate_limit_is_order_independent() {
         &no_character_activity(),
         &no_line_activity(),
         &moderation_activity_repo,
+        &UnusedOpenAi,
     )
     .await
     .unwrap()
@@ -1166,6 +1200,7 @@ async fn matched(text: &str, condition: ModerationCondition) -> Option<Moderatio
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &UnusedOpenAi,
     )
     .await
     .unwrap()
@@ -1308,6 +1343,7 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
         &no_character_activity(),
         &no_line_activity(),
         &moderation_activity_repo,
+        &UnusedOpenAi,
     )
     .await
     .unwrap()
@@ -1368,6 +1404,7 @@ async fn test_moderation_rate_limit_in_a_tree_ignores_its_own_rule() {
         &no_character_activity(),
         &no_line_activity(),
         &moderation_activity_repo,
+        &UnusedOpenAi,
     )
     .await
     .unwrap();
@@ -1497,6 +1534,7 @@ async fn moderates(rules: &[ModerationRule], text: &str) -> bool {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &UnusedOpenAi,
     )
     .await
     .unwrap()
@@ -1640,6 +1678,7 @@ async fn matched_from(
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &UnusedOpenAi,
     )
     .await
     .unwrap()
@@ -1772,6 +1811,7 @@ async fn test_moderates_pictures_and_leaves_them_out_of_is_blank() {
             &no_character_activity(),
             &no_line_activity(),
             &moderation_repo,
+            &UnusedOpenAi,
         )
         .await
         .unwrap()
@@ -1806,4 +1846,321 @@ async fn test_moderates_pictures_and_leaves_them_out_of_is_blank() {
         matched(&blank_text).await.unwrap().reasons,
         vec!["empty message".to_string()]
     );
+}
+
+// ---------------------------------------------------------------------------
+// FlaggedByOpenAiModeration
+// ---------------------------------------------------------------------------
+
+/// The classifier for rule sets that never send a message to OpenAI: being
+/// asked at all is the bug.
+pub struct UnusedOpenAi;
+
+#[async_trait::async_trait]
+impl OpenAiModerationClassifier for UnusedOpenAi {
+    async fn classify(&self, _api_key: &str, _text: &str) -> Result<OpenAiModerationResult, Err> {
+        panic!("OpenAI was asked about a message no rule sends to it")
+    }
+}
+
+/// Answers every message the same way and records what it was asked.
+pub struct ScriptedOpenAi {
+    answer: Result<OpenAiModerationResult, String>,
+    calls: std::sync::Mutex<Vec<(String, String)>>,
+}
+
+impl ScriptedOpenAi {
+    pub fn answering(answer: Result<OpenAiModerationResult, String>) -> Self {
+        Self {
+            answer,
+            calls: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn calls(&self) -> Vec<(String, String)> {
+        self.calls.lock().unwrap().clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl OpenAiModerationClassifier for ScriptedOpenAi {
+    async fn classify(&self, api_key: &str, text: &str) -> Result<OpenAiModerationResult, Err> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push((api_key.to_string(), text.to_string()));
+        self.answer.clone().map_err(Err::from)
+    }
+}
+
+/// OpenAI flagged hate, and scored it 0.9.
+fn hateful() -> OpenAiModerationResult {
+    OpenAiModerationResult {
+        flagged: [OpenAiCategory::Hate].into(),
+        scores: [(OpenAiCategory::Hate, 0.9)].into(),
+    }
+}
+
+/// Matches whatever OpenAI flags as hate.
+fn openai_hate(api_key: &str) -> ModerationCondition {
+    let mut triggers = OpenAiCategoryTriggers::default();
+    triggers.hate = CategoryTrigger::OpenAiDecides;
+    ModerationCondition::FlaggedByOpenAiModeration {
+        api_key: api_key.to_string(),
+        triggers,
+    }
+}
+
+async fn matched_with(
+    openai: &ScriptedOpenAi,
+    msg: &GroupMessage,
+    rules: &[ModerationRule],
+) -> Option<ModerationMatch> {
+    should_moderate(
+        msg,
+        rules,
+        &InMemoryUserMessageActivityRepository::new(),
+        &no_character_activity(),
+        &no_line_activity(),
+        &InMemoryUserModerationActivityRepository::new(),
+        openai,
+    )
+    .await
+    .expect("an OpenAI answer, or its absence, is never an evaluation error")
+}
+
+fn text_message(text: &str) -> GroupMessage {
+    GroupMessage {
+        text: text.to_string(),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn test_openai_condition_wire_format_matches_the_editor_schema() {
+    let json = r#"{
+        "type": "FlaggedByOpenAiModeration",
+        "api_key": "sk-proj-abc",
+        "hate": "openai",
+        "violence": 80,
+        "sexual": "off"
+    }"#;
+    let condition: ModerationCondition = serde_json::from_str(json).unwrap();
+    let ModerationCondition::FlaggedByOpenAiModeration { api_key, triggers } = &condition else {
+        panic!("expected FlaggedByOpenAiModeration, got {condition:?}");
+    };
+    assert_eq!(api_key, "sk-proj-abc");
+    assert_eq!(triggers.hate, CategoryTrigger::OpenAiDecides);
+    assert_eq!(triggers.violence, CategoryTrigger::MinScorePercent(80));
+    assert_eq!(triggers.sexual, CategoryTrigger::Off);
+    // Categories the JSON leaves out are off.
+    assert_eq!(triggers.harassment, CategoryTrigger::Off);
+
+    // The key travels in the editor link as it is, and every category is
+    // written out so the editor shows all thirteen.
+    let written = serde_json::to_value(&condition).unwrap();
+    assert_eq!(written["type"], "FlaggedByOpenAiModeration");
+    assert_eq!(written["api_key"], "sk-proj-abc");
+    assert_eq!(written["hate"], "openai");
+    assert_eq!(written["violence"], 80);
+    assert_eq!(written["self_harm_instructions"], "off");
+    assert_eq!(written.as_object().unwrap().len(), 2 + 13);
+
+    let reread: ModerationCondition = serde_json::from_value(written).unwrap();
+    assert_eq!(reread, condition);
+}
+
+#[test]
+fn test_openai_condition_without_a_key_or_with_a_bad_trigger_does_not_parse() {
+    for json in [
+        r#"{ "type": "FlaggedByOpenAiModeration", "hate": "openai" }"#,
+        r#"{ "type": "FlaggedByOpenAiModeration", "api_key": "sk", "hate": "maybe" }"#,
+        r#"{ "type": "FlaggedByOpenAiModeration", "api_key": "sk", "hate": 300 }"#,
+    ] {
+        assert!(
+            serde_json::from_str::<ModerationCondition>(json).is_err(),
+            "{json} should not parse"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_openai_verdict_moderates_with_its_reason() {
+    let openai = ScriptedOpenAi::answering(Ok(hateful()));
+
+    let hit = matched_with(
+        &openai,
+        &text_message("some text"),
+        &rule_with(openai_hate("sk-one")),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(hit.actions, vec![ModerationAction::ModerateMessage]);
+    assert_eq!(
+        hit.reasons,
+        vec!["flagged by OpenAI moderation: hate (OpenAI)".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn test_openai_verdict_that_trips_no_trigger_does_not_match() {
+    let openai = ScriptedOpenAi::answering(Ok(OpenAiModerationResult {
+        flagged: [OpenAiCategory::Violence].into(),
+        scores: [(OpenAiCategory::Violence, 0.99)].into(),
+    }));
+
+    let hit = matched_with(
+        &openai,
+        &text_message("some text"),
+        &rule_with(openai_hate("sk-one")),
+    )
+    .await;
+
+    assert!(hit.is_none());
+}
+
+#[tokio::test]
+async fn test_openai_is_asked_with_the_condition_key_and_the_message_text_as_is() {
+    let openai = ScriptedOpenAi::answering(Ok(OpenAiModerationResult::default()));
+    let text = "  Привет,\nмир  ";
+
+    matched_with(
+        &openai,
+        &text_message(text),
+        &rule_with(openai_hate("sk-one")),
+    )
+    .await;
+
+    assert_eq!(
+        openai.calls(),
+        vec![("sk-one".to_string(), text.to_string())]
+    );
+}
+
+#[tokio::test]
+async fn test_openai_is_not_asked_about_a_message_without_text() {
+    let openai = ScriptedOpenAi::answering(Ok(hateful()));
+    let rules = rule_with(openai_hate("sk-one"));
+
+    let blank = text_message(" \n\t ");
+    let captionless_picture = GroupMessage {
+        attachment: Some(MessageAttachment::Image),
+        ..Default::default()
+    };
+    assert!(matched_with(&openai, &blank, &rules).await.is_none());
+    assert!(
+        matched_with(&openai, &captionless_picture, &rules)
+            .await
+            .is_none()
+    );
+    assert!(openai.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_openai_failure_reads_as_no_match_and_other_rules_still_apply() {
+    let openai = ScriptedOpenAi::answering(Err("OpenAI is down".to_string()));
+    let rules = vec![
+        ModerationRule {
+            actions: vec![ModerationAction::ModerateMessage],
+            condition: openai_hate("sk-one"),
+        },
+        ModerationRule {
+            actions: vec![ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            }],
+            condition: words("spam"),
+        },
+    ];
+
+    let hit = matched_with(&openai, &text_message("spam"), &rules)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        hit.actions,
+        vec![ModerationAction::KickAuthor {
+            delete_all_messages: false
+        }]
+    );
+    assert_eq!(hit.reasons, vec!["contains word: 'spam'".to_string()]);
+    assert_eq!(openai.calls().len(), 1);
+}
+
+#[tokio::test]
+async fn test_under_not_an_openai_failure_reads_as_a_match() {
+    // The accepted price of "failure is no match": negated, it is a match. An
+    // owner who puts this condition under a Not gets every message during an
+    // outage; nothing in the tree special-cases it.
+    let openai = ScriptedOpenAi::answering(Err("OpenAI is down".to_string()));
+    let condition = ModerationCondition::Not {
+        condition: Box::new(openai_hate("sk-one")),
+    };
+
+    let hit = matched_with(&openai, &text_message("hello"), &rule_with(condition)).await;
+
+    assert!(hit.is_some());
+}
+
+#[tokio::test]
+async fn test_openai_is_asked_once_per_message_however_many_rules_use_the_condition() {
+    let openai = ScriptedOpenAi::answering(Ok(OpenAiModerationResult::default()));
+    let rules = vec![
+        ModerationRule {
+            actions: vec![ModerationAction::ModerateMessage],
+            condition: openai_hate("sk-one"),
+        },
+        ModerationRule {
+            actions: vec![ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            }],
+            condition: ModerationCondition::Any {
+                conditions: vec![words("spam"), openai_hate("sk-one")],
+            },
+        },
+    ];
+
+    matched_with(&openai, &text_message("hello"), &rules).await;
+
+    assert_eq!(openai.calls().len(), 1);
+}
+
+#[tokio::test]
+async fn test_all_does_not_ask_openai_once_an_earlier_condition_fails() {
+    // Children are evaluated in the order the owner wrote them and `All` stops
+    // at the first miss: that order is how an owner keeps OpenAI off most
+    // messages, so it must hold for this condition too.
+    let openai = ScriptedOpenAi::answering(Ok(hateful()));
+    let condition = ModerationCondition::All {
+        conditions: vec![words("crypto"), openai_hate("sk-one")],
+    };
+
+    let hit = matched_with(&openai, &text_message("hello"), &rule_with(condition)).await;
+
+    assert!(hit.is_none());
+    assert!(openai.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_openai_is_not_asked_for_a_rule_whose_actions_are_already_planned() {
+    let openai = ScriptedOpenAi::answering(Ok(hateful()));
+    let rules = vec![
+        ModerationRule {
+            actions: vec![ModerationAction::KickAuthor {
+                delete_all_messages: true,
+            }],
+            condition: words("spam"),
+        },
+        // A kick that deletes the author's messages covers this; the rule adds
+        // nothing, so its condition is never evaluated.
+        ModerationRule {
+            actions: vec![ModerationAction::ModerateMessage],
+            condition: openai_hate("sk-one"),
+        },
+    ];
+
+    let hit = matched_with(&openai, &text_message("spam"), &rules).await;
+
+    assert!(hit.is_some());
+    assert!(openai.calls().is_empty());
 }

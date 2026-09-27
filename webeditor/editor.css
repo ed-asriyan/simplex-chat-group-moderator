@@ -549,6 +549,37 @@ button {
     font-size: 13px;
 }
 
+.pw,
+.choice {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pw input {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 52ch;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 6px;
+    padding: 5px 7px;
+    font-family: var(--mono);
+    font-size: 13px;
+}
+
+.choice select {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 6px;
+    padding: 5px 7px;
+    font-size: 13px;
+}
+
+.choice input[type=number] {
+    width: 72px;
+}
+
 .chk {
     display: flex;
     align-items: center;

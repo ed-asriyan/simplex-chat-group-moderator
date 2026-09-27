@@ -7,8 +7,8 @@ use chrono::{DateTime, Utc};
 use std::time::Duration;
 
 use super::types::{
-    Err, Group, GroupId, GroupMemberRole, MessageId, MessengerGroupId, ModerationAction,
-    ModerationRule, OwnedModerationRule, ScheduledMemberRestore, UserId,
+    Err, Group, GroupId, GroupMemberRole, KeyCheck, MessageId, MessengerGroupId, ModerationAction,
+    ModerationRule, OpenAiModerationResult, OwnedModerationRule, ScheduledMemberRestore, UserId,
 };
 
 /// Outbound port: notify a group owner that moderation actions were performed.
@@ -222,4 +222,21 @@ pub trait UserModerationActivityRepository: Send + Sync {
         since: DateTime<Utc>,
         now: DateTime<Utc>,
     ) -> Result<u32, Err>;
+}
+
+/// Outbound port: OpenAI's moderation verdict on one text, asked with the
+/// owner's key.
+///
+/// An `Err` means there is no verdict — OpenAI was unreachable, refused the
+/// key, rate limited it, or the request waited too long. Callers treat that as
+/// "no match": a failing provider must not stop the rest of moderation.
+#[async_trait]
+pub trait OpenAiModerationClassifier: Send + Sync {
+    async fn classify(&self, api_key: &str, text: &str) -> Result<OpenAiModerationResult, Err>;
+}
+
+/// Outbound port: ask OpenAI whether a key an owner is saving works.
+#[async_trait]
+pub trait OpenAiKeyVerifier: Send + Sync {
+    async fn verify(&self, api_key: &str) -> KeyCheck;
 }

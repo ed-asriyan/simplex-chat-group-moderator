@@ -7,8 +7,8 @@ use crate::domain::moderator::message_filter::{count_effective_lines, should_mod
 use crate::domain::moderator::ports::{
     Err, GroupMemberRole, GroupMessage, GroupModerator, MemberRestoreRepository, ModerationAction,
     ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule,
-    UserCharacterActivityRepository, UserLineActivityRepository, UserMessageActivityRepository,
-    UserModerationActivityRepository,
+    OpenAiModerationClassifier, UserCharacterActivityRepository, UserLineActivityRepository,
+    UserMessageActivityRepository, UserModerationActivityRepository,
 };
 
 #[cfg(test)]
@@ -23,6 +23,7 @@ pub struct MessageModerationApplication {
     line_activity_repository: Arc<dyn UserLineActivityRepository>,
     moderation_activity_repository: Arc<dyn UserModerationActivityRepository>,
     restores: Arc<dyn MemberRestoreRepository>,
+    openai_classifier: Arc<dyn OpenAiModerationClassifier>,
 }
 
 impl MessageModerationApplication {
@@ -35,6 +36,7 @@ impl MessageModerationApplication {
         line_activity_repository: Arc<dyn UserLineActivityRepository>,
         moderation_activity_repository: Arc<dyn UserModerationActivityRepository>,
         restores: Arc<dyn MemberRestoreRepository>,
+        openai_classifier: Arc<dyn OpenAiModerationClassifier>,
     ) -> Self {
         Self {
             repository,
@@ -45,6 +47,7 @@ impl MessageModerationApplication {
             line_activity_repository,
             moderation_activity_repository,
             restores,
+            openai_classifier,
         }
     }
 
@@ -208,6 +211,7 @@ impl ModerationEngine for MessageModerationApplication {
             self.character_activity_repository.as_ref(),
             self.line_activity_repository.as_ref(),
             self.moderation_activity_repository.as_ref(),
+            self.openai_classifier.as_ref(),
         )
         .await?
         {

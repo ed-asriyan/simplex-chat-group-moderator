@@ -594,3 +594,160 @@ async fn test_round_trips_observer_duration() {
         ]
     );
 }
+
+// ---------------------------------------------------------------------------
+// FlaggedByOpenAiModeration
+// ---------------------------------------------------------------------------
+
+use crate::domain::moderator::ports::{CategoryTrigger, OpenAiCategoryTriggers};
+
+fn openai_condition(api_key: &str) -> ModerationCondition {
+    ModerationCondition::FlaggedByOpenAiModeration {
+        api_key: api_key.to_string(),
+        triggers: OpenAiCategoryTriggers {
+            hate: CategoryTrigger::OpenAiDecides,
+            violence: CategoryTrigger::MinScorePercent(80),
+            self_harm_intent: CategoryTrigger::MinScorePercent(1),
+            sexual_minors: CategoryTrigger::MinScorePercent(100),
+            ..Default::default()
+        },
+    }
+}
+
+async fn openai_repo(
+    messenger_group_id: i64,
+) -> (Arc<Mutex<Connection>>, SqliteModerationRepository, i64) {
+    let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+    migrations::run(conn.clone()).await.unwrap();
+    let repo = SqliteModerationRepository::new(conn.clone());
+    let group_id = repo
+        .save_owner(&messenger_group_id, "OpenAI Group", &42)
+        .await
+        .unwrap();
+    (conn, repo, group_id)
+}
+
+fn count(conn: &Arc<Mutex<Connection>>, table: &str) -> i64 {
+    conn.lock()
+        .unwrap()
+        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+        .unwrap()
+}
+
+#[tokio::test]
+async fn test_round_trips_openai_moderation_condition() {
+    assert_round_trips(2101, openai_condition("sk-proj-abc")).await;
+}
+
+#[tokio::test]
+async fn test_round_trips_openai_moderation_condition_with_every_category_on() {
+    assert_round_trips(
+        2102,
+        ModerationCondition::FlaggedByOpenAiModeration {
+            api_key: "sk-proj-abc".to_string(),
+            triggers: OpenAiCategoryTriggers::all(CategoryTrigger::OpenAiDecides),
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_round_trips_two_openai_conditions_with_different_keys_in_one_tree() {
+    assert_round_trips(
+        2103,
+        ModerationCondition::Any {
+            conditions: vec![
+                openai_condition("sk-one"),
+                ModerationCondition::Not {
+                    condition: Box::new(openai_condition("sk-two")),
+                },
+            ],
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_openai_categories_store_one_row_per_category_that_is_not_off() {
+    let (conn, repo, group_id) = openai_repo(2104).await;
+    repo.set_group_rules(
+        &group_id,
+        &[ModerationRule {
+            actions: vec![ModerationAction::ModerateMessage],
+            condition: openai_condition("sk-proj-abc"),
+        }],
+    )
+    .await
+    .unwrap();
+
+    let guard = conn.lock().unwrap();
+    let api_key: String = guard
+        .query_row(
+            "SELECT api_key FROM moderation_condition__flagged_by_openai_moderation",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(api_key, "sk-proj-abc");
+
+    let mut stmt = guard
+        .prepare(
+            "SELECT category, min_score_percent
+               FROM moderation_condition__flagged_by_openai_moderation__categories
+              ORDER BY category",
+        )
+        .unwrap();
+    let rows: Vec<(String, Option<i64>)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    // NULL is "OpenAI decides"; a category that is off has no row at all.
+    assert_eq!(
+        rows,
+        vec![
+            ("hate".to_string(), None),
+            ("self_harm_intent".to_string(), Some(1)),
+            ("sexual_minors".to_string(), Some(100)),
+            ("violence".to_string(), Some(80)),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn test_openai_rows_go_with_replaced_rules_and_with_the_group() {
+    let (conn, repo, group_id) = openai_repo(2105).await;
+    let with_openai = [ModerationRule {
+        actions: vec![ModerationAction::ModerateMessage],
+        condition: openai_condition("sk-proj-abc"),
+    }];
+
+    repo.set_group_rules(&group_id, &with_openai).await.unwrap();
+    repo.set_group_rules(&group_id, &with_openai).await.unwrap();
+    assert_eq!(
+        count(&conn, "moderation_condition__flagged_by_openai_moderation"),
+        1
+    );
+    assert_eq!(
+        count(
+            &conn,
+            "moderation_condition__flagged_by_openai_moderation__categories"
+        ),
+        4
+    );
+
+    repo.delete_group_data(&2105).await.unwrap();
+    assert_eq!(
+        count(&conn, "moderation_condition__flagged_by_openai_moderation"),
+        0
+    );
+    assert_eq!(
+        count(
+            &conn,
+            "moderation_condition__flagged_by_openai_moderation__categories"
+        ),
+        0
+    );
+}
