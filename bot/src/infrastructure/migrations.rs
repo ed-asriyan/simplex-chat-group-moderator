@@ -81,7 +81,7 @@ mod tests {
         let version: i64 = guard
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 31);
+        assert_eq!(version, 32);
     }
 
     /// 0022 rebuilds every rule as a `moderation_rules` row plus a condition
@@ -615,6 +615,68 @@ mod tests {
                 "{table} should be empty after the group is deleted"
             );
         }
+    }
+
+    /// 0032 renames `FlaggedByOpenAiModeration` to `FlaggedByOmniModeration`.
+    /// A stored condition has to come back under the new name with its key and
+    /// every category trigger intact.
+    #[tokio::test]
+    async fn test_0032_renames_the_openai_moderation_condition_to_omni() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        apply_through(&mut conn, 31).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name)
+                  VALUES (7, 700, 70, 'Omni Group');
+             INSERT INTO moderation_rules (id, group_id, rank) VALUES (1, 7, 0);
+             INSERT INTO moderation_actions (id, rule_id, rank, type)
+                  VALUES (1, 1, 0, 'ModerateMessage');
+             INSERT INTO moderation_action__moderate_message (action_id) VALUES (1);
+             INSERT INTO moderation_conditions (id, rule_id, parent_id, rank, type)
+                  VALUES (1, 1, NULL, 0, 'FlaggedByOpenAiModeration');
+             INSERT INTO moderation_condition__flagged_by_openai_moderation
+                  VALUES (1, 'sk-proj-abc');
+             INSERT INTO moderation_condition__flagged_by_openai_moderation__categories
+                  VALUES (1, 'hate', NULL), (1, 'violence', 80);",
+        )
+        .unwrap();
+
+        apply_through(&mut conn, usize::MAX).unwrap();
+        let conn = Arc::new(Mutex::new(conn));
+        let repo =
+            crate::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository::new(
+                conn.clone(),
+            );
+        use crate::domain::moderator::ports::{
+            CategoryTrigger, ModerationCondition, ModerationRepository, OpenAiCategoryTriggers,
+        };
+        let rules = repo.get_group_rules(&7).await.unwrap();
+        assert_eq!(
+            rules[0].rule.condition,
+            ModerationCondition::FlaggedByOmniModeration {
+                api_key: "sk-proj-abc".to_string(),
+                triggers: OpenAiCategoryTriggers {
+                    hate: CategoryTrigger::OpenAiDecides,
+                    violence: CategoryTrigger::MinScorePercent(80),
+                    ..Default::default()
+                },
+            }
+        );
+
+        // Deleting the group still reaches the renamed tables.
+        let guard = conn.lock().unwrap();
+        guard
+            .execute("DELETE FROM moderation_groups WHERE group_id = 7", [])
+            .unwrap();
+        let left: i64 = guard
+            .query_row(
+                "SELECT COUNT(*) FROM moderation_condition__flagged_by_omni_moderation__categories",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(left, 0);
     }
 
     /// 0027 gives `SetAuthorObserver` a duration. Restrictions saved before it

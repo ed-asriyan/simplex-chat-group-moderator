@@ -1849,7 +1849,7 @@ async fn test_moderates_pictures_and_leaves_them_out_of_is_blank() {
 }
 
 // ---------------------------------------------------------------------------
-// FlaggedByOpenAiModeration
+// FlaggedByOmniModeration
 // ---------------------------------------------------------------------------
 
 /// The classifier for rule sets that never send a message to OpenAI: being
@@ -1954,7 +1954,7 @@ fn hateful() -> OpenAiModerationResult {
 fn openai_hate(api_key: &str) -> ModerationCondition {
     let mut triggers = OpenAiCategoryTriggers::default();
     triggers.hate = CategoryTrigger::OpenAiDecides;
-    ModerationCondition::FlaggedByOpenAiModeration {
+    ModerationCondition::FlaggedByOmniModeration {
         api_key: api_key.to_string(),
         triggers,
     }
@@ -1988,15 +1988,15 @@ fn text_message(text: &str) -> GroupMessage {
 #[test]
 fn test_openai_condition_wire_format_matches_the_editor_schema() {
     let json = r#"{
-        "type": "FlaggedByOpenAiModeration",
+        "type": "FlaggedByOmniModeration",
         "api_key": "sk-proj-abc",
         "hate": "openai",
         "violence": 80,
         "sexual": "off"
     }"#;
     let condition: ModerationCondition = serde_json::from_str(json).unwrap();
-    let ModerationCondition::FlaggedByOpenAiModeration { api_key, triggers } = &condition else {
-        panic!("expected FlaggedByOpenAiModeration, got {condition:?}");
+    let ModerationCondition::FlaggedByOmniModeration { api_key, triggers } = &condition else {
+        panic!("expected FlaggedByOmniModeration, got {condition:?}");
     };
     assert_eq!(api_key, "sk-proj-abc");
     assert_eq!(triggers.hate, CategoryTrigger::OpenAiDecides);
@@ -2008,7 +2008,7 @@ fn test_openai_condition_wire_format_matches_the_editor_schema() {
     // The key travels in the editor link as it is, and every category is
     // written out so the editor shows all thirteen.
     let written = serde_json::to_value(&condition).unwrap();
-    assert_eq!(written["type"], "FlaggedByOpenAiModeration");
+    assert_eq!(written["type"], "FlaggedByOmniModeration");
     assert_eq!(written["api_key"], "sk-proj-abc");
     assert_eq!(written["hate"], "openai");
     assert_eq!(written["violence"], 80);
@@ -2022,9 +2022,9 @@ fn test_openai_condition_wire_format_matches_the_editor_schema() {
 #[test]
 fn test_openai_condition_without_a_key_or_with_a_bad_trigger_does_not_parse() {
     for json in [
-        r#"{ "type": "FlaggedByOpenAiModeration", "hate": "openai" }"#,
-        r#"{ "type": "FlaggedByOpenAiModeration", "api_key": "sk", "hate": "maybe" }"#,
-        r#"{ "type": "FlaggedByOpenAiModeration", "api_key": "sk", "hate": 300 }"#,
+        r#"{ "type": "FlaggedByOmniModeration", "hate": "openai" }"#,
+        r#"{ "type": "FlaggedByOmniModeration", "api_key": "sk", "hate": "maybe" }"#,
+        r#"{ "type": "FlaggedByOmniModeration", "api_key": "sk", "hate": 300 }"#,
     ] {
         assert!(
             serde_json::from_str::<ModerationCondition>(json).is_err(),

@@ -3364,7 +3364,7 @@ async fn test_failed_restore_bookkeeping_still_moderates_and_notifies() {
 }
 
 // ---------------------------------------------------------------------------
-// FlaggedByOpenAiModeration
+// FlaggedByOmniModeration
 // ---------------------------------------------------------------------------
 
 /// The classifier for groups whose rules never send a message to OpenAI.
@@ -3428,7 +3428,7 @@ fn app_with_openai_rule(
                 id: 1,
                 rule: ModerationRule {
                     actions: vec![ModerationAction::ModerateMessage],
-                    condition: ModerationCondition::FlaggedByOpenAiModeration {
+                    condition: ModerationCondition::FlaggedByOmniModeration {
                         api_key: "sk-owner".to_string(),
                         triggers,
                     },

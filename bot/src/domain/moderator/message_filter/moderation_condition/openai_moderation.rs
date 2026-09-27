@@ -1,4 +1,4 @@
-//! `FlaggedByOpenAiModeration`: reading OpenAI's moderation verdict on a
+//! `FlaggedByOmniModeration`: reading OpenAI's moderation verdict on a
 //! message against the owner's per-category triggers.
 //!
 //! OpenAI answers with two things per category: its own yes/no (`categories`,

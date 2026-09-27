@@ -834,13 +834,13 @@ fn test_parameterless_conditions_round_trip_through_json() {
 }
 
 // ---------------------------------------------------------------------------
-// FlaggedByOpenAiModeration
+// FlaggedByOmniModeration
 // ---------------------------------------------------------------------------
 
 use super::{CategoryTrigger, OpenAiCategoryTriggers};
 
 fn openai(api_key: &str, triggers: OpenAiCategoryTriggers) -> ModerationCondition {
-    ModerationCondition::FlaggedByOpenAiModeration {
+    ModerationCondition::FlaggedByOmniModeration {
         api_key: api_key.to_string(),
         triggers,
     }

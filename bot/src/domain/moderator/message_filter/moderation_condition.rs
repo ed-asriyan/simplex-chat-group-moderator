@@ -194,7 +194,7 @@ pub enum ModerationCondition {
     /// OpenAI's moderation model, asked with the owner's own `api_key`, trips
     /// at least one of the owner's per-category `triggers`. Sends the message
     /// text to OpenAI; a message with no text is never sent and never matches.
-    FlaggedByOpenAiModeration {
+    FlaggedByOmniModeration {
         api_key: String,
         #[serde(flatten)]
         triggers: OpenAiCategoryTriggers,
@@ -418,7 +418,7 @@ impl ModerationCondition {
             Self::AuthorJoinedRecently {
                 time_window_minutes,
             } => format!("author joined less than {time_window_minutes} min ago"),
-            Self::FlaggedByOpenAiModeration { .. } => "flagged by OpenAI moderation".into(),
+            Self::FlaggedByOmniModeration { .. } => "flagged by OpenAI moderation".into(),
             Self::MatchesOpenAiInstruction { model, .. } => {
                 format!("matches the instruction (OpenAI {model})")
             }
@@ -576,8 +576,8 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
             *time_window_minutes,
             "'Author Joined Recently' needs a time window of at least 1 minute",
         ),
-        ModerationCondition::FlaggedByOpenAiModeration { api_key, triggers } => {
-            normalize_and_validate_openai_moderation(api_key, triggers)
+        ModerationCondition::FlaggedByOmniModeration { api_key, triggers } => {
+            normalize_and_validate_omni_moderation(api_key, triggers)
         }
         ModerationCondition::MatchesOpenAiInstruction {
             api_key,
@@ -606,11 +606,11 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
 /// 170 characters; the cap only keeps a pasted paragraph out of the database.
 const MAX_OPENAI_API_KEY_LENGTH: usize = 256;
 
-fn normalize_and_validate_openai_moderation(
+fn normalize_and_validate_omni_moderation(
     api_key: &mut String,
     triggers: &OpenAiCategoryTriggers,
 ) -> Result<(), Err> {
-    normalize_openai_api_key(api_key, "OpenAI Moderation Flags the Message")?;
+    normalize_openai_api_key(api_key, "OpenAI Omni Moderation Flags the Message")?;
 
     for category in OpenAiCategory::ALL {
         if let CategoryTrigger::MinScorePercent(percent) = triggers.get(category)
@@ -628,7 +628,7 @@ fn normalize_and_validate_openai_moderation(
         .all(|category| triggers.get(category) == CategoryTrigger::Off)
     {
         return Err(
-            "'OpenAI Moderation Flags the Message' has every category off, so it can never match"
+            "'OpenAI Omni Moderation Flags the Message' has every category off, so it can never match"
                 .into(),
         );
     }
@@ -933,7 +933,7 @@ fn should_moderate_by_condition(message: &str, condition: &ModerationCondition) 
         | ModerationCondition::AuthorHitsLineRateLimit { .. }
         | ModerationCondition::AuthorHitsModerationRateLimit { .. }
         | ModerationCondition::AuthorJoinedRecently { .. }
-        | ModerationCondition::FlaggedByOpenAiModeration { .. }
+        | ModerationCondition::FlaggedByOmniModeration { .. }
         | ModerationCondition::MatchesOpenAiInstruction { .. }
         | ModerationCondition::All { .. }
         | ModerationCondition::Any { .. }
@@ -1137,7 +1137,7 @@ async fn evaluate(
             ctx.group_message.timestamp,
             *time_window_minutes,
         )),
-        ModerationCondition::FlaggedByOpenAiModeration { api_key, triggers } => {
+        ModerationCondition::FlaggedByOmniModeration { api_key, triggers } => {
             let text = &ctx.group_message.text;
             // Nothing to show OpenAI: a caption-less attachment or blank text.
             if text.trim().is_empty() {

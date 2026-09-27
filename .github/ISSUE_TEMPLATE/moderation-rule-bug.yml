@@ -50,7 +50,7 @@ body:
         - Author Hits Line Rate Limit
         - Author Hits Moderation Rate Limit
         - Author Joined Recently
-        - OpenAI Moderation Flags the Message
+        - OpenAI Omni Moderation Flags the Message
         - Message Matches an Instruction (OpenAI)
         - All of These Conditions Match (AND)
         - Any of These Conditions Match (OR)

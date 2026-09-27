@@ -48,7 +48,7 @@ impl GroupAdministrationApplication {
         let mut checks = BTreeSet::new();
         for rule in rules {
             rule.condition.walk(&mut |condition| match condition {
-                ModerationCondition::FlaggedByOpenAiModeration { api_key, .. } => {
+                ModerationCondition::FlaggedByOmniModeration { api_key, .. } => {
                     checks.insert(KeyUse::Moderation(api_key.clone()));
                 }
                 ModerationCondition::MatchesOpenAiInstruction { api_key, model, .. } => {

@@ -81,7 +81,7 @@ Each bounded context follows the same internal shape:
   - `cross_domain_router.rs` — lets `bot_dm` call into `moderator` by
     implementing `bot_dm::GroupOperations` on top of `moderator::GroupAdministration`.
   - `openai_gateway.rs` — implements `OpenAiModerationClassifier` and
-    `OpenAiKeyVerifier` for both OpenAI conditions (`FlaggedByOpenAiModeration`
+    `OpenAiKeyVerifier` for both OpenAI conditions (`FlaggedByOmniModeration`
     and `MatchesOpenAiInstruction`, each with the owner's own key). Every OpenAI
     request, whichever endpoint, goes through its in-process queue: a token
     bucket per key — OpenAI's limits are the key's, not the endpoint's — a cap
@@ -192,7 +192,7 @@ A rule's condition is a **tree**, not a single predicate: besides the leaves the
 6. **Bug template:** Update `moderation-rule-bug.yml` to add the new rule's title (as it appears in `rules-schema.json`) to the `rule-type` dropdown options list so bug reporters can select it.
 
 ### Renaming or replacing a condition
-Stored rules are the only thing that has to survive: the bot always sends the owner a freshly generated editor link, so old type tags never come back through a link. Do **not** add `#[serde(alias = ...)]`s or compatibility deserializers for old shapes. Instead, add a migration that rewrites the stored rows — update `moderation_conditions.type` and rename the condition's tables (`ALTER TABLE ... RENAME TO`) for a rename, or rebuild the affected nodes for a condition replaced by differently shaped ones. Precedent: `0025_neutral_condition_names.sql`.
+Stored rules are the only thing that has to survive: the bot always sends the owner a freshly generated editor link, so old type tags never come back through a link. Do **not** add `#[serde(alias = ...)]`s or compatibility deserializers for old shapes. Instead, add a migration that rewrites the stored rows — update `moderation_conditions.type` and rename the condition's tables (`ALTER TABLE ... RENAME TO`) for a rename, or rebuild the affected nodes for a condition replaced by differently shaped ones. Precedents: `0025_neutral_condition_names.sql`, and `0032_flagged_by_omni_moderation.sql` for a plain rename.
 
 ## Adding a new moderation action type (do all of these)
 `ModerationAction` (in `domain/moderator/message_filter/moderation_action.rs`) is the **single source of truth** for actions: a `#[serde(tag = "type")]` enum (`ModerateMessage`, `SetAuthorObserver { duration_minutes: u32 }`, `KickAuthor { delete_all_messages: bool }`). Like conditions, the PascalCase variant name is the serde `type` tag (URL hash, `rules-schema.json`, and the `moderation_actions.type` column), and its snake_case form is the `<name>` used for the `moderation_action__<name>` settings table.

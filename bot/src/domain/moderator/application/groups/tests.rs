@@ -273,7 +273,7 @@ fn app_with(
 }
 
 fn openai_condition(api_key: &str) -> ModerationCondition {
-    ModerationCondition::FlaggedByOpenAiModeration {
+    ModerationCondition::FlaggedByOmniModeration {
         api_key: api_key.to_string(),
         triggers: OpenAiCategoryTriggers {
             hate: CategoryTrigger::OpenAiDecides,
@@ -410,7 +410,7 @@ async fn test_the_key_is_checked_as_it_will_be_stored() {
 async fn test_a_malformed_condition_is_rejected_before_openai_is_asked() {
     let repository = Arc::new(SavingRepository::default());
     let verifier = FakeKeyVerifier::answering(&[]);
-    let every_category_off = ModerationCondition::FlaggedByOpenAiModeration {
+    let every_category_off = ModerationCondition::FlaggedByOmniModeration {
         api_key: "sk-good".to_string(),
         triggers: OpenAiCategoryTriggers::default(),
     };
