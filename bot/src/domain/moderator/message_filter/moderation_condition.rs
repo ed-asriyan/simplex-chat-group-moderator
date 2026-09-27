@@ -409,7 +409,7 @@ impl ModerationCondition {
             Self::AuthorJoinedRecently {
                 time_window_minutes,
             } => format!("author joined less than {time_window_minutes} min ago"),
-            Self::FlaggedByOpenAiModeration { .. } => todo!("describe FlaggedByOpenAiModeration"),
+            Self::FlaggedByOpenAiModeration { .. } => "flagged by OpenAI moderation".into(),
         }
     }
 }
@@ -564,8 +564,8 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
             *time_window_minutes,
             "'Author Joined Recently' needs a time window of at least 1 minute",
         ),
-        ModerationCondition::FlaggedByOpenAiModeration { .. } => {
-            todo!("validate FlaggedByOpenAiModeration")
+        ModerationCondition::FlaggedByOpenAiModeration { api_key, triggers } => {
+            normalize_and_validate_openai_moderation(api_key, triggers)
         }
         ModerationCondition::IsBlank
         | ModerationCondition::ContainsInvisibleCharacters
@@ -583,6 +583,55 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
             unreachable!("composites are normalized by normalize_node")
         }
     }
+}
+
+/// Maximum length (in characters) of an OpenAI API key. Today's keys are about
+/// 170 characters; the cap only keeps a pasted paragraph out of the database.
+const MAX_OPENAI_API_KEY_LENGTH: usize = 256;
+
+/// The key is trimmed, because it is pasted by hand; the errors never repeat
+/// it, because they land in the owner's chat and in the logs.
+fn normalize_and_validate_openai_moderation(
+    api_key: &mut String,
+    triggers: &OpenAiCategoryTriggers,
+) -> Result<(), Err> {
+    let trimmed = api_key.trim();
+    if trimmed.is_empty() {
+        return Err("'OpenAI Moderation Flags the Message' needs an OpenAI API key".into());
+    }
+    if trimmed.chars().any(char::is_whitespace) {
+        return Err("The OpenAI API key must not contain spaces or line breaks".into());
+    }
+    let length = trimmed.chars().count();
+    if length > MAX_OPENAI_API_KEY_LENGTH {
+        return Err(format!(
+            "The OpenAI API key is too long: {length} characters, maximum is {MAX_OPENAI_API_KEY_LENGTH}"
+        )
+        .into());
+    }
+    *api_key = trimmed.to_string();
+
+    for category in OpenAiCategory::ALL {
+        if let CategoryTrigger::MinScorePercent(percent) = triggers.get(category)
+            && !(1..=100).contains(&percent)
+        {
+            return Err(format!(
+                "The minimum score for '{}' must be between 1 and 100, got {percent}",
+                category.api_name()
+            )
+            .into());
+        }
+    }
+    if OpenAiCategory::ALL
+        .into_iter()
+        .all(|category| triggers.get(category) == CategoryTrigger::Off)
+    {
+        return Err(
+            "'OpenAI Moderation Flags the Message' has every category off, so it can never match"
+                .into(),
+        );
+    }
+    Ok(())
 }
 
 /// Append `condition` to `out` unless an identical sibling is already there.
@@ -1001,9 +1050,19 @@ async fn evaluate(
             ctx.group_message.timestamp,
             *time_window_minutes,
         )),
-        ModerationCondition::FlaggedByOpenAiModeration { .. } => {
-            let _ = ctx.openai_classifier;
-            todo!("evaluate FlaggedByOpenAiModeration")
+        ModerationCondition::FlaggedByOpenAiModeration { api_key, triggers } => {
+            let text = &ctx.group_message.text;
+            // Nothing to show OpenAI: a caption-less attachment or blank text.
+            if text.trim().is_empty() {
+                return Ok(None);
+            }
+            match ctx.openai_classifier.classify(api_key, text).await {
+                Ok(verdict) => Ok(openai_moderation::should_moderate(triggers, &verdict)),
+                // No verdict is no match: OpenAI being down, rate limited or
+                // refusing the key must not stop the other rules. The adapter
+                // has logged why.
+                Err(_) => Ok(None),
+            }
         }
         other => Ok(should_moderate_by_condition(&ctx.group_message.text, other)),
     }

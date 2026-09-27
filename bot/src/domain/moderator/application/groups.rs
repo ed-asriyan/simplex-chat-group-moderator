@@ -1,9 +1,11 @@
 use async_trait::async_trait;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use crate::domain::moderator::ports::{
-    Err, Group, GroupAdministration, GroupId, GroupInvitation, GroupModerator, MessengerGroupId,
-    ModerationRepository, ModerationRule, OpenAiKeyVerifier, OwnedModerationRule, UserId,
+    Err, Group, GroupAdministration, GroupId, GroupInvitation, GroupModerator, KeyCheck,
+    MessengerGroupId, ModerationCondition, ModerationRepository, ModerationRule, OpenAiKeyVerifier,
+    OwnedModerationRule, UserId,
 };
 
 #[cfg(test)]
@@ -13,7 +15,6 @@ pub struct GroupAdministrationApplication {
     repository: Arc<dyn ModerationRepository>,
     group_moderator: Arc<dyn GroupModerator>,
     /// Asks OpenAI about every key a saved rule set carries, before it is stored.
-    #[allow(dead_code)] // red: set_group_rules does not verify keys yet
     key_verifier: Arc<dyn OpenAiKeyVerifier>,
 }
 
@@ -38,6 +39,52 @@ impl GroupAdministrationApplication {
             }
             Some(_) => Ok(()),
         }
+    }
+
+    /// Ask OpenAI about every distinct key in `rules`, wherever in a tree it
+    /// sits. The first key OpenAI does not accept stops the save.
+    async fn verify_openai_keys(&self, rules: &[ModerationRule]) -> Result<(), Err> {
+        let mut keys = BTreeSet::new();
+        for rule in rules {
+            rule.condition.walk(&mut |condition| {
+                if let ModerationCondition::FlaggedByOpenAiModeration { api_key, .. } = condition {
+                    keys.insert(api_key.clone());
+                }
+            });
+        }
+        for key in &keys {
+            let check = self.key_verifier.verify(key).await;
+            if check != KeyCheck::Valid {
+                return Err(key_check_error(key, check).into());
+            }
+        }
+        Ok(())
+    }
+}
+
+/// What to tell the owner about a key OpenAI did not accept. The key is named
+/// by its last characters only: the message goes to the chat and the logs.
+fn key_check_error(key: &str, check: KeyCheck) -> String {
+    let tail: String = {
+        let mut tail: Vec<char> = key.chars().rev().take(4).collect();
+        tail.reverse();
+        tail.into_iter().collect()
+    };
+    let key = format!("…{tail}");
+    match check {
+        KeyCheck::Valid => format!("The OpenAI API key {key} works"),
+        KeyCheck::Rejected => format!(
+            "OpenAI rejected the API key {key}. Check that it was copied whole and has not been revoked."
+        ),
+        KeyCheck::Forbidden => format!(
+            "The OpenAI API key {key} may not use Moderations. Allow Moderations in the key's permissions on the OpenAI platform."
+        ),
+        KeyCheck::QuotaExceeded => format!(
+            "OpenAI refused the API key {key}: the account's quota is exhausted or its billing is not set up."
+        ),
+        KeyCheck::Unreachable => format!(
+            "Could not reach OpenAI to check the API key {key}. Send the link again in a minute."
+        ),
     }
 }
 
@@ -93,6 +140,7 @@ impl GroupAdministration for GroupAdministrationApplication {
         for rule in &mut rules {
             rule.normalize_and_validate()?;
         }
+        self.verify_openai_keys(&rules).await?;
 
         self.repository.set_group_rules(&group_id, &rules).await?;
         Ok(())

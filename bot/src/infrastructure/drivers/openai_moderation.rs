@@ -10,8 +10,12 @@
 //! network, and [`ModerationApi`] is the seam the gateway is tested through.
 
 use async_trait::async_trait;
+use serde::Deserialize;
 use std::collections::HashMap;
+use std::error::Error;
 use std::time::Duration;
+
+type Err = Box<dyn Error + Send + Sync>;
 
 #[cfg(test)]
 mod tests;
@@ -62,9 +66,36 @@ pub trait ModerationApi: Send + Sync {
 
 /// The JSON body for one text: `{"model": "omni-moderation-latest", "input": text}`.
 pub fn request_body(text: &str) -> serde_json::Value {
-    let _ = text;
-    todo!("openai_moderation::request_body")
+    serde_json::json!({ "model": MODERATION_MODEL, "input": text })
 }
+
+#[derive(Deserialize)]
+struct ModerationResponse {
+    results: Vec<ModerationResult>,
+}
+
+/// Values are optional on the way in so that one `null` OpenAI sends for a
+/// category costs that category, not the whole verdict.
+#[derive(Deserialize)]
+struct ModerationResult {
+    flagged: bool,
+    categories: HashMap<String, Option<bool>>,
+    category_scores: HashMap<String, Option<f64>>,
+}
+
+#[derive(Deserialize)]
+struct ErrorResponse {
+    error: ErrorBody,
+}
+
+#[derive(Deserialize)]
+struct ErrorBody {
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    code: Option<String>,
+}
+
+const INSUFFICIENT_QUOTA: &str = "insufficient_quota";
 
 /// Reads OpenAI's answer: its HTTP status, its `Retry-After` header if any,
 /// and its body.
@@ -73,22 +104,66 @@ pub fn parse_response(
     retry_after: Option<&str>,
     body: &str,
 ) -> Result<RawModeration, ModerationApiError> {
-    let _ = (status, retry_after, body);
-    todo!("openai_moderation::parse_response")
+    match status {
+        200..=299 => {
+            let response: ModerationResponse = serde_json::from_str(body)
+                .map_err(|e| ModerationApiError::Malformed(e.to_string()))?;
+            let result = response.results.into_iter().next().ok_or_else(|| {
+                ModerationApiError::Malformed("the answer carries no result".to_string())
+            })?;
+            Ok(RawModeration {
+                flagged: result.flagged,
+                categories: result
+                    .categories
+                    .into_iter()
+                    .filter_map(|(name, flagged)| Some((name, flagged?)))
+                    .collect(),
+                category_scores: result
+                    .category_scores
+                    .into_iter()
+                    .filter_map(|(name, score)| Some((name, score?)))
+                    .collect(),
+            })
+        }
+        401 => Err(ModerationApiError::Unauthorized),
+        403 => Err(ModerationApiError::Forbidden),
+        // The same status covers "no money" and "too fast"; only the body tells
+        // them apart, and only one of them is worth waiting out.
+        429 if is_insufficient_quota(body) => Err(ModerationApiError::InsufficientQuota),
+        429 => Err(ModerationApiError::RateLimited {
+            retry_after: retry_after.and_then(parse_retry_after),
+        }),
+        status => Err(ModerationApiError::Server { status }),
+    }
+}
+
+fn is_insufficient_quota(body: &str) -> bool {
+    serde_json::from_str::<ErrorResponse>(body).is_ok_and(|response| {
+        response.error.code.as_deref() == Some(INSUFFICIENT_QUOTA)
+            || response.error.kind.as_deref() == Some(INSUFFICIENT_QUOTA)
+    })
+}
+
+/// `Retry-After` as a number of seconds. The HTTP-date form is ignored: no
+/// hint is better than a wrong one, and the gateway has a default.
+fn parse_retry_after(value: &str) -> Option<Duration> {
+    let seconds: f64 = value.trim().parse().ok()?;
+    (seconds.is_finite() && seconds >= 0.0).then(|| Duration::from_secs_f64(seconds))
 }
 
 /// [`ModerationApi`] over HTTPS.
 pub struct HttpModerationApi {
+    client: reqwest::Client,
     endpoint: String,
-    timeout: Duration,
 }
 
 impl HttpModerationApi {
-    pub fn new(endpoint: impl Into<String>, timeout: Duration) -> Self {
-        Self {
+    /// `timeout` bounds a whole request, connection included.
+    pub fn new(endpoint: impl Into<String>, timeout: Duration) -> Result<Self, Err> {
+        Ok(Self {
+            client: reqwest::Client::builder().timeout(timeout).build()?,
             endpoint: endpoint.into(),
-            timeout,
-        }
+        })
     }
 }
 
@@ -99,7 +174,25 @@ impl ModerationApi for HttpModerationApi {
         api_key: &str,
         text: &str,
     ) -> Result<RawModeration, ModerationApiError> {
-        let _ = (&self.endpoint, self.timeout, api_key, text);
-        todo!("HttpModerationApi::moderate")
+        // reqwest's errors name the URL, never the headers, so the key stays
+        // out of whatever gets logged.
+        let transport = |e: reqwest::Error| ModerationApiError::Transport(e.to_string());
+        let response = self
+            .client
+            .post(&self.endpoint)
+            .bearer_auth(api_key)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(request_body(text).to_string())
+            .send()
+            .await
+            .map_err(transport)?;
+        let status = response.status().as_u16();
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let body = response.text().await.map_err(transport)?;
+        parse_response(status, retry_after.as_deref(), &body)
     }
 }

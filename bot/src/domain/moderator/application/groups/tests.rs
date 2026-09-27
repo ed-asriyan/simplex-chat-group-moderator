@@ -279,7 +279,6 @@ fn moderate_when(condition: ModerationCondition) -> ModerationRule {
 }
 
 #[tokio::test]
-#[ignore = "red: saving rules does not check OpenAI keys yet"]
 async fn test_a_key_openai_accepts_is_saved() {
     let repository = Arc::new(SavingRepository::default());
     let verifier = FakeKeyVerifier::answering(&[]);
@@ -295,7 +294,6 @@ async fn test_a_key_openai_accepts_is_saved() {
 }
 
 #[tokio::test]
-#[ignore = "red: saving rules does not check OpenAI keys yet"]
 async fn test_a_key_openai_does_not_accept_is_not_saved_and_the_owner_is_told_why() {
     let cases = [
         (KeyCheck::Rejected, "rejected"),
@@ -327,7 +325,6 @@ async fn test_a_key_openai_does_not_accept_is_not_saved_and_the_owner_is_told_wh
 }
 
 #[tokio::test]
-#[ignore = "red: saving rules does not check OpenAI keys yet"]
 async fn test_every_distinct_key_is_asked_about_once_wherever_it_sits() {
     let repository = Arc::new(SavingRepository::default());
     let verifier = FakeKeyVerifier::answering(&[]);
@@ -360,7 +357,6 @@ async fn test_every_distinct_key_is_asked_about_once_wherever_it_sits() {
 }
 
 #[tokio::test]
-#[ignore = "red: saving rules does not check OpenAI keys yet"]
 async fn test_one_bad_key_keeps_the_whole_rule_set_from_being_saved() {
     let repository = Arc::new(SavingRepository::default());
     let verifier = FakeKeyVerifier::answering(&[("sk-bad", KeyCheck::Rejected)]);
@@ -379,7 +375,6 @@ async fn test_one_bad_key_keeps_the_whole_rule_set_from_being_saved() {
 }
 
 #[tokio::test]
-#[ignore = "red: saving rules does not check OpenAI keys yet"]
 async fn test_the_key_is_checked_as_it_will_be_stored() {
     let repository = Arc::new(SavingRepository::default());
     let verifier = FakeKeyVerifier::answering(&[]);
@@ -401,7 +396,6 @@ async fn test_the_key_is_checked_as_it_will_be_stored() {
 }
 
 #[tokio::test]
-#[ignore = "red: saving rules does not check OpenAI keys yet"]
 async fn test_a_malformed_condition_is_rejected_before_openai_is_asked() {
     let repository = Arc::new(SavingRepository::default());
     let verifier = FakeKeyVerifier::answering(&[]);

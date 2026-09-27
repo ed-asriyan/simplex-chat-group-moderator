@@ -1985,7 +1985,6 @@ fn test_openai_condition_without_a_key_or_with_a_bad_trigger_does_not_parse() {
 }
 
 #[tokio::test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 async fn test_openai_verdict_moderates_with_its_reason() {
     let openai = ScriptedOpenAi::answering(Ok(hateful()));
 
@@ -2005,7 +2004,6 @@ async fn test_openai_verdict_moderates_with_its_reason() {
 }
 
 #[tokio::test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 async fn test_openai_verdict_that_trips_no_trigger_does_not_match() {
     let openai = ScriptedOpenAi::answering(Ok(OpenAiModerationResult {
         flagged: [OpenAiCategory::Violence].into(),
@@ -2023,7 +2021,6 @@ async fn test_openai_verdict_that_trips_no_trigger_does_not_match() {
 }
 
 #[tokio::test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 async fn test_openai_is_asked_with_the_condition_key_and_the_message_text_as_is() {
     let openai = ScriptedOpenAi::answering(Ok(OpenAiModerationResult::default()));
     let text = "  Привет,\nмир  ";
@@ -2042,7 +2039,6 @@ async fn test_openai_is_asked_with_the_condition_key_and_the_message_text_as_is(
 }
 
 #[tokio::test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 async fn test_openai_is_not_asked_about_a_message_without_text() {
     let openai = ScriptedOpenAi::answering(Ok(hateful()));
     let rules = rule_with(openai_hate("sk-one"));
@@ -2062,7 +2058,6 @@ async fn test_openai_is_not_asked_about_a_message_without_text() {
 }
 
 #[tokio::test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 async fn test_openai_failure_reads_as_no_match_and_other_rules_still_apply() {
     let openai = ScriptedOpenAi::answering(Err("OpenAI is down".to_string()));
     let rules = vec![
@@ -2093,7 +2088,6 @@ async fn test_openai_failure_reads_as_no_match_and_other_rules_still_apply() {
 }
 
 #[tokio::test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 async fn test_under_not_an_openai_failure_reads_as_a_match() {
     // The accepted price of "failure is no match": negated, it is a match. An
     // owner who puts this condition under a Not gets every message during an
@@ -2109,7 +2103,6 @@ async fn test_under_not_an_openai_failure_reads_as_a_match() {
 }
 
 #[tokio::test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 async fn test_openai_is_asked_once_per_message_however_many_rules_use_the_condition() {
     let openai = ScriptedOpenAi::answering(Ok(OpenAiModerationResult::default()));
     let rules = vec![

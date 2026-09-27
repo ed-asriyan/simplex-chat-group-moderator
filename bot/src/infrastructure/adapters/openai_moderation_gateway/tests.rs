@@ -125,7 +125,6 @@ async fn eventually(what: &str, condition: impl Fn() -> bool) {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_classify_sends_key_and_text_unchanged() {
     let api = FakeApi::new();
     let gateway = start_gateway(&api, config());
@@ -139,7 +138,6 @@ async fn test_classify_sends_key_and_text_unchanged() {
 }
 
 #[tokio::test]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_classify_translates_openai_names_and_ignores_unknown_categories() {
     let api = FakeApi::new();
     api.answer(
@@ -176,7 +174,6 @@ async fn test_classify_translates_openai_names_and_ignores_unknown_categories() 
 }
 
 #[tokio::test]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_classify_fails_whenever_openai_gives_no_verdict() {
     let failures = [
         ModerationApiError::Unauthorized,
@@ -203,7 +200,6 @@ async fn test_classify_fails_whenever_openai_gives_no_verdict() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test(start_paused = true)]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_verify_reads_openai_answers_about_the_key_without_retrying() {
     let cases = [
         (Ok(RawModeration::default()), KeyCheck::Valid),
@@ -224,7 +220,6 @@ async fn test_verify_reads_openai_answers_about_the_key_without_retrying() {
 }
 
 #[tokio::test(start_paused = true)]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_verify_retries_a_transient_failure_once() {
     let transient = [
         ModerationApiError::RateLimited {
@@ -261,7 +256,6 @@ async fn test_verify_retries_a_transient_failure_once() {
 }
 
 #[tokio::test(start_paused = true)]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_verify_is_not_charged_to_the_token_bucket() {
     let api = FakeApi::new();
     let gateway = start_gateway(
@@ -285,7 +279,6 @@ async fn test_verify_is_not_charged_to_the_token_bucket() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test(start_paused = true)]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_a_key_past_its_rate_is_refused_without_asking_openai() {
     let api = FakeApi::new();
     let gateway = start_gateway(
@@ -307,7 +300,6 @@ async fn test_a_key_past_its_rate_is_refused_without_asking_openai() {
 }
 
 #[tokio::test(start_paused = true)]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_a_key_bucket_refills_over_time() {
     let api = FakeApi::new();
     let gateway = start_gateway(
@@ -329,7 +321,6 @@ async fn test_a_key_bucket_refills_over_time() {
 }
 
 #[tokio::test(start_paused = true)]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_a_rate_limited_key_rests_until_retry_after() {
     let api = FakeApi::new();
     api.answer(
@@ -352,7 +343,6 @@ async fn test_a_rate_limited_key_rests_until_retry_after() {
 }
 
 #[tokio::test(start_paused = true)]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_a_rate_limited_key_without_retry_after_rests_for_the_default() {
     let api = FakeApi::new();
     api.answer(
@@ -376,7 +366,6 @@ async fn test_a_rate_limited_key_without_retry_after_rests_for_the_default() {
 }
 
 #[tokio::test(start_paused = true)]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_a_key_openai_refused_is_refused_locally_for_a_while() {
     for refusal in [
         ModerationApiError::Unauthorized,
@@ -405,7 +394,6 @@ async fn test_a_key_openai_refused_is_refused_locally_for_a_while() {
 }
 
 #[tokio::test(start_paused = true)]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_verify_asks_about_a_refused_key_and_a_valid_answer_lifts_the_refusal() {
     let api = FakeApi::new();
     api.answer("sk-one", vec![Err(ModerationApiError::Forbidden)]);
@@ -423,7 +411,6 @@ async fn test_verify_asks_about_a_refused_key_and_a_valid_answer_lifts_the_refus
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_no_more_than_max_in_flight_requests_run_at_once() {
     let (api, gate) = FakeApi::gated();
     let gateway = start_gateway(
@@ -453,7 +440,6 @@ async fn test_no_more_than_max_in_flight_requests_run_at_once() {
 }
 
 #[tokio::test]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_one_key_cannot_take_more_than_its_share_of_the_queue() {
     let (api, gate) = FakeApi::gated();
     let gateway = start_gateway(
@@ -494,7 +480,6 @@ async fn test_one_key_cannot_take_more_than_its_share_of_the_queue() {
 }
 
 #[tokio::test]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_key_checks_jump_the_queue() {
     let (api, gate) = FakeApi::gated();
     let gateway = start_gateway(
@@ -529,7 +514,6 @@ async fn test_key_checks_jump_the_queue() {
 }
 
 #[tokio::test]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_classify_gives_up_at_its_deadline() {
     let (api, _gate) = FakeApi::gated();
     let gateway = start_gateway(
@@ -547,7 +531,6 @@ async fn test_classify_gives_up_at_its_deadline() {
 }
 
 #[tokio::test]
-#[ignore = "red: the OpenAI moderation gateway is not implemented yet"]
 async fn test_a_job_that_waited_past_its_deadline_is_never_sent() {
     let (api, gate) = FakeApi::gated();
     let gateway = start_gateway(

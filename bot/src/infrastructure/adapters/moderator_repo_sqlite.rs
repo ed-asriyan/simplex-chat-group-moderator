@@ -4,8 +4,8 @@ use rusqlite::{Connection, params};
 use std::sync::{Arc, Mutex};
 
 use crate::domain::moderator::ports::{
-    Err, Group, GroupId, MessengerGroupId, ModerationAction, ModerationCondition,
-    ModerationRepository, ModerationRule, OwnedModerationRule, UserId,
+    CategoryTrigger, Err, Group, GroupId, MessengerGroupId, ModerationAction, ModerationCondition,
+    ModerationRepository, ModerationRule, OpenAiCategory, OwnedModerationRule, UserId,
 };
 const GROUP_ID_MIN: i64 = 1;
 const GROUP_ID_MAX: i64 = 1_000_000;
@@ -282,8 +282,27 @@ fn insert_condition(
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::FlaggedByOpenAiModeration { .. } => {
-            todo!("insert FlaggedByOpenAiModeration")
+        ModerationCondition::FlaggedByOpenAiModeration { api_key, triggers } => {
+            tx.execute(
+                "INSERT INTO moderation_condition__flagged_by_openai_moderation (condition_id, api_key) VALUES (?1, ?2)",
+                params![condition_id, api_key],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
+            let mut stmt = tx
+                .prepare(
+                    "INSERT INTO moderation_condition__flagged_by_openai_moderation__categories (condition_id, category, min_score_percent) VALUES (?1, ?2, ?3)",
+                )
+                .map_err(|e| -> Err { e.to_string().into() })?;
+            // An "off" category has no row; "OpenAI decides" is a NULL score.
+            for category in OpenAiCategory::ALL {
+                let min_score_percent = match triggers.get(category) {
+                    CategoryTrigger::Off => continue,
+                    CategoryTrigger::OpenAiDecides => None,
+                    CategoryTrigger::MinScorePercent(percent) => Some(percent),
+                };
+                stmt.execute(params![condition_id, category.name(), min_score_percent])
+                    .map_err(|e| -> Err { e.to_string().into() })?;
+            }
         }
     }
     Ok(())

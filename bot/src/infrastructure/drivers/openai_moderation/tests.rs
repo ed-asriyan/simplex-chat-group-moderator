@@ -39,7 +39,6 @@ fn error_body(kind: &str) -> String {
 }
 
 #[test]
-#[ignore = "red: the OpenAI moderation driver is not implemented yet"]
 fn test_request_body_names_the_model_and_carries_the_text_as_is() {
     let text = "  привет,\nмир  ";
     assert_eq!(
@@ -49,7 +48,6 @@ fn test_request_body_names_the_model_and_carries_the_text_as_is() {
 }
 
 #[test]
-#[ignore = "red: the OpenAI moderation driver is not implemented yet"]
 fn test_parses_a_moderation_result_with_openai_category_names() {
     let raw = parse_response(200, None, FLAGGED_RESPONSE).unwrap();
     assert!(raw.flagged);
@@ -63,7 +61,6 @@ fn test_parses_a_moderation_result_with_openai_category_names() {
 }
 
 #[test]
-#[ignore = "red: the OpenAI moderation driver is not implemented yet"]
 fn test_reads_the_first_result() {
     // One text goes in, so one result comes out; anything after it is ignored.
     let body = r#"{"results": [
@@ -76,7 +73,6 @@ fn test_reads_the_first_result() {
 }
 
 #[test]
-#[ignore = "red: the OpenAI moderation driver is not implemented yet"]
 fn test_a_success_without_a_result_is_malformed() {
     for body in [r#"{"results": []}"#, r#"{"id": "x"}"#, "not json", ""] {
         assert!(
@@ -90,7 +86,6 @@ fn test_a_success_without_a_result_is_malformed() {
 }
 
 #[test]
-#[ignore = "red: the OpenAI moderation driver is not implemented yet"]
 fn test_401_and_403_are_about_the_key() {
     assert_eq!(
         parse_response(401, None, &error_body("invalid_request_error")),
@@ -103,7 +98,6 @@ fn test_401_and_403_are_about_the_key() {
 }
 
 #[test]
-#[ignore = "red: the OpenAI moderation driver is not implemented yet"]
 fn test_429_insufficient_quota_is_not_a_rate_limit() {
     assert_eq!(
         parse_response(429, Some("20"), &error_body("insufficient_quota")),
@@ -118,7 +112,6 @@ fn test_429_insufficient_quota_is_not_a_rate_limit() {
 }
 
 #[test]
-#[ignore = "red: the OpenAI moderation driver is not implemented yet"]
 fn test_429_rate_limit_carries_retry_after_seconds() {
     assert_eq!(
         parse_response(429, Some("20"), &error_body("rate_limit_exceeded")),
@@ -138,7 +131,6 @@ fn test_429_rate_limit_carries_retry_after_seconds() {
 }
 
 #[test]
-#[ignore = "red: the OpenAI moderation driver is not implemented yet"]
 fn test_other_statuses_are_server_errors() {
     for status in [400, 404, 500, 502, 503] {
         assert_eq!(

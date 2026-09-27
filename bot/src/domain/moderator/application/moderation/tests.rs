@@ -3437,7 +3437,6 @@ fn hateful() -> OpenAiModerationResult {
 }
 
 #[tokio::test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 async fn test_a_message_openai_flags_is_deleted_and_reported() {
     let openai = Arc::new(ScriptedOpenAi {
         answer: Ok(hateful()),
@@ -3461,7 +3460,6 @@ async fn test_a_message_openai_flags_is_deleted_and_reported() {
 }
 
 #[tokio::test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 async fn test_openai_being_down_moderates_nothing_and_is_not_an_error() {
     let openai = Arc::new(ScriptedOpenAi {
         answer: Err("OpenAI is down".to_string()),
@@ -3481,7 +3479,6 @@ async fn test_openai_being_down_moderates_nothing_and_is_not_an_error() {
 }
 
 #[tokio::test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 async fn test_an_edit_is_sent_to_openai_too() {
     // Editing a clean message into a hateful one is the obvious way around a
     // check that only looks at new messages.

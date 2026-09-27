@@ -64,6 +64,8 @@ const state = {
     focus: null,
     collapsed: new Set(),
     helped: new Set(),
+    /* Password fields the owner chose to show, by path. */
+    revealed: new Set(),
     bulk: new Set(),
     q: {},
     menu: null,
@@ -177,7 +179,21 @@ function kindOf(pr) {
     if (pr.type === "array") return pr.items && pr.items.$ref ? "children" : "strlist";
     if (pr.type === "boolean") return "bool";
     if (pr.type === "integer" || pr.type === "number") return "int";
+    /* A string the owner would not want read over their shoulder. */
+    if (pr.type === "string" && pr.format === "password") return "password";
+    /* A few named values and, optionally, a number of the owner's own:
+       `oneOf` of `const`s plus at most one integer branch. */
+    if (pr.oneOf) return "choice";
     return "text";
+}
+
+/* The pieces of a `choice` field: its named values and its number branch. */
+function choiceParts(pr) {
+    const branches = pr.oneOf || [];
+    return {
+        choices: branches.filter((b) => "const" in b).map((b) => ({ v: b.const, t: b.title || String(b.const) })),
+        num: branches.find((b) => b.type === "integer" || b.type === "number"),
+    };
 }
 
 function defaultFor(pr) {
@@ -186,7 +202,33 @@ function defaultFor(pr) {
     if (k === "strlist" || k === "children") return [];
     if (k === "bool") return false;
     if (k === "int") return 0;
+    if (k === "choice") {
+        const { choices, num } = choiceParts(pr);
+        return choices.length ? choices[0].v : num.minimum ?? 0;
+    }
     return "";
+}
+
+/* How a `choice` value reads: the title of a named value, or the number with
+   the unit its branch declares. */
+function choiceText(f, v) {
+    if (typeof v === "number") return `${v}${f.unit}`;
+    const c = f.choices.find((x) => x.v === v);
+    return c ? c.t : String(v);
+}
+
+/* Thirteen fields in one row read best grouped by value: the value most of
+   them share is counted, the few that differ are named. */
+function choiceSummary(fields, v) {
+    const byText = new Map();
+    for (const f of fields) {
+        const t = choiceText(f, v[f.k]);
+        if (!byText.has(t)) byText.set(t, []);
+        byText.get(t).push(f.label);
+    }
+    return [...byText]
+        .map(([t, labels]) => (labels.length > 2 ? `${t} ×${labels.length}` : labels.map((l) => `${l} ${t}`).join(" · ")))
+        .join(" · ");
 }
 
 function buildRegistry(entries) {
@@ -205,22 +247,33 @@ function buildRegistry(entries) {
             t: o.short || rest.replace(/^(Message|Author|This Condition)\s+/, ""),
             rank: o.execution_rank || 0,
             coveredBy: o.covered_by || [],
-            p: fields.map(([k, pr]) => ({
-                k,
-                kind: kindOf(pr),
-                label: (pr.options && pr.options.label) || pr.title || k,
-                hint: pr.description ? md(pr.description) : "",
-                min: pr.minimum,
-                max: pr.maximum,
-                maxItems: pr.maxItems,
-                maxLength: pr.items && pr.items.maxLength,
-            })),
+            p: fields.map(([k, pr]) => {
+                const { choices, num } = choiceParts(pr);
+                return {
+                    k,
+                    kind: kindOf(pr),
+                    label: (pr.options && pr.options.label) || pr.title || k,
+                    hint: pr.description ? md(pr.description) : "",
+                    min: pr.minimum ?? (num && num.minimum),
+                    max: pr.maximum ?? (num && num.maximum),
+                    maxItems: pr.maxItems,
+                    maxLength: pr.items ? pr.items.maxLength : pr.maxLength,
+                    choices,
+                    num,
+                    unit: (num && num.options && num.options.unit) || "",
+                };
+            }),
             def: Object.fromEntries(fields.map(([k, pr]) => [k, defaultFor(pr)])),
         };
         entry.sum = (v) =>
             o.summary
                 ? tpl(o.summary, v)
-                : entry.p.filter((f) => f.kind === "int").map((f) => `${f.k} ${v[f.k]}`).join(" · ");
+                : [
+                      ...entry.p.filter((f) => f.kind === "int").map((f) => `${f.k} ${v[f.k]}`),
+                      choiceSummary(entry.p.filter((f) => f.kind === "choice"), v),
+                  ]
+                      .filter(Boolean)
+                      .join(" · ");
         entry.say = (v) => (o.phrase ? tpl(o.phrase, v) : entry.t.toLowerCase());
         reg[key] = entry;
     }
@@ -371,6 +424,30 @@ function params(s, val, path) {
         <input type="number" id="f-${path}-${f.k}" value="${esc(val[f.k])}"
           min="${f.min ?? 0}" ${f.max != null ? `max="${f.max}"` : ""}
           data-op="num" data-p="${path}" data-k="${f.k}"></label>`;
+
+            if (f.kind === "password") {
+                const key = `${path}.${f.k}`, shown = state.revealed.has(key);
+                return `<label class="fld" style="flex:1 1 100%"><span>${esc(f.label)}</span>
+        <div class="pw"><input type="${shown ? "text" : "password"}" id="f-${path}-${f.k}" value="${esc(val[f.k] ?? "")}"
+          autocomplete="off" spellcheck="false" ${f.maxLength ? `maxlength="${f.maxLength}"` : ""}
+          data-op="text" data-p="${path}" data-k="${f.k}">
+        <button type="button" class="lnk" data-op="reveal" data-key="${key}">${shown ? "hide" : "show"}</button></div></label>`;
+            }
+
+            if (f.kind === "choice") {
+                const cur = val[f.k], own = typeof cur === "number";
+                return `<label class="fld"><span>${esc(f.label)}</span>
+        <div class="choice"><select id="f-${path}-${f.k}" data-op="choice" data-p="${path}" data-k="${f.k}">
+          ${f.choices.map((c, i) => `<option value="c${i}" ${cur === c.v ? "selected" : ""}>${esc(c.t)}</option>`).join("")}
+          ${f.num ? `<option value="n" ${own ? "selected" : ""}>${esc(f.num.title || "Custom")}</option>` : ""}
+        </select>${
+            own
+                ? `<input type="number" id="f-${path}-${f.k}-n" value="${esc(cur)}"
+          min="${f.min ?? 0}" ${f.max != null ? `max="${f.max}"` : ""}
+          data-op="num" data-p="${path}" data-k="${f.k}">`
+                : ""
+        }</div></label>`;
+            }
 
             if (f.kind === "bool")
                 return `<label class="chk"><input type="checkbox" id="f-${path}-${f.k}" ${val[f.k] ? "checked" : ""}
@@ -642,6 +719,11 @@ document.addEventListener("click", (e) => {
         case "unfocus":
             state.focus = null;
             break;
+        case "reveal": {
+            const k = b.dataset.key;
+            state.revealed.has(k) ? state.revealed.delete(k) : state.revealed.add(k);
+            break;
+        }
         case "bulk": {
             const k = b.dataset.key;
             state.bulk.has(k) ? state.bulk.delete(k) : state.bulk.add(k);
@@ -774,6 +856,23 @@ document.addEventListener("change", (e) => {
     }
     if (op === "bool") {
         at(p)[key] = b.checked;
+        recordUndo(before);
+        render();
+        return;
+    }
+    if (op === "text") {
+        at(p)[key] = b.value;
+        recordUndo(before);
+        render();
+        return;
+    }
+    if (op === "choice") {
+        const f = [...spec(C, at(p).type).p, ...spec(A, at(p).type).p].find((x) => x.k === key) || {};
+        const cur = at(p)[key];
+        if (b.value === "n") {
+            /* Switching to a number starts from the branch's default. */
+            at(p)[key] = typeof cur === "number" ? cur : f.num.default ?? f.min ?? 0;
+        } else at(p)[key] = f.choices[+b.value.slice(1)].v;
         recordUndo(before);
         render();
         return;
@@ -947,6 +1046,9 @@ function longestIncreasing(seq) {
     return out;
 }
 
+/* A secret as the diff shows it: its last four characters. */
+const secretHint = (v) => (v ? `…${String(v).slice(-4)}` : "empty");
+
 /* `covered_by` is either a type name or that name plus the settings that make
    the coverage true — kicking covers moderating the message only when it takes
    the author's history with it. */
@@ -1004,6 +1106,12 @@ function conditionDetails(a, b, out, where = "") {
                 removed,
                 added,
             });
+        } else if (f.kind === "password") {
+            /* The dialog is the one place the owner looks before copying; it
+               says the secret changed without showing it. */
+            if (x !== y) out.push({ text: `${where}${f.k}: replaced (${secretHint(x)} → ${secretHint(y)})` });
+        } else if (f.kind === "choice") {
+            if (x !== y) out.push({ text: `${where}${f.label}: ${choiceText(f, x)} → ${choiceText(f, y)}` });
         } else if (x !== y) out.push({ text: `${where}${f.k}: ${x} → ${y}` });
     }
 }

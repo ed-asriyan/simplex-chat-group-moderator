@@ -637,13 +637,11 @@ fn count(conn: &Arc<Mutex<Connection>>, table: &str) -> i64 {
 }
 
 #[tokio::test]
-#[ignore = "red: FlaggedByOpenAiModeration is not stored yet"]
 async fn test_round_trips_openai_moderation_condition() {
     assert_round_trips(2101, openai_condition("sk-proj-abc")).await;
 }
 
 #[tokio::test]
-#[ignore = "red: FlaggedByOpenAiModeration is not stored yet"]
 async fn test_round_trips_openai_moderation_condition_with_every_category_on() {
     assert_round_trips(
         2102,
@@ -656,7 +654,6 @@ async fn test_round_trips_openai_moderation_condition_with_every_category_on() {
 }
 
 #[tokio::test]
-#[ignore = "red: FlaggedByOpenAiModeration is not stored yet"]
 async fn test_round_trips_two_openai_conditions_with_different_keys_in_one_tree() {
     assert_round_trips(
         2103,
@@ -673,7 +670,6 @@ async fn test_round_trips_two_openai_conditions_with_different_keys_in_one_tree(
 }
 
 #[tokio::test]
-#[ignore = "red: FlaggedByOpenAiModeration is not stored yet"]
 async fn test_openai_categories_store_one_row_per_category_that_is_not_off() {
     let (conn, repo, group_id) = openai_repo(2104).await;
     repo.set_group_rules(
@@ -721,7 +717,6 @@ async fn test_openai_categories_store_one_row_per_category_that_is_not_off() {
 }
 
 #[tokio::test]
-#[ignore = "red: FlaggedByOpenAiModeration is not stored yet"]
 async fn test_openai_rows_go_with_replaced_rules_and_with_the_group() {
     let (conn, repo, group_id) = openai_repo(2105).await;
     let with_openai = [ModerationRule {

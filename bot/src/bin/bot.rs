@@ -197,6 +197,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .required(true)
                 .num_args(1),
         )
+        .arg(
+            Arg::new("openai-rpm-per-key")
+                .long("openai-rpm-per-key")
+                .help("Requests one OpenAI key may make per minute")
+                .value_parser(clap::value_parser!(u32).range(1..))
+                .default_value("200"),
+        )
+        .arg(
+            Arg::new("openai-max-in-flight")
+                .long("openai-max-in-flight")
+                .help("OpenAI requests running at the same time, over all keys")
+                .value_parser(clap::value_parser!(u32).range(1..))
+                .default_value("8"),
+        )
         .get_matches();
 
     let simplex_uri = args
@@ -218,6 +232,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .get_one::<String>("webeditor-base-url")
         .ok_or("missing --webeditor-base-url")?
         .clone();
+    let openai_gateway_config = OpenAiModerationGatewayConfig {
+        requests_per_minute_per_key: *args
+            .get_one::<u32>("openai-rpm-per-key")
+            .ok_or("missing --openai-rpm-per-key")?,
+        max_in_flight: *args
+            .get_one::<u32>("openai-max-in-flight")
+            .ok_or("missing --openai-max-in-flight")? as usize,
+        ..OpenAiModerationGatewayConfig::default()
+    };
 
     // ---- drivers ----
     let conn = Arc::new(Mutex::new(Connection::open(db_path)?));
@@ -251,12 +274,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let member_restore_repo: Arc<dyn MemberRestoreRepository> =
         Arc::new(SqliteMemberRestoreRepository::new(conn.clone()));
 
+    // ---- the one queue every OpenAI request goes through ----
+    // A request outliving its caller's deadline still holds a slot, so the
+    // HTTP timeout stays short: a hung OpenAI costs seconds of capacity, not more.
+    let openai_api = HttpModerationApi::new(MODERATIONS_URL, Duration::from_secs(5))
+        .map_err(|e| -> Box<dyn Error> { e.to_string().into() })?;
     let openai_gateway = Arc::new(OpenAiModerationGateway::new(
-        Arc::new(HttpModerationApi::new(
-            MODERATIONS_URL,
-            Duration::from_secs(10),
-        )),
-        OpenAiModerationGatewayConfig::default(),
+        Arc::new(openai_api),
+        openai_gateway_config,
     ));
     let openai_classifier: Arc<dyn OpenAiModerationClassifier> = openai_gateway.clone();
     let openai_key_verifier: Arc<dyn OpenAiKeyVerifier> = openai_gateway;

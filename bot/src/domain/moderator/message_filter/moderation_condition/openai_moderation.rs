@@ -53,27 +53,57 @@ impl OpenAiCategory {
 
     /// The name OpenAI's API uses for this category, e.g. `hate/threatening`.
     pub fn api_name(self) -> &'static str {
-        todo!("OpenAiCategory::api_name")
+        match self {
+            Self::Sexual => "sexual",
+            Self::SexualMinors => "sexual/minors",
+            Self::Harassment => "harassment",
+            Self::HarassmentThreatening => "harassment/threatening",
+            Self::Hate => "hate",
+            Self::HateThreatening => "hate/threatening",
+            Self::Illicit => "illicit",
+            Self::IllicitViolent => "illicit/violent",
+            Self::SelfHarm => "self-harm",
+            Self::SelfHarmIntent => "self-harm/intent",
+            Self::SelfHarmInstructions => "self-harm/instructions",
+            Self::Violence => "violence",
+            Self::ViolenceGraphic => "violence/graphic",
+        }
     }
 
     /// The name used in the rules JSON and in the database, e.g.
     /// `hate_threatening`: the API's names carry slashes and dashes, which make
     /// poor field names.
     pub fn name(self) -> &'static str {
-        todo!("OpenAiCategory::name")
+        match self {
+            Self::Sexual => "sexual",
+            Self::SexualMinors => "sexual_minors",
+            Self::Harassment => "harassment",
+            Self::HarassmentThreatening => "harassment_threatening",
+            Self::Hate => "hate",
+            Self::HateThreatening => "hate_threatening",
+            Self::Illicit => "illicit",
+            Self::IllicitViolent => "illicit_violent",
+            Self::SelfHarm => "self_harm",
+            Self::SelfHarmIntent => "self_harm_intent",
+            Self::SelfHarmInstructions => "self_harm_instructions",
+            Self::Violence => "violence",
+            Self::ViolenceGraphic => "violence_graphic",
+        }
     }
 
     /// The category whose [`Self::name`] is `name`, if any.
     pub fn from_name(name: &str) -> Option<Self> {
-        let _ = name;
-        todo!("OpenAiCategory::from_name")
+        Self::ALL
+            .into_iter()
+            .find(|category| category.name() == name)
     }
 
     /// The category whose [`Self::api_name`] is `api_name`, if any. Categories
     /// OpenAI adds later are unknown here and come back as `None`.
     pub fn from_api_name(api_name: &str) -> Option<Self> {
-        let _ = api_name;
-        todo!("OpenAiCategory::from_api_name")
+        Self::ALL
+            .into_iter()
+            .find(|category| category.api_name() == api_name)
     }
 }
 
@@ -165,18 +195,55 @@ pub struct OpenAiCategoryTriggers {
 impl OpenAiCategoryTriggers {
     /// Every category set to `trigger`.
     pub fn all(trigger: CategoryTrigger) -> Self {
-        let _ = trigger;
-        todo!("OpenAiCategoryTriggers::all")
+        let mut triggers = Self::default();
+        for category in OpenAiCategory::ALL {
+            triggers.set(category, trigger);
+        }
+        triggers
     }
 
     pub fn get(&self, category: OpenAiCategory) -> CategoryTrigger {
-        let _ = category;
-        todo!("OpenAiCategoryTriggers::get")
+        *self.field(category)
     }
 
     pub fn set(&mut self, category: OpenAiCategory, trigger: CategoryTrigger) {
-        let _ = (category, trigger);
-        todo!("OpenAiCategoryTriggers::set")
+        *self.field_mut(category) = trigger;
+    }
+
+    fn field(&self, category: OpenAiCategory) -> &CategoryTrigger {
+        match category {
+            OpenAiCategory::Sexual => &self.sexual,
+            OpenAiCategory::SexualMinors => &self.sexual_minors,
+            OpenAiCategory::Harassment => &self.harassment,
+            OpenAiCategory::HarassmentThreatening => &self.harassment_threatening,
+            OpenAiCategory::Hate => &self.hate,
+            OpenAiCategory::HateThreatening => &self.hate_threatening,
+            OpenAiCategory::Illicit => &self.illicit,
+            OpenAiCategory::IllicitViolent => &self.illicit_violent,
+            OpenAiCategory::SelfHarm => &self.self_harm,
+            OpenAiCategory::SelfHarmIntent => &self.self_harm_intent,
+            OpenAiCategory::SelfHarmInstructions => &self.self_harm_instructions,
+            OpenAiCategory::Violence => &self.violence,
+            OpenAiCategory::ViolenceGraphic => &self.violence_graphic,
+        }
+    }
+
+    fn field_mut(&mut self, category: OpenAiCategory) -> &mut CategoryTrigger {
+        match category {
+            OpenAiCategory::Sexual => &mut self.sexual,
+            OpenAiCategory::SexualMinors => &mut self.sexual_minors,
+            OpenAiCategory::Harassment => &mut self.harassment,
+            OpenAiCategory::HarassmentThreatening => &mut self.harassment_threatening,
+            OpenAiCategory::Hate => &mut self.hate,
+            OpenAiCategory::HateThreatening => &mut self.hate_threatening,
+            OpenAiCategory::Illicit => &mut self.illicit,
+            OpenAiCategory::IllicitViolent => &mut self.illicit_violent,
+            OpenAiCategory::SelfHarm => &mut self.self_harm,
+            OpenAiCategory::SelfHarmIntent => &mut self.self_harm_intent,
+            OpenAiCategory::SelfHarmInstructions => &mut self.self_harm_instructions,
+            OpenAiCategory::Violence => &mut self.violence,
+            OpenAiCategory::ViolenceGraphic => &mut self.violence_graphic,
+        }
     }
 }
 
@@ -194,11 +261,41 @@ pub struct OpenAiModerationResult {
 /// Categories are ORed: one is enough. The reason lists every category that
 /// tripped, in [`OpenAiCategory::ALL`] order, e.g.
 /// `flagged by OpenAI moderation: hate (OpenAI), violence 91% ≥ 80%`.
-#[allow(dead_code)] // red: evaluation does not call it yet
 pub fn should_moderate(
     triggers: &OpenAiCategoryTriggers,
     verdict: &OpenAiModerationResult,
 ) -> Option<String> {
-    let _ = (triggers, verdict);
-    todo!("openai_moderation::should_moderate")
+    let tripped: Vec<String> = OpenAiCategory::ALL
+        .into_iter()
+        .filter_map(|category| match triggers.get(category) {
+            CategoryTrigger::Off => None,
+            CategoryTrigger::OpenAiDecides => verdict
+                .flagged
+                .contains(&category)
+                .then(|| format!("{} (OpenAI)", category.api_name())),
+            CategoryTrigger::MinScorePercent(min) => {
+                let percent = verdict.scores.get(&category).copied().unwrap_or(0.0) * 100.0;
+                reaches(percent, min)
+                    .then(|| format!("{} {percent:.0}% ≥ {min}%", category.api_name()))
+            }
+        })
+        .collect();
+    if tripped.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "flagged by OpenAI moderation: {}",
+            tripped.join(", ")
+        ))
+    }
+}
+
+/// Whether a score, in percent, reaches the owner's whole-number threshold.
+///
+/// Scores arrive as fractions, and turning one into a percentage is not
+/// exact: 0.29 * 100.0 is 28.999999999999996. The tolerance is far below any
+/// difference OpenAI's scores can express, so it only ever absorbs that error.
+fn reaches(percent: f64, min_percent: u8) -> bool {
+    const TOLERANCE: f64 = 1e-9;
+    percent + TOLERANCE >= f64::from(min_percent)
 }

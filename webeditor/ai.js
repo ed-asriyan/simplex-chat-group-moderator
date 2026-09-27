@@ -54,6 +54,14 @@ function fieldSpec(pr) {
         if (pr.minimum != null) return `integer ≥ ${pr.minimum}`;
         return "integer";
     }
+    if (pr.oneOf) {
+        /* Left out means the first named value, as it does for the bot — not
+           the editor's default for a new row, which may switch a check on. */
+        const kinds = pr.oneOf.map((b) => ("const" in b ? JSON.stringify(b.const) : fieldSpec(b)));
+        const first = pr.oneOf.find((b) => "const" in b);
+        return kinds.join(" | ") + (first ? ` (left out: ${JSON.stringify(first.const)})` : "");
+    }
+    if (pr.type === "string") return pr.maxLength ? `string (up to ${pr.maxLength} chars)` : "string";
     return pr.type;
 }
 
@@ -342,6 +350,28 @@ function validateCondition(node, where, errors, stats, depth) {
             out[f.k] = n;
         } else if (f.kind === "bool") {
             out[f.k] = v === undefined ? false : !!v;
+        } else if (f.kind === "password" || f.kind === "text") {
+            if (typeof v !== "string") {
+                errors.push(`${where}: “${f.k}” should be text.`);
+                out[f.k] = "";
+            } else {
+                if (f.maxLength && v.length > f.maxLength)
+                    errors.push(`${where}: “${f.k}” is ${v.length} characters long, the maximum is ${f.maxLength}.`);
+                out[f.k] = v;
+            }
+        } else if (f.kind === "choice") {
+            const named = f.choices.some((c) => c.v === v);
+            const own = f.num && typeof v === "number" && Number.isInteger(v)
+                && (f.min == null || v >= f.min) && (f.max == null || v <= f.max);
+            if (v === undefined) out[f.k] = f.choices.length ? f.choices[0].v : f.min ?? 0;
+            else if (named || own) out[f.k] = v;
+            else {
+                errors.push(`${where}: “${f.k}” is ${JSON.stringify(v)}; it should be ${[
+                    ...f.choices.map((c) => JSON.stringify(c.v)),
+                    ...(f.num ? [`an integer ${f.min ?? ""}–${f.max ?? ""}`] : []),
+                ].join(" or ")}.`);
+                out[f.k] = C[node.type].def[f.k];
+            }
         }
     }
     stats.depth = Math.max(stats.depth, depth);

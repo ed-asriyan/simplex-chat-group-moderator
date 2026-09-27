@@ -21,7 +21,6 @@ fn only(category: OpenAiCategory, trigger: CategoryTrigger) -> OpenAiCategoryTri
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 fn test_api_names_are_the_ones_openai_uses() {
     let expected = [
         (OpenAiCategory::Sexual, "sexual"),
@@ -52,7 +51,6 @@ fn test_api_names_are_the_ones_openai_uses() {
 }
 
 #[test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 fn test_name_is_the_json_field_name_and_the_serde_name() {
     // The editor's field, the database row and serde must all agree, or a
     // category silently turns into "off" somewhere between the three.
@@ -68,7 +66,6 @@ fn test_name_is_the_json_field_name_and_the_serde_name() {
 }
 
 #[test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 fn test_unknown_names_are_not_categories() {
     // OpenAI may add categories; they must be ignored rather than misread.
     assert_eq!(OpenAiCategory::from_api_name("new-category/sub"), None);
@@ -82,7 +79,6 @@ fn test_unknown_names_are_not_categories() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 fn test_all_sets_every_category() {
     let triggers = OpenAiCategoryTriggers::all(CategoryTrigger::OpenAiDecides);
     for category in OpenAiCategory::ALL {
@@ -91,7 +87,6 @@ fn test_all_sets_every_category() {
 }
 
 #[test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 fn test_set_changes_only_its_own_category() {
     for target in OpenAiCategory::ALL {
         let triggers = only(target, CategoryTrigger::MinScorePercent(42));
@@ -168,7 +163,6 @@ fn test_missing_category_field_is_off() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 fn test_every_category_off_never_matches() {
     let everything: Vec<(OpenAiCategory, f64)> =
         OpenAiCategory::ALL.iter().map(|c| (*c, 1.0)).collect();
@@ -180,7 +174,6 @@ fn test_every_category_off_never_matches() {
 }
 
 #[test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 fn test_openai_decides_matches_what_openai_flags() {
     let triggers = only(OpenAiCategory::Hate, CategoryTrigger::OpenAiDecides);
     let v = verdict(&[OpenAiCategory::Hate], &[(OpenAiCategory::Hate, 0.4)]);
@@ -191,7 +184,6 @@ fn test_openai_decides_matches_what_openai_flags() {
 }
 
 #[test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 fn test_openai_decides_ignores_a_high_score_openai_did_not_flag() {
     // OpenAI's threshold is its own business: a high score it did not flag is
     // not a match under "OpenAI decides".
@@ -201,7 +193,6 @@ fn test_openai_decides_ignores_a_high_score_openai_did_not_flag() {
 }
 
 #[test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 fn test_min_score_is_inclusive() {
     let triggers = only(
         OpenAiCategory::Violence,
@@ -224,7 +215,6 @@ fn test_min_score_is_inclusive() {
 }
 
 #[test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 fn test_min_score_is_exact_at_every_percentage() {
     // 0.29 * 100.0 is 28.999999999999996 in f64. A plain comparison would miss
     // a message the owner asked to delete at exactly the score they typed.
@@ -247,7 +237,6 @@ fn test_min_score_is_exact_at_every_percentage() {
 }
 
 #[test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 fn test_min_score_can_be_more_lenient_than_openai() {
     // The reason the trigger is per category: a gaming group sets violence to
     // 95% and OpenAI's own, stricter flag must not override it.
@@ -263,7 +252,6 @@ fn test_min_score_can_be_more_lenient_than_openai() {
 }
 
 #[test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 fn test_min_score_can_be_stricter_than_openai() {
     let triggers = only(
         OpenAiCategory::Harassment,
@@ -277,7 +265,6 @@ fn test_min_score_can_be_stricter_than_openai() {
 }
 
 #[test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 fn test_min_score_of_100_needs_a_full_score() {
     let triggers = only(OpenAiCategory::Hate, CategoryTrigger::MinScorePercent(100));
     assert!(should_moderate(&triggers, &verdict(&[], &[(OpenAiCategory::Hate, 1.0)])).is_some());
@@ -285,7 +272,6 @@ fn test_min_score_of_100_needs_a_full_score() {
 }
 
 #[test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 fn test_a_category_missing_from_the_verdict_does_not_match() {
     let mut triggers = only(OpenAiCategory::Hate, CategoryTrigger::MinScorePercent(1));
     triggers.set(OpenAiCategory::Violence, CategoryTrigger::OpenAiDecides);
@@ -296,7 +282,6 @@ fn test_a_category_missing_from_the_verdict_does_not_match() {
 }
 
 #[test]
-#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
 fn test_one_category_is_enough_and_the_reason_lists_all_that_tripped() {
     let mut triggers = OpenAiCategoryTriggers::default();
     // Set out of order on purpose: the reason follows `OpenAiCategory::ALL`.
