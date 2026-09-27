@@ -22,7 +22,7 @@ type Err = Box<dyn Error + Send + Sync>;
 #[cfg(test)]
 mod tests;
 
-pub const MODERATIONS_URL: &str = "https://api.openai.com/v1/moderations";
+const URL: &str = "https://api.openai.com/v1/moderations";
 pub const MODERATION_MODEL: &str = "omni-moderation-latest";
 
 /// OpenAI's answer for one input, as OpenAI spells it.
@@ -95,20 +95,14 @@ pub fn parse_response(
 /// [`ModerationApi`] over HTTPS.
 pub struct HttpModerationApi {
     http: OpenAiHttp,
-    endpoint: String,
 }
 
 impl HttpModerationApi {
     /// `timeout` bounds each attempt; transient failures are tried up to
     /// `max_attempts` times.
-    pub fn new(
-        endpoint: impl Into<String>,
-        timeout: Duration,
-        max_attempts: usize,
-    ) -> Result<Self, Err> {
+    pub fn new(timeout: Duration, max_attempts: usize) -> Result<Self, Err> {
         Ok(Self {
             http: OpenAiHttp::new(timeout, max_attempts)?,
-            endpoint: endpoint.into(),
         })
     }
 }
@@ -117,7 +111,7 @@ impl HttpModerationApi {
 impl ModerationApi for HttpModerationApi {
     async fn moderate(&self, api_key: &str, text: &str) -> Result<RawModeration, OpenAiApiError> {
         self.http
-            .post(&self.endpoint, api_key, &request_body(text), |answer| {
+            .post(URL, api_key, &request_body(text), |answer| {
                 parse_response(answer.status, answer.retry_after.as_deref(), &answer.body)
             })
             .await

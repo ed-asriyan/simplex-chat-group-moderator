@@ -17,7 +17,7 @@ type Err = Box<dyn Error + Send + Sync>;
 #[cfg(test)]
 mod tests;
 
-pub const RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
+const URL: &str = "https://api.openai.com/v1/responses";
 
 /// What the answer's fields mean, as the model is told.
 const MATCHES_DESCRIPTION: &str =
@@ -149,20 +149,14 @@ pub fn parse_response(
 /// [`ResponsesApi`] over HTTPS.
 pub struct HttpResponsesApi {
     http: OpenAiHttp,
-    endpoint: String,
 }
 
 impl HttpResponsesApi {
     /// `timeout` bounds each attempt; transient failures are tried up to
     /// `max_attempts` times.
-    pub fn new(
-        endpoint: impl Into<String>,
-        timeout: Duration,
-        max_attempts: usize,
-    ) -> Result<Self, Err> {
+    pub fn new(timeout: Duration, max_attempts: usize) -> Result<Self, Err> {
         Ok(Self {
             http: OpenAiHttp::new(timeout, max_attempts)?,
-            endpoint: endpoint.into(),
         })
     }
 }
@@ -178,7 +172,7 @@ impl ResponsesApi for HttpResponsesApi {
     ) -> Result<Judgement, OpenAiApiError> {
         self.http
             .post(
-                &self.endpoint,
+                URL,
                 api_key,
                 &request_body(model, instruction, text),
                 |answer| parse_response(answer.status, answer.retry_after.as_deref(), &answer.body),

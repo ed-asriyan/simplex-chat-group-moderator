@@ -22,8 +22,8 @@ use bot::infrastructure::adapters::user_character_activity_repo_in_memory::InMem
 use bot::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
 use bot::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
 use bot::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
-use bot::infrastructure::drivers::openai_moderation::{HttpModerationApi, MODERATIONS_URL};
-use bot::infrastructure::drivers::openai_responses::{HttpResponsesApi, RESPONSES_URL};
+use bot::infrastructure::drivers::openai_moderation::HttpModerationApi;
+use bot::infrastructure::drivers::openai_responses::HttpResponsesApi;
 use bot::infrastructure::drivers::simplex::{
     MessageAttachment as DriverAttachment, SimpleXConfig, SimplexDriver, SimplexEvent,
 };
@@ -253,9 +253,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // ---- the one queue every OpenAI request goes through ----
     // A request outliving its caller's deadline still holds a slot, so the
     // HTTP timeout stays short: a hung OpenAI costs seconds of capacity, not more.
-    let moderation_api = HttpModerationApi::new(MODERATIONS_URL, Duration::from_secs(5), 3)
+    let moderation_api = HttpModerationApi::new(Duration::from_secs(5), 3)
         .map_err(|e| -> Box<dyn Error> { e.to_string().into() })?;
-    let responses_api = HttpResponsesApi::new(RESPONSES_URL, Duration::from_secs(5), 3)
+    let responses_api = HttpResponsesApi::new(Duration::from_secs(5), 3)
         .map_err(|e| -> Box<dyn Error> { e.to_string().into() })?;
     let openai_gateway = Arc::new(OpenAiGateway::new(
         Arc::new(moderation_api),
