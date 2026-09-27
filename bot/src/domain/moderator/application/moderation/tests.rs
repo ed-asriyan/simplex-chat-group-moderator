@@ -3492,10 +3492,7 @@ async fn test_a_message_openai_flags_is_deleted_and_reported() {
     assert_eq!(*deleted.lock().unwrap(), vec![(10, 1)]);
     let notifications = notifications.lock().unwrap();
     assert_eq!(notifications.len(), 1);
-    assert_eq!(
-        notifications[0].4,
-        "flagged by OpenAI moderation: hate (OpenAI)"
-    );
+    assert_eq!(notifications[0].4, "flagged by OpenAI Omni: hate (OpenAI)");
 }
 
 #[tokio::test]

@@ -418,9 +418,9 @@ impl ModerationCondition {
             Self::AuthorJoinedRecently {
                 time_window_minutes,
             } => format!("author joined less than {time_window_minutes} min ago"),
-            Self::FlaggedByOmniModeration { .. } => "flagged by OpenAI moderation".into(),
+            Self::FlaggedByOmniModeration { .. } => "flagged by OpenAI Omni".into(),
             Self::MatchesOpenAiInstruction { model, .. } => {
-                format!("matches the instruction (OpenAI {model})")
+                format!("flagged by OpenAI instruction ({model})")
             }
         }
     }
@@ -610,7 +610,7 @@ fn normalize_and_validate_omni_moderation(
     api_key: &mut String,
     triggers: &OpenAiCategoryTriggers,
 ) -> Result<(), Err> {
-    normalize_openai_api_key(api_key, "OpenAI Omni Moderation Flags the Message")?;
+    normalize_openai_api_key(api_key, "Flagged by OpenAI Omni")?;
 
     for category in OpenAiCategory::ALL {
         if let CategoryTrigger::MinScorePercent(percent) = triggers.get(category)
@@ -628,8 +628,7 @@ fn normalize_and_validate_omni_moderation(
         .all(|category| triggers.get(category) == CategoryTrigger::Off)
     {
         return Err(
-            "'OpenAI Omni Moderation Flags the Message' has every category off, so it can never match"
-                .into(),
+            "'Flagged by OpenAI Omni' has every category off, so it can never match".into(),
         );
     }
     Ok(())
@@ -656,7 +655,7 @@ fn normalize_and_validate_openai_instruction(
     model: &str,
     instruction: &mut String,
 ) -> Result<(), Err> {
-    const TITLE: &str = "Message Matches an Instruction (OpenAI)";
+    const TITLE: &str = "Flagged by OpenAI Instruction";
     normalize_openai_api_key(api_key, TITLE)?;
     if !OPENAI_INSTRUCTION_MODELS.contains(&model) {
         return Err(format!(

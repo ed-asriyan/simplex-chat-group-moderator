@@ -953,7 +953,7 @@ fn test_openai_condition_may_sit_anywhere_in_the_tree_even_under_not() {
 #[test]
 fn test_openai_condition_describes_itself_without_its_key() {
     let condition = openai("sk-proj-abc", hate_only(CategoryTrigger::OpenAiDecides));
-    assert_eq!(condition.describe(), "flagged by OpenAI moderation");
+    assert_eq!(condition.describe(), "flagged by OpenAI Omni");
 }
 
 // ---------------------------------------------------------------------------
@@ -1031,6 +1031,6 @@ fn test_openai_instruction_key_is_checked_like_every_openai_key() {
 fn test_openai_instruction_describes_itself_without_its_key() {
     assert_eq!(
         instructed("sk-proj-abc", "gpt-4.1-mini", "Block ads.").describe(),
-        "matches the instruction (OpenAI gpt-4.1-mini)"
+        "flagged by OpenAI instruction (gpt-4.1-mini)"
     );
 }

@@ -2064,7 +2064,7 @@ async fn test_openai_verdict_moderates_with_its_reason() {
     assert_eq!(hit.actions, vec![ModerationAction::ModerateMessage]);
     assert_eq!(
         hit.reasons,
-        vec!["flagged by OpenAI moderation: hate (OpenAI)".to_string()]
+        vec!["flagged by OpenAI Omni: hate (OpenAI)".to_string()]
     );
 }
 
