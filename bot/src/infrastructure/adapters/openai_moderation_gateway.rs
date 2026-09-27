@@ -60,13 +60,18 @@ pub struct OpenAiModerationGatewayConfig {
     pub default_rate_limit_cooldown: Duration,
 }
 
+/// Requests one key may make per minute: below the free tier's reported 250.
+const REQUESTS_PER_MINUTE_PER_KEY: u32 = 200;
+
+/// HTTP requests to OpenAI running at the same time, over all keys.
+const MAX_IN_FLIGHT: usize = 8;
+
 impl Default for OpenAiModerationGatewayConfig {
     fn default() -> Self {
         Self {
-            // Below the free tier's reported 250 requests a minute.
-            requests_per_minute_per_key: 200,
+            requests_per_minute_per_key: REQUESTS_PER_MINUTE_PER_KEY,
             max_pending_per_key: 20,
-            max_in_flight: 8,
+            max_in_flight: MAX_IN_FLIGHT,
             queue_capacity: 1_000,
             classify_deadline: Duration::from_secs(2),
             verify_deadline: Duration::from_secs(10),

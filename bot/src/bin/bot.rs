@@ -197,20 +197,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .required(true)
                 .num_args(1),
         )
-        .arg(
-            Arg::new("openai-rpm-per-key")
-                .long("openai-rpm-per-key")
-                .help("Requests one OpenAI key may make per minute")
-                .value_parser(clap::value_parser!(u32).range(1..))
-                .default_value("200"),
-        )
-        .arg(
-            Arg::new("openai-max-in-flight")
-                .long("openai-max-in-flight")
-                .help("OpenAI requests running at the same time, over all keys")
-                .value_parser(clap::value_parser!(u32).range(1..))
-                .default_value("8"),
-        )
         .get_matches();
 
     let simplex_uri = args
@@ -232,15 +218,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .get_one::<String>("webeditor-base-url")
         .ok_or("missing --webeditor-base-url")?
         .clone();
-    let openai_gateway_config = OpenAiModerationGatewayConfig {
-        requests_per_minute_per_key: *args
-            .get_one::<u32>("openai-rpm-per-key")
-            .ok_or("missing --openai-rpm-per-key")?,
-        max_in_flight: *args
-            .get_one::<u32>("openai-max-in-flight")
-            .ok_or("missing --openai-max-in-flight")? as usize,
-        ..OpenAiModerationGatewayConfig::default()
-    };
 
     // ---- drivers ----
     let conn = Arc::new(Mutex::new(Connection::open(db_path)?));
@@ -281,7 +258,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .map_err(|e| -> Box<dyn Error> { e.to_string().into() })?;
     let openai_gateway = Arc::new(OpenAiModerationGateway::new(
         Arc::new(openai_api),
-        openai_gateway_config,
+        OpenAiModerationGatewayConfig::default(),
     ));
     let openai_classifier: Arc<dyn OpenAiModerationClassifier> = openai_gateway.clone();
     let openai_key_verifier: Arc<dyn OpenAiKeyVerifier> = openai_gateway;
