@@ -82,7 +82,9 @@ Each bounded context follows the same internal shape:
     implementing `bot_dm::GroupOperations` on top of `moderator::GroupAdministration`.
   - `openai_gateway.rs` — implements `OpenAiModerationClassifier` and
     `OpenAiKeyVerifier` for both OpenAI conditions (`FlaggedByOmniModeration`
-    and `MatchesOpenAiInstruction`, each with the owner's own key). Every OpenAI
+    and `MatchesOpenAiInstruction`, each with the owner's own key). It builds
+    its own HTTP drivers, so `bin/bot.rs` only calls `OpenAiGateway::new()`;
+    tests start it over scripted ones. Every OpenAI
     request, whichever endpoint, goes through its in-process queue: a token
     bucket per key — OpenAI's limits are the key's, not the endpoint's — a cap
     on what one key may have waiting, a cap on requests in flight, a rest after

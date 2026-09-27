@@ -161,7 +161,7 @@ fn config() -> OpenAiGatewayConfig {
 }
 
 fn start_gateway(api: &Arc<FakeApi>, config: OpenAiGatewayConfig) -> Arc<OpenAiGateway> {
-    Arc::new(OpenAiGateway::new(api.clone(), api.clone(), config))
+    Arc::new(OpenAiGateway::start(api.clone(), api.clone(), config))
 }
 
 /// Yields to the dispatcher until `condition` holds, or fails the test.

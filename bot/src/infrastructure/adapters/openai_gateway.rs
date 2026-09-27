@@ -36,34 +36,36 @@ use crate::domain::moderator::ports::{
     OpenAiModerationClassifier, OpenAiModerationResult,
 };
 use crate::infrastructure::drivers::openai::OpenAiApiError;
-use crate::infrastructure::drivers::openai_moderation::{ModerationApi, RawModeration};
-use crate::infrastructure::drivers::openai_responses::{Judgement, ResponsesApi};
+use crate::infrastructure::drivers::openai_moderation::{
+    HttpModerationApi, ModerationApi, RawModeration,
+};
+use crate::infrastructure::drivers::openai_responses::{HttpResponsesApi, Judgement, ResponsesApi};
 
 #[cfg(test)]
 mod tests;
 
 #[derive(Clone, Debug)]
-pub struct OpenAiGatewayConfig {
+struct OpenAiGatewayConfig {
     /// Requests one key may make per minute; also the size of its burst.
-    pub requests_per_minute_per_key: u32,
+    requests_per_minute_per_key: u32,
     /// Jobs of one key that may wait for a free slot at the same time.
-    pub max_pending_per_key: usize,
+    max_pending_per_key: usize,
     /// HTTP requests running at the same time, over all keys.
-    pub max_in_flight: usize,
+    max_in_flight: usize,
     /// Jobs the queue holds before refusing new ones.
-    pub queue_capacity: usize,
+    queue_capacity: usize,
     /// How long a message waits for the moderation model, queueing included.
-    pub classify_deadline: Duration,
+    classify_deadline: Duration,
     /// How long a message waits for a model following an instruction,
     /// queueing included. Longer: a chat model answers slower than the
     /// moderation endpoint.
-    pub judge_deadline: Duration,
+    judge_deadline: Duration,
     /// How long a key check waits, queueing and its one retry included.
-    pub verify_deadline: Duration,
+    verify_deadline: Duration,
     /// How long a key OpenAI refused is refused locally.
-    pub rejected_key_ttl: Duration,
+    rejected_key_ttl: Duration,
     /// How long a rate-limited key rests when OpenAI sent no `Retry-After`.
-    pub default_rate_limit_cooldown: Duration,
+    default_rate_limit_cooldown: Duration,
 }
 
 /// Requests one key may make per minute: below the free tier's reported 250.
@@ -87,6 +89,14 @@ impl Default for OpenAiGatewayConfig {
         }
     }
 }
+
+/// How long one HTTP attempt may take. A request outliving its caller's
+/// deadline still holds a slot, so this stays short: a hung OpenAI costs
+/// seconds of capacity, not more.
+const HTTP_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Tries per request while OpenAI fails transiently.
+const HTTP_MAX_ATTEMPTS: usize = 3;
 
 /// What a key check sends: harmless, short, and the same every time.
 const KEY_CHECK_TEXT: &str = "hello";
@@ -178,8 +188,19 @@ enum Refusal {
 }
 
 impl OpenAiGateway {
+    /// The gateway over HTTPS, with its own drivers and the default pacing.
     /// Starts the dispatcher on the current Tokio runtime.
-    pub fn new(
+    pub fn new() -> Result<Self, Err> {
+        Ok(Self::start(
+            Arc::new(HttpModerationApi::new(HTTP_TIMEOUT, HTTP_MAX_ATTEMPTS)?),
+            Arc::new(HttpResponsesApi::new(HTTP_TIMEOUT, HTTP_MAX_ATTEMPTS)?),
+            OpenAiGatewayConfig::default(),
+        ))
+    }
+
+    /// The gateway over any drivers: what `new` builds on, and what the tests
+    /// hand their scripted APIs to.
+    fn start(
         moderation: Arc<dyn ModerationApi>,
         responses: Arc<dyn ResponsesApi>,
         config: OpenAiGatewayConfig,

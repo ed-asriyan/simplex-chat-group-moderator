@@ -16,14 +16,12 @@ use bot::infrastructure::adapters::cross_domain_router::CrossDomainRouter;
 use bot::infrastructure::adapters::member_restore_repo_sqlite::SqliteMemberRestoreRepository;
 use bot::infrastructure::adapters::moderation_notification_router::ModerationNotificationRouter;
 use bot::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository;
-use bot::infrastructure::adapters::openai_gateway::{OpenAiGateway, OpenAiGatewayConfig};
+use bot::infrastructure::adapters::openai_gateway::OpenAiGateway;
 use bot::infrastructure::adapters::simplex_adapter::SimplexAdapter;
 use bot::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
 use bot::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
 use bot::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
 use bot::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
-use bot::infrastructure::drivers::openai_moderation::HttpModerationApi;
-use bot::infrastructure::drivers::openai_responses::HttpResponsesApi;
 use bot::infrastructure::drivers::simplex::{
     MessageAttachment as DriverAttachment, SimpleXConfig, SimplexDriver, SimplexEvent,
 };
@@ -251,17 +249,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Arc::new(SqliteMemberRestoreRepository::new(conn.clone()));
 
     // ---- the one queue every OpenAI request goes through ----
-    // A request outliving its caller's deadline still holds a slot, so the
-    // HTTP timeout stays short: a hung OpenAI costs seconds of capacity, not more.
-    let moderation_api = HttpModerationApi::new(Duration::from_secs(5), 3)
-        .map_err(|e| -> Box<dyn Error> { e.to_string().into() })?;
-    let responses_api = HttpResponsesApi::new(Duration::from_secs(5), 3)
-        .map_err(|e| -> Box<dyn Error> { e.to_string().into() })?;
-    let openai_gateway = Arc::new(OpenAiGateway::new(
-        Arc::new(moderation_api),
-        Arc::new(responses_api),
-        OpenAiGatewayConfig::default(),
-    ));
+    let openai_gateway =
+        Arc::new(OpenAiGateway::new().map_err(|e| -> Box<dyn Error> { e.to_string().into() })?);
     let openai_classifier: Arc<dyn OpenAiModerationClassifier> = openai_gateway.clone();
     let openai_key_verifier: Arc<dyn OpenAiKeyVerifier> = openai_gateway;
 
