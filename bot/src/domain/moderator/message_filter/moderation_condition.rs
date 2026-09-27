@@ -38,6 +38,7 @@ mod links;
 mod message_length;
 mod message_rate_limit;
 mod moderation_rate_limit;
+mod openai_moderation;
 mod regex_match;
 mod repeated_sequence;
 
@@ -47,6 +48,9 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 pub(super) use context::ConditionContext;
+pub use openai_moderation::{
+    CategoryTrigger, OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult,
+};
 
 mod context;
 
@@ -186,6 +190,14 @@ pub enum ModerationCondition {
     /// since their join time is unknown.
     AuthorJoinedRecently {
         time_window_minutes: u32,
+    },
+    /// OpenAI's moderation model, asked with the owner's own `api_key`, trips
+    /// at least one of the owner's per-category `triggers`. Sends the message
+    /// text to OpenAI; a message with no text is never sent and never matches.
+    FlaggedByOpenAiModeration {
+        api_key: String,
+        #[serde(flatten)]
+        triggers: OpenAiCategoryTriggers,
     },
 }
 
@@ -397,6 +409,7 @@ impl ModerationCondition {
             Self::AuthorJoinedRecently {
                 time_window_minutes,
             } => format!("author joined less than {time_window_minutes} min ago"),
+            Self::FlaggedByOpenAiModeration { .. } => todo!("describe FlaggedByOpenAiModeration"),
         }
     }
 }
@@ -551,6 +564,9 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
             *time_window_minutes,
             "'Author Joined Recently' needs a time window of at least 1 minute",
         ),
+        ModerationCondition::FlaggedByOpenAiModeration { .. } => {
+            todo!("validate FlaggedByOpenAiModeration")
+        }
         ModerationCondition::IsBlank
         | ModerationCondition::ContainsInvisibleCharacters
         | ModerationCondition::ContainsImage
@@ -801,6 +817,7 @@ fn should_moderate_by_condition(message: &str, condition: &ModerationCondition) 
         | ModerationCondition::AuthorHitsLineRateLimit { .. }
         | ModerationCondition::AuthorHitsModerationRateLimit { .. }
         | ModerationCondition::AuthorJoinedRecently { .. }
+        | ModerationCondition::FlaggedByOpenAiModeration { .. }
         | ModerationCondition::All { .. }
         | ModerationCondition::Any { .. }
         | ModerationCondition::Not { .. } => None,
@@ -984,6 +1001,10 @@ async fn evaluate(
             ctx.group_message.timestamp,
             *time_window_minutes,
         )),
+        ModerationCondition::FlaggedByOpenAiModeration { .. } => {
+            let _ = ctx.openai_classifier;
+            todo!("evaluate FlaggedByOpenAiModeration")
+        }
         other => Ok(should_moderate_by_condition(&ctx.group_message.text, other)),
     }
 }

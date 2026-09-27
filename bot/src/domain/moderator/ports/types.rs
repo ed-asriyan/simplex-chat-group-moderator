@@ -1,7 +1,8 @@
 //! Types the moderator context exchanges across its ports.
 
 pub use crate::domain::moderator::message_filter::{
-    ModerationAction, ModerationCondition, ModerationMatch, ModerationRule,
+    CategoryTrigger, ModerationAction, ModerationCondition, ModerationMatch, ModerationRule,
+    OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult,
 };
 use chrono::{DateTime, Utc};
 use std::error::Error;
@@ -88,4 +89,22 @@ pub struct ScheduledMemberRestore {
     pub messenger_group_id: MessengerGroupId,
     pub member_id: UserId,
     pub execute_at: DateTime<Utc>,
+}
+
+/// What OpenAI said about an API key an owner is saving.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyCheck {
+    /// The key can call the Moderation API.
+    Valid,
+    /// OpenAI does not know the key (401).
+    Rejected,
+    /// The key exists but may not call the Moderation API (403): a restricted
+    /// key without the Moderations permission.
+    Forbidden,
+    /// The account behind the key has no quota or no billing set up
+    /// (429 `insufficient_quota`). Retrying does not help.
+    QuotaExceeded,
+    /// OpenAI could not be asked: network trouble, 5xx, rate limiting, or an
+    /// answer that could not be read. Says nothing about the key itself.
+    Unreachable,
 }

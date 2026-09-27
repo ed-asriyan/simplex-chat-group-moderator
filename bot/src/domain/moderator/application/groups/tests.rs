@@ -1,12 +1,27 @@
-//! Rule saving: conditions are validated before they reach the repository.
+//! Rule saving: conditions are validated, and OpenAI keys checked with OpenAI,
+//! before anything reaches the repository.
 
 use super::GroupAdministrationApplication;
 use crate::domain::moderator::application::tests::{MockGroupModerator, MockModerationRepository};
 use crate::domain::moderator::message_filter::ModerationCondition;
 use crate::domain::moderator::ports::{
-    Group, GroupAdministration, GroupId, ModerationAction, ModerationRule, UserId,
+    CategoryTrigger, Err, Group, GroupAdministration, GroupId, KeyCheck, MessengerGroupId,
+    ModerationAction, ModerationRepository, ModerationRule, OpenAiCategoryTriggers,
+    OpenAiKeyVerifier, OwnedModerationRule, UserId,
 };
-use std::sync::Arc;
+use async_trait::async_trait;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+/// The verifier for rule sets without an OpenAI key: being asked is the bug.
+struct UnusedKeyVerifier;
+
+#[async_trait]
+impl OpenAiKeyVerifier for UnusedKeyVerifier {
+    async fn verify(&self, _api_key: &str) -> KeyCheck {
+        panic!("OpenAI was asked about a key although no rule carries one")
+    }
+}
 
 fn app_owning_group(group_id: GroupId, owner_id: UserId) -> GroupAdministrationApplication {
     GroupAdministrationApplication::new(
@@ -21,6 +36,7 @@ fn app_owning_group(group_id: GroupId, owner_id: UserId) -> GroupAdministrationA
             rules: vec![],
         }),
         Arc::new(MockGroupModerator::default()),
+        Arc::new(UnusedKeyVerifier),
     )
 }
 
@@ -136,4 +152,308 @@ async fn test_set_group_rules_accepts_observer_durations_up_to_a_month() {
         .await
         .unwrap();
     }
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI keys
+// ---------------------------------------------------------------------------
+
+/// Answers `Valid` unless told otherwise, and records every key it was asked about.
+#[derive(Default)]
+struct FakeKeyVerifier {
+    answers: HashMap<String, KeyCheck>,
+    asked: Mutex<Vec<String>>,
+}
+
+impl FakeKeyVerifier {
+    fn answering(answers: &[(&str, KeyCheck)]) -> Arc<Self> {
+        Arc::new(Self {
+            answers: answers
+                .iter()
+                .map(|(key, check)| (key.to_string(), *check))
+                .collect(),
+            asked: Mutex::new(Vec::new()),
+        })
+    }
+
+    fn asked(&self) -> Vec<String> {
+        let mut asked = self.asked.lock().unwrap().clone();
+        asked.sort();
+        asked
+    }
+}
+
+#[async_trait]
+impl OpenAiKeyVerifier for FakeKeyVerifier {
+    async fn verify(&self, api_key: &str) -> KeyCheck {
+        self.asked.lock().unwrap().push(api_key.to_string());
+        self.answers
+            .get(api_key)
+            .copied()
+            .unwrap_or(KeyCheck::Valid)
+    }
+}
+
+/// Owns group 10 for user 100 and keeps whatever rules were last saved.
+#[derive(Default)]
+struct SavingRepository {
+    saved: Mutex<Option<Vec<ModerationRule>>>,
+}
+
+impl SavingRepository {
+    fn saved(&self) -> Option<Vec<ModerationRule>> {
+        self.saved.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl ModerationRepository for SavingRepository {
+    async fn save_owner(&self, _: &MessengerGroupId, _: &str, _: &UserId) -> Result<GroupId, Err> {
+        Ok(10)
+    }
+    async fn get_owner_by_messenger_id(&self, _: &MessengerGroupId) -> Result<Option<UserId>, Err> {
+        Ok(Some(100))
+    }
+    async fn get_groups_by_owner_id(&self, _: &UserId) -> Result<Vec<Group>, Err> {
+        Ok(vec![])
+    }
+    async fn get_owner_by_id(&self, _: &GroupId) -> Result<Option<UserId>, Err> {
+        Ok(Some(100))
+    }
+    async fn set_group_name(&self, _: &MessengerGroupId, _: &str) -> Result<(), Err> {
+        Ok(())
+    }
+    async fn get_group_rules(&self, _: &GroupId) -> Result<Vec<OwnedModerationRule>, Err> {
+        Ok(vec![])
+    }
+    async fn get_group_rules_by_messenger_id(
+        &self,
+        _: &MessengerGroupId,
+    ) -> Result<Vec<OwnedModerationRule>, Err> {
+        Ok(vec![])
+    }
+    async fn set_group_rules(&self, _: &GroupId, rules: &[ModerationRule]) -> Result<(), Err> {
+        *self.saved.lock().unwrap() = Some(rules.to_vec());
+        Ok(())
+    }
+    async fn delete_group_data(&self, _: &MessengerGroupId) -> Result<(), Err> {
+        Ok(())
+    }
+    async fn get_group_by_messenger_id(&self, _: &MessengerGroupId) -> Result<Option<Group>, Err> {
+        Ok(None)
+    }
+    async fn set_notifications_enabled(&self, _: &GroupId, _: bool) -> Result<(), Err> {
+        Ok(())
+    }
+    async fn set_dry_mode_enabled(&self, _: &GroupId, _: bool) -> Result<(), Err> {
+        Ok(())
+    }
+}
+
+fn app_with(
+    repository: &Arc<SavingRepository>,
+    verifier: &Arc<FakeKeyVerifier>,
+) -> GroupAdministrationApplication {
+    GroupAdministrationApplication::new(
+        repository.clone(),
+        Arc::new(MockGroupModerator::default()),
+        verifier.clone(),
+    )
+}
+
+fn openai_condition(api_key: &str) -> ModerationCondition {
+    ModerationCondition::FlaggedByOpenAiModeration {
+        api_key: api_key.to_string(),
+        triggers: OpenAiCategoryTriggers {
+            hate: CategoryTrigger::OpenAiDecides,
+            ..Default::default()
+        },
+    }
+}
+
+fn moderate_when(condition: ModerationCondition) -> ModerationRule {
+    ModerationRule {
+        actions: vec![ModerationAction::ModerateMessage],
+        condition,
+    }
+}
+
+#[tokio::test]
+#[ignore = "red: saving rules does not check OpenAI keys yet"]
+async fn test_a_key_openai_accepts_is_saved() {
+    let repository = Arc::new(SavingRepository::default());
+    let verifier = FakeKeyVerifier::answering(&[]);
+    let rules = vec![moderate_when(openai_condition("sk-good"))];
+
+    app_with(&repository, &verifier)
+        .set_group_rules(100, 10, rules.clone())
+        .await
+        .unwrap();
+
+    assert_eq!(verifier.asked(), vec!["sk-good"]);
+    assert_eq!(repository.saved(), Some(rules));
+}
+
+#[tokio::test]
+#[ignore = "red: saving rules does not check OpenAI keys yet"]
+async fn test_a_key_openai_does_not_accept_is_not_saved_and_the_owner_is_told_why() {
+    let cases = [
+        (KeyCheck::Rejected, "rejected"),
+        (KeyCheck::Forbidden, "Moderations"),
+        (KeyCheck::QuotaExceeded, "quota"),
+        (KeyCheck::Unreachable, "reach OpenAI"),
+    ];
+    let key = "sk-proj-secret-part-WXYZ";
+    for (check, says) in cases {
+        let repository = Arc::new(SavingRepository::default());
+        let verifier = FakeKeyVerifier::answering(&[(key, check)]);
+
+        let err = app_with(&repository, &verifier)
+            .set_group_rules(100, 10, vec![moderate_when(openai_condition(key))])
+            .await
+            .expect_err("the rules must not be saved")
+            .to_string();
+
+        assert!(err.contains(says), "{check:?}: unexpected error: {err}");
+        // The owner can tell which key it was by its last characters; the
+        // error, which lands in the chat and the logs, never carries the key.
+        assert!(err.contains("WXYZ"), "{check:?}: no hint of the key: {err}");
+        assert!(
+            !err.contains(key),
+            "{check:?}: the error leaks the key: {err}"
+        );
+        assert_eq!(repository.saved(), None, "{check:?}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "red: saving rules does not check OpenAI keys yet"]
+async fn test_every_distinct_key_is_asked_about_once_wherever_it_sits() {
+    let repository = Arc::new(SavingRepository::default());
+    let verifier = FakeKeyVerifier::answering(&[]);
+    let rules = vec![
+        moderate_when(openai_condition("sk-one")),
+        moderate_when(ModerationCondition::All {
+            conditions: vec![
+                ModerationCondition::ContainsWords {
+                    keywords: vec!["crypto".to_string()],
+                },
+                ModerationCondition::Not {
+                    condition: Box::new(openai_condition("sk-two")),
+                },
+            ],
+        }),
+        ModerationRule {
+            actions: vec![ModerationAction::KickAuthor {
+                delete_all_messages: false,
+            }],
+            condition: openai_condition("sk-one"),
+        },
+    ];
+
+    app_with(&repository, &verifier)
+        .set_group_rules(100, 10, rules)
+        .await
+        .unwrap();
+
+    assert_eq!(verifier.asked(), vec!["sk-one", "sk-two"]);
+}
+
+#[tokio::test]
+#[ignore = "red: saving rules does not check OpenAI keys yet"]
+async fn test_one_bad_key_keeps_the_whole_rule_set_from_being_saved() {
+    let repository = Arc::new(SavingRepository::default());
+    let verifier = FakeKeyVerifier::answering(&[("sk-bad", KeyCheck::Rejected)]);
+    let rules = vec![
+        moderate_when(openai_condition("sk-good")),
+        moderate_when(openai_condition("sk-bad")),
+    ];
+
+    assert!(
+        app_with(&repository, &verifier)
+            .set_group_rules(100, 10, rules)
+            .await
+            .is_err()
+    );
+    assert_eq!(repository.saved(), None);
+}
+
+#[tokio::test]
+#[ignore = "red: saving rules does not check OpenAI keys yet"]
+async fn test_the_key_is_checked_as_it_will_be_stored() {
+    let repository = Arc::new(SavingRepository::default());
+    let verifier = FakeKeyVerifier::answering(&[]);
+
+    app_with(&repository, &verifier)
+        .set_group_rules(
+            100,
+            10,
+            vec![moderate_when(openai_condition("  sk-good \n"))],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(verifier.asked(), vec!["sk-good"]);
+    assert_eq!(
+        repository.saved(),
+        Some(vec![moderate_when(openai_condition("sk-good"))])
+    );
+}
+
+#[tokio::test]
+#[ignore = "red: saving rules does not check OpenAI keys yet"]
+async fn test_a_malformed_condition_is_rejected_before_openai_is_asked() {
+    let repository = Arc::new(SavingRepository::default());
+    let verifier = FakeKeyVerifier::answering(&[]);
+    let every_category_off = ModerationCondition::FlaggedByOpenAiModeration {
+        api_key: "sk-good".to_string(),
+        triggers: OpenAiCategoryTriggers::default(),
+    };
+
+    let err = app_with(&repository, &verifier)
+        .set_group_rules(100, 10, vec![moderate_when(every_category_off)])
+        .await
+        .expect_err("a condition that can never match is rejected")
+        .to_string();
+
+    assert!(
+        err.contains("every category off"),
+        "unexpected error: {err}"
+    );
+    assert!(verifier.asked().is_empty());
+    assert_eq!(repository.saved(), None);
+}
+
+#[tokio::test]
+async fn test_rules_without_a_key_never_ask_openai() {
+    let repository = Arc::new(SavingRepository::default());
+    let verifier = FakeKeyVerifier::answering(&[]);
+
+    app_with(&repository, &verifier)
+        .set_group_rules(
+            100,
+            10,
+            vec![moderate_when(ModerationCondition::ContainsWords {
+                keywords: vec!["spam".to_string()],
+            })],
+        )
+        .await
+        .unwrap();
+
+    assert!(verifier.asked().is_empty());
+    assert!(repository.saved().is_some());
+}
+
+#[tokio::test]
+async fn test_a_non_owner_never_gets_openai_asked_about_a_key() {
+    let repository = Arc::new(SavingRepository::default());
+    let verifier = FakeKeyVerifier::answering(&[]);
+
+    assert!(
+        app_with(&repository, &verifier)
+            .set_group_rules(999, 10, vec![moderate_when(openai_condition("sk-good"))])
+            .await
+            .is_err()
+    );
+    assert!(verifier.asked().is_empty());
 }

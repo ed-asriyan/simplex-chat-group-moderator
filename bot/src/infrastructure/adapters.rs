@@ -3,6 +3,7 @@ pub mod member_restore_repo_sqlite;
 pub mod moderation_notification_router;
 pub mod moderator_repo_sqlite;
 mod moderator_repo_sqlite_rules;
+pub mod openai_moderation_gateway;
 pub mod simplex_adapter;
 pub mod user_character_activity_repo_in_memory;
 pub mod user_line_activity_repo_in_memory;

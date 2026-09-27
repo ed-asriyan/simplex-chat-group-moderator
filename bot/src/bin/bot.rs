@@ -5,8 +5,9 @@ use bot::domain::bot_dm::ports::{
 use bot::domain::moderator::ports::{
     GroupAdministration, GroupMessage, GroupModerator, MemberRestoreRepository,
     MemberRestoreRunner, MessageAttachment, MessengerGroup, ModerationEngine, ModerationNotifier,
-    ModerationRepository, UserCharacterActivityRepository, UserLineActivityRepository,
-    UserMessageActivityRepository, UserModerationActivityRepository,
+    ModerationRepository, OpenAiKeyVerifier, OpenAiModerationClassifier,
+    UserCharacterActivityRepository, UserLineActivityRepository, UserMessageActivityRepository,
+    UserModerationActivityRepository,
 };
 use bot::domain::moderator::{
     GroupAdministrationApplication, MemberRestoreApplication, MessageModerationApplication,
@@ -15,11 +16,15 @@ use bot::infrastructure::adapters::cross_domain_router::CrossDomainRouter;
 use bot::infrastructure::adapters::member_restore_repo_sqlite::SqliteMemberRestoreRepository;
 use bot::infrastructure::adapters::moderation_notification_router::ModerationNotificationRouter;
 use bot::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository;
+use bot::infrastructure::adapters::openai_moderation_gateway::{
+    OpenAiModerationGateway, OpenAiModerationGatewayConfig,
+};
 use bot::infrastructure::adapters::simplex_adapter::SimplexAdapter;
 use bot::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
 use bot::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
 use bot::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
 use bot::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
+use bot::infrastructure::drivers::openai_moderation::{HttpModerationApi, MODERATIONS_URL};
 use bot::infrastructure::drivers::simplex::{
     MessageAttachment as DriverAttachment, SimpleXConfig, SimplexDriver, SimplexEvent,
 };
@@ -246,6 +251,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let member_restore_repo: Arc<dyn MemberRestoreRepository> =
         Arc::new(SqliteMemberRestoreRepository::new(conn.clone()));
 
+    let openai_gateway = Arc::new(OpenAiModerationGateway::new(
+        Arc::new(HttpModerationApi::new(
+            MODERATIONS_URL,
+            Duration::from_secs(10),
+        )),
+        OpenAiModerationGatewayConfig::default(),
+    ));
+    let openai_classifier: Arc<dyn OpenAiModerationClassifier> = openai_gateway.clone();
+    let openai_key_verifier: Arc<dyn OpenAiKeyVerifier> = openai_gateway;
+
     let simplex_adapter = Arc::new(SimplexAdapter::new(simplex_driver.clone()));
     let bot_messenger: Arc<dyn BotMessenger> = simplex_adapter.clone();
     let group_moderator: Arc<dyn GroupModerator> = simplex_adapter.clone();
@@ -264,10 +279,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         user_line_activity_repo,
         user_moderation_activity_repo,
         member_restore_repo.clone(),
+        openai_classifier,
     ));
-    let group_administration: Arc<dyn GroupAdministration> = Arc::new(
-        GroupAdministrationApplication::new(moderation_repo, group_moderator.clone()),
-    );
+    let group_administration: Arc<dyn GroupAdministration> =
+        Arc::new(GroupAdministrationApplication::new(
+            moderation_repo,
+            group_moderator.clone(),
+            openai_key_verifier,
+        ));
     let member_restore_runner: Arc<dyn MemberRestoreRunner> = Arc::new(
         MemberRestoreApplication::new(member_restore_repo, group_moderator),
     );

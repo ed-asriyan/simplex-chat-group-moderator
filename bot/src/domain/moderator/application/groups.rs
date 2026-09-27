@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::domain::moderator::ports::{
     Err, Group, GroupAdministration, GroupId, GroupInvitation, GroupModerator, MessengerGroupId,
-    ModerationRepository, ModerationRule, OwnedModerationRule, UserId,
+    ModerationRepository, ModerationRule, OpenAiKeyVerifier, OwnedModerationRule, UserId,
 };
 
 #[cfg(test)]
@@ -12,16 +12,21 @@ mod tests;
 pub struct GroupAdministrationApplication {
     repository: Arc<dyn ModerationRepository>,
     group_moderator: Arc<dyn GroupModerator>,
+    /// Asks OpenAI about every key a saved rule set carries, before it is stored.
+    #[allow(dead_code)] // red: set_group_rules does not verify keys yet
+    key_verifier: Arc<dyn OpenAiKeyVerifier>,
 }
 
 impl GroupAdministrationApplication {
     pub fn new(
         repository: Arc<dyn ModerationRepository>,
         group_moderator: Arc<dyn GroupModerator>,
+        key_verifier: Arc<dyn OpenAiKeyVerifier>,
     ) -> Self {
         Self {
             repository,
             group_moderator,
+            key_verifier,
         }
     }
 

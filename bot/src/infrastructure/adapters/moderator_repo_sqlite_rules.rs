@@ -404,6 +404,7 @@ fn build_condition(
         "AuthorJoinedRecently" => Ok(ModerationCondition::AuthorJoinedRecently {
             time_window_minutes: data.joined_recently.get(&id).copied().unwrap_or(0),
         }),
+        "FlaggedByOpenAiModeration" => todo!("load FlaggedByOpenAiModeration"),
         other => Err(format!("unknown condition type '{other}' on condition {id}").into()),
     }
 }

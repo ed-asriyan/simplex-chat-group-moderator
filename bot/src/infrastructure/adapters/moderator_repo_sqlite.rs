@@ -121,6 +121,7 @@ fn insert_condition(
             "AuthorHitsModerationRateLimit"
         }
         ModerationCondition::AuthorJoinedRecently { .. } => "AuthorJoinedRecently",
+        ModerationCondition::FlaggedByOpenAiModeration { .. } => "FlaggedByOpenAiModeration",
     };
     tx.execute(
         "INSERT INTO moderation_conditions (rule_id, parent_id, rank, type) VALUES (?1, ?2, ?3, ?4)",
@@ -280,6 +281,9 @@ fn insert_condition(
                 params![condition_id, time_window_minutes],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
+        }
+        ModerationCondition::FlaggedByOpenAiModeration { .. } => {
+            todo!("insert FlaggedByOpenAiModeration")
         }
     }
     Ok(())

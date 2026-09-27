@@ -832,3 +832,134 @@ fn test_parameterless_conditions_round_trip_through_json() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// FlaggedByOpenAiModeration
+// ---------------------------------------------------------------------------
+
+use super::{CategoryTrigger, OpenAiCategoryTriggers};
+
+fn openai(api_key: &str, triggers: OpenAiCategoryTriggers) -> ModerationCondition {
+    ModerationCondition::FlaggedByOpenAiModeration {
+        api_key: api_key.to_string(),
+        triggers,
+    }
+}
+
+fn hate_only(trigger: CategoryTrigger) -> OpenAiCategoryTriggers {
+    OpenAiCategoryTriggers {
+        hate: trigger,
+        ..Default::default()
+    }
+}
+
+#[test]
+#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
+fn test_openai_condition_is_accepted_with_its_key_trimmed() {
+    let mut condition = openai(
+        " \tsk-proj-abc\n",
+        hate_only(CategoryTrigger::OpenAiDecides),
+    );
+    condition.normalize_and_validate().unwrap();
+    assert_eq!(
+        condition,
+        openai("sk-proj-abc", hate_only(CategoryTrigger::OpenAiDecides))
+    );
+}
+
+#[test]
+#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
+fn test_openai_condition_needs_a_key() {
+    for key in ["", "   ", "\n"] {
+        let err = err_of(&mut openai(key, hate_only(CategoryTrigger::OpenAiDecides)));
+        assert!(err.contains("API key"), "{key:?}: unexpected error: {err}");
+    }
+}
+
+#[test]
+#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
+fn test_openai_key_with_whitespace_inside_is_rejected_without_repeating_it() {
+    for key in ["sk-proj abc", "sk-proj\nabc", "sk-proj\tabc"] {
+        let err = err_of(&mut openai(key, hate_only(CategoryTrigger::OpenAiDecides)));
+        assert!(err.contains("API key"), "{key:?}: unexpected error: {err}");
+        assert!(
+            !err.contains("sk-proj"),
+            "{key:?}: the error leaks the key: {err}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
+fn test_openai_key_length_is_capped_without_repeating_it() {
+    let mut longest = openai(&"k".repeat(256), hate_only(CategoryTrigger::OpenAiDecides));
+    longest.normalize_and_validate().unwrap();
+
+    let too_long = "k".repeat(257);
+    let err = err_of(&mut openai(
+        &too_long,
+        hate_only(CategoryTrigger::OpenAiDecides),
+    ));
+    assert!(err.contains("too long"), "unexpected error: {err}");
+    assert!(!err.contains(&too_long), "the error leaks the key");
+}
+
+#[test]
+#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
+fn test_openai_condition_with_every_category_off_is_rejected() {
+    let err = err_of(&mut openai(
+        "sk-proj-abc",
+        OpenAiCategoryTriggers::default(),
+    ));
+    assert!(
+        err.contains("every category off"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
+fn test_openai_score_threshold_must_be_a_percentage() {
+    for percent in [0, 101, 255] {
+        let err = err_of(&mut openai(
+            "sk-proj-abc",
+            hate_only(CategoryTrigger::MinScorePercent(percent)),
+        ));
+        assert!(
+            err.contains("between 1 and 100") && err.contains("hate"),
+            "{percent}: unexpected error: {err}"
+        );
+    }
+    for percent in [1, 50, 100] {
+        let mut condition = openai(
+            "sk-proj-abc",
+            hate_only(CategoryTrigger::MinScorePercent(percent)),
+        );
+        condition.normalize_and_validate().unwrap();
+    }
+}
+
+#[test]
+#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
+fn test_openai_condition_may_sit_anywhere_in_the_tree_even_under_not() {
+    // The tree knows nothing about its leaves: no placement is special.
+    let mut condition = ModerationCondition::Any {
+        conditions: vec![
+            words("spam"),
+            ModerationCondition::Not {
+                condition: Box::new(openai(
+                    "sk-proj-abc",
+                    hate_only(CategoryTrigger::OpenAiDecides),
+                )),
+            },
+        ],
+    };
+    condition.normalize_and_validate().unwrap();
+}
+
+#[test]
+#[ignore = "red: FlaggedByOpenAiModeration is not implemented yet"]
+fn test_openai_condition_describes_itself_without_its_key() {
+    let condition = openai("sk-proj-abc", hate_only(CategoryTrigger::OpenAiDecides));
+    assert_eq!(condition.describe(), "flagged by OpenAI moderation");
+}

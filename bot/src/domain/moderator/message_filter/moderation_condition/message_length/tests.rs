@@ -210,6 +210,7 @@ fn test_zero_maximum_never_matches() {
 
 #[tokio::test]
 async fn test_integration_with_message_filter_rules() {
+    use crate::domain::moderator::message_filter::tests::UnusedOpenAi;
     use crate::domain::moderator::message_filter::{
         ModerationAction, ModerationCondition, ModerationRule,
         should_moderate as top_level_moderate,
@@ -247,10 +248,18 @@ async fn test_integration_with_message_filter_rules() {
     }];
 
     let matches = async |text: &str, rules: &[ModerationRule]| {
-        top_level_moderate(&msg(text), rules, &repo, &char_repo, &line_repo, &mod_repo)
-            .await
-            .unwrap()
-            .is_some()
+        top_level_moderate(
+            &msg(text),
+            rules,
+            &repo,
+            &char_repo,
+            &line_repo,
+            &mod_repo,
+            &UnusedOpenAi,
+        )
+        .await
+        .unwrap()
+        .is_some()
     };
 
     // Normal message passes

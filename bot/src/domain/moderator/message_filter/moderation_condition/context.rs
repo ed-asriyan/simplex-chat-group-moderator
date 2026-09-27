@@ -11,8 +11,8 @@ use std::collections::HashMap;
 
 use super::ModerationCondition;
 use crate::domain::moderator::ports::{
-    GroupMessage, UserCharacterActivityRepository, UserLineActivityRepository,
-    UserMessageActivityRepository, UserModerationActivityRepository,
+    GroupMessage, OpenAiModerationClassifier, UserCharacterActivityRepository,
+    UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
 };
 
 pub(in crate::domain::moderator::message_filter) struct ConditionContext<'a> {
@@ -21,6 +21,7 @@ pub(in crate::domain::moderator::message_filter) struct ConditionContext<'a> {
     pub character_activity_repo: &'a dyn UserCharacterActivityRepository,
     pub line_activity_repo: &'a dyn UserLineActivityRepository,
     pub moderation_activity_repo: &'a dyn UserModerationActivityRepository,
+    pub openai_classifier: &'a dyn OpenAiModerationClassifier,
 
     /// Whether this message is moderated by a rule that does not itself depend
     /// on `AuthorHitsModerationRateLimit`. Computed by the pre-pass and read by
@@ -45,6 +46,7 @@ impl<'a> ConditionContext<'a> {
         character_activity_repo: &'a dyn UserCharacterActivityRepository,
         line_activity_repo: &'a dyn UserLineActivityRepository,
         moderation_activity_repo: &'a dyn UserModerationActivityRepository,
+        openai_classifier: &'a dyn OpenAiModerationClassifier,
     ) -> Self {
         Self {
             group_message,
@@ -52,6 +54,7 @@ impl<'a> ConditionContext<'a> {
             character_activity_repo,
             line_activity_repo,
             moderation_activity_repo,
+            openai_classifier,
             message_is_moderated: false,
             moderation_rate_limit_pinned: false,
             memo: HashMap::new(),

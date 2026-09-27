@@ -26,6 +26,9 @@ simploxide-client = { version = "0.14.0", features = ["bon"] }
 tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "signal"] }
 tokio-stream = "0.1.17"
 
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+
 [lints.clippy]
 
 [lints.clippy.unwrap_used]
