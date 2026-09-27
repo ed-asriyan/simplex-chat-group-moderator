@@ -96,6 +96,8 @@ struct ErrorBody {
 }
 
 const INSUFFICIENT_QUOTA: &str = "insufficient_quota";
+const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(1);
+const MAX_RETRY_DELAY: Duration = Duration::from_secs(30);
 
 /// Reads OpenAI's answer: its HTTP status, its `Retry-After` header if any,
 /// and its body.
@@ -155,21 +157,27 @@ fn parse_retry_after(value: &str) -> Option<Duration> {
 pub struct HttpModerationApi {
     client: reqwest::Client,
     endpoint: String,
+    max_attempts: usize,
 }
 
 impl HttpModerationApi {
-    /// `timeout` bounds a whole request, connection included.
-    pub fn new(endpoint: impl Into<String>, timeout: Duration) -> Result<Self, Err> {
+    pub fn new(
+        endpoint: impl Into<String>,
+        timeout: Duration,
+        max_attempts: usize,
+    ) -> Result<Self, Err> {
+        if max_attempts == 0 {
+            return Err("max_attempts must be greater than zero".into());
+        }
+
         Ok(Self {
             client: reqwest::Client::builder().timeout(timeout).build()?,
             endpoint: endpoint.into(),
+            max_attempts,
         })
     }
-}
 
-#[async_trait]
-impl ModerationApi for HttpModerationApi {
-    async fn moderate(
+    async fn moderate_once(
         &self,
         api_key: &str,
         text: &str,
@@ -194,5 +202,40 @@ impl ModerationApi for HttpModerationApi {
             .map(str::to_string);
         let body = response.text().await.map_err(transport)?;
         parse_response(status, retry_after.as_deref(), &body)
+    }
+}
+
+fn retry_delay(attempt: usize) -> Duration {
+    let multiplier = 1u64 << attempt.saturating_sub(1).min(4);
+    DEFAULT_RETRY_DELAY
+        .checked_mul(multiplier as u32)
+        .unwrap_or(MAX_RETRY_DELAY)
+        .min(MAX_RETRY_DELAY)
+}
+
+#[async_trait]
+impl ModerationApi for HttpModerationApi {
+    async fn moderate(
+        &self,
+        api_key: &str,
+        text: &str,
+    ) -> Result<RawModeration, ModerationApiError> {
+        for attempt in 1..=self.max_attempts {
+            match self.moderate_once(api_key, text).await {
+                Ok(result) => return Ok(result),
+                Err(error) if attempt < self.max_attempts => {
+                    let delay = match &error {
+                        ModerationApiError::RateLimited {
+                            retry_after: Some(delay),
+                        } => *delay,
+                        _ => retry_delay(attempt),
+                    };
+                    tokio::time::sleep(delay).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
+        unreachable!("max_attempts is guaranteed to be greater than zero")
     }
 }

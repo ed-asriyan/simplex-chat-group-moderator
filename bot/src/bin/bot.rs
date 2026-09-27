@@ -254,7 +254,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // ---- the one queue every OpenAI request goes through ----
     // A request outliving its caller's deadline still holds a slot, so the
     // HTTP timeout stays short: a hung OpenAI costs seconds of capacity, not more.
-    let openai_api = HttpModerationApi::new(MODERATIONS_URL, Duration::from_secs(5))
+    let openai_api = HttpModerationApi::new(MODERATIONS_URL, Duration::from_secs(5), 3)
         .map_err(|e| -> Box<dyn Error> { e.to_string().into() })?;
     let openai_gateway = Arc::new(OpenAiModerationGateway::new(
         Arc::new(openai_api),
