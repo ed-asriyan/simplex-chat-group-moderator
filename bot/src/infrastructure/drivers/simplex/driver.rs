@@ -509,7 +509,8 @@ async fn handle_event(
         Event::ChatItemUpdated(chat_item) => {
             if let CIContent::RcvMsgContent { msg_content, .. } =
                 &chat_item.chat_item.chat_item.content
-                && let ChatInfo::Group { group_info, .. } = &chat_item.chat_item.chat_info
+                && let ChatInfo::Group { group_info, group_chat_scope, .. } = &chat_item.chat_item.chat_info
+                && let None = group_chat_scope
                 && let CIDirection::GroupRcv { group_member, .. } =
                     &chat_item.chat_item.chat_item.chat_dir
                 && let GroupMemberRole::Member = group_member.member_role
