@@ -1866,7 +1866,12 @@ impl OpenAi for UnusedOpenAi {
         panic!("no key is checked while moderating a message")
     }
 
-    async fn classify(&self, _api_key: &str, _text: &str) -> Result<OpenAiModerationResult, Err> {
+    async fn classify(
+        &self,
+        _api_key: &str,
+        _text: &str,
+        _retry: &crate::domain::moderator::ports::OpenAiRetry,
+    ) -> Result<OpenAiModerationResult, Err> {
         panic!("OpenAI was asked about a message no rule sends to it")
     }
     async fn matches_instruction(
@@ -1875,6 +1880,7 @@ impl OpenAi for UnusedOpenAi {
         _model: &str,
         _instruction: &str,
         _text: &str,
+        _retry: &crate::domain::moderator::ports::OpenAiRetry,
     ) -> Result<OpenAiInstructionVerdict, Err> {
         panic!("OpenAI was asked about a message no rule sends to it")
     }
@@ -1933,7 +1939,12 @@ impl OpenAi for ScriptedOpenAi {
         panic!("no key is checked while moderating a message")
     }
 
-    async fn classify(&self, api_key: &str, text: &str) -> Result<OpenAiModerationResult, Err> {
+    async fn classify(
+        &self,
+        api_key: &str,
+        text: &str,
+        _retry: &crate::domain::moderator::ports::OpenAiRetry,
+    ) -> Result<OpenAiModerationResult, Err> {
         self.calls
             .lock()
             .unwrap()
@@ -1947,6 +1958,7 @@ impl OpenAi for ScriptedOpenAi {
         model: &str,
         instruction: &str,
         text: &str,
+        _retry: &crate::domain::moderator::ports::OpenAiRetry,
     ) -> Result<OpenAiInstructionVerdict, Err> {
         self.instruction_calls.lock().unwrap().push((
             api_key.to_string(),
@@ -1971,6 +1983,7 @@ fn openai_hate(api_key: &str) -> ModerationCondition {
     let mut triggers = OpenAiCategoryTriggers::default();
     triggers.hate = CategoryTrigger::OpenAiDecides;
     ModerationCondition::FlaggedByOmniModeration {
+        retry: Default::default(),
         api_key: api_key.to_string(),
         triggers,
     }
@@ -2011,7 +2024,10 @@ fn test_openai_condition_wire_format_matches_the_editor_schema() {
         "sexual": "off"
     }"#;
     let condition: ModerationCondition = serde_json::from_str(json).unwrap();
-    let ModerationCondition::FlaggedByOmniModeration { api_key, triggers } = &condition else {
+    let ModerationCondition::FlaggedByOmniModeration {
+        api_key, triggers, ..
+    } = &condition
+    else {
         panic!("expected FlaggedByOmniModeration, got {condition:?}");
     };
     assert_eq!(api_key, "sk-proj-abc");
@@ -2029,7 +2045,9 @@ fn test_openai_condition_wire_format_matches_the_editor_schema() {
     assert_eq!(written["hate"], "openai");
     assert_eq!(written["violence"], 80);
     assert_eq!(written["self_harm_instructions"], "off");
-    assert_eq!(written.as_object().unwrap().len(), 2 + 13);
+    assert_eq!(written.as_object().unwrap().len(), 2 + 13 + 2);
+    assert_eq!(written["max_attempts"], 3);
+    assert_eq!(written["retry_delay_seconds"], 1);
 
     let reread: ModerationCondition = serde_json::from_value(written).unwrap();
     assert_eq!(reread, condition);
@@ -2236,6 +2254,7 @@ async fn test_openai_is_not_asked_for_a_rule_whose_actions_are_already_planned()
 
 fn openai_instruction(api_key: &str) -> ModerationCondition {
     ModerationCondition::FlaggedByOpenAiInstruction {
+        retry: Default::default(),
         api_key: api_key.to_string(),
         model: "gpt-4o-mini".to_string(),
         instruction: "Block crypto ads.".to_string(),
@@ -2260,7 +2279,9 @@ fn test_openai_instruction_wire_format_matches_the_editor_schema() {
             "type": "FlaggedByOpenAiInstruction",
             "api_key": "sk-proj-abc",
             "model": "gpt-4o-mini",
-            "instruction": "Block crypto ads."
+            "instruction": "Block crypto ads.",
+            "max_attempts": 3,
+            "retry_delay_seconds": 1
         })
     );
 }

@@ -1195,6 +1195,25 @@
                                 }
                             ],
                             "default": "openai"
+                        },
+                        "max_attempts": {
+                            "type": "integer",
+                            "title": "Attempts",
+                            "description": "How many times the bot calls OpenAI for one message before giving up and treating the message as not matching. 1 means no retry. Only failures that can pass are retried — OpenAI being down, a timeout, rate limiting — not a rejected key. The message waits while this runs, so keep it low.",
+                            "minimum": 1,
+                            "maximum": 5,
+                            "default": 3
+                        },
+                        "retry_delay_seconds": {
+                            "type": "integer",
+                            "title": "Pause Between Attempts (Seconds)",
+                            "description": "How long the bot waits after a failed call before trying again. Not used when Attempts is 1.",
+                            "minimum": 0,
+                            "maximum": 10,
+                            "default": 1,
+                            "options": {
+                                "label": "Pause, s"
+                            }
                         }
                     },
                     "options": {
@@ -1263,6 +1282,25 @@
                             "title": "Instruction",
                             "default": "",
                             "description": "What to catch, written to the model: describe what should match and what should not, e.g. \"Match advertising: crypto promotions, casinos, unsolicited offers. Do not match normal conversation or technical questions.\" The model answers yes or no for each message, plus a one-sentence reason. The instruction is sent with every message."
+                        },
+                        "max_attempts": {
+                            "type": "integer",
+                            "title": "Attempts",
+                            "description": "How many times the bot calls OpenAI for one message before giving up and treating the message as not matching. 1 means no retry. Only failures that can pass are retried — OpenAI being down, a timeout, rate limiting — not a rejected key. The message waits while this runs, so keep it low.",
+                            "minimum": 1,
+                            "maximum": 5,
+                            "default": 3
+                        },
+                        "retry_delay_seconds": {
+                            "type": "integer",
+                            "title": "Pause Between Attempts (Seconds)",
+                            "description": "How long the bot waits after a failed call before trying again. Not used when Attempts is 1.",
+                            "minimum": 0,
+                            "maximum": 10,
+                            "default": 1,
+                            "options": {
+                                "label": "Pause, s"
+                            }
                         }
                     },
                     "options": {

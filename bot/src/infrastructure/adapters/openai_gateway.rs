@@ -33,6 +33,7 @@ use tokio::time::Instant;
 
 use crate::domain::moderator::ports::{
     Err, KeyCheck, OpenAi, OpenAiCategory, OpenAiInstructionVerdict, OpenAiModerationResult,
+    OpenAiRetry,
 };
 use crate::infrastructure::drivers::openai::{
     HttpOpenAiApi, Judgement, OpenAiApi, OpenAiApiError, RawModeration,
@@ -92,8 +93,10 @@ impl Default for OpenAiGatewayConfig {
 /// seconds of capacity, not more.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Tries per request while OpenAI fails transiently.
-const HTTP_MAX_ATTEMPTS: usize = 3;
+/// Tries per HTTP request. One: how often a message is tried again is the
+/// owner's setting on the condition, and the gateway's `ask` does the retrying
+/// so that every try is paced against the key like any other request.
+const HTTP_MAX_ATTEMPTS: usize = 1;
 
 /// What a key check sends: harmless, short, and the same every time.
 const KEY_CHECK_TEXT: &str = "hello";
@@ -120,6 +123,7 @@ enum Priority {
 }
 
 /// What a job asks OpenAI.
+#[derive(Clone)]
 enum Call {
     /// The moderation model's scores for a text.
     Moderate { text: String },
@@ -227,32 +231,57 @@ impl OpenAiGateway {
         }
     }
 
-    /// A message's call: admitted against the key's pacing, then queued. A
-    /// refusal is logged here, so the ports can just say "no verdict".
-    async fn ask(&self, api_key: &str, call: Call) -> Result<Answer, Err> {
+    /// A message's call, tried up to `retry.max_attempts` times while OpenAI
+    /// fails in a way that can pass, `retry.retry_delay_seconds` apart. Each
+    /// try is admitted against the key's pacing and has the call's whole
+    /// deadline. A refusal is logged here, so the ports can just say "no
+    /// verdict".
+    async fn ask(&self, api_key: &str, call: Call, retry: &OpenAiRetry) -> Result<Answer, Err> {
+        let attempts = retry.max_attempts.max(1);
+        let delay = Duration::from_secs(u64::from(retry.retry_delay_seconds));
+        let mut attempt = 1;
+        loop {
+            let refusal = match self.ask_once(api_key, &call).await {
+                Ok(answer) => return Ok(answer),
+                Err(refusal) => refusal,
+            };
+            let can_pass = match &refusal {
+                Refusal::Api(error) => error.is_transient(),
+                Refusal::Timeout => true,
+                Refusal::Local(_) => false,
+            };
+            if !can_pass || attempt >= attempts {
+                match &refusal {
+                    Refusal::Local(why) => {
+                        debug!("OpenAI request skipped for key {}: {why}", hint(api_key))
+                    }
+                    other => warn!(
+                        "OpenAI request failed for key {} after {attempt} of {attempts} attempt(s), giving up: {other:?}",
+                        hint(api_key)
+                    ),
+                }
+                return Err(format!("no OpenAI verdict: {refusal:?}").into());
+            }
+            warn!(
+                "OpenAI request failed for key {} on attempt {attempt} of {attempts}, retrying in {}s: {refusal:?}",
+                hint(api_key),
+                delay.as_secs()
+            );
+            tokio::time::sleep(delay).await;
+            attempt += 1;
+        }
+    }
+
+    async fn ask_once(&self, api_key: &str, call: &Call) -> Result<Answer, Refusal> {
         let now = Instant::now();
         let deadline = now
             + match call {
                 Call::Moderate { .. } => self.config.classify_deadline,
                 Call::Judge { .. } => self.config.judge_deadline,
             };
-        let admitted = lock(&self.keys).admit(api_key, now, &self.config);
-        let result = match admitted {
-            Ok(()) => {
-                self.submit(api_key, call, Priority::Classify, deadline)
-                    .await
-            }
-            Err(refusal) => Err(refusal),
-        };
-        result.map_err(|refusal| {
-            match &refusal {
-                Refusal::Local(why) => {
-                    debug!("OpenAI request skipped for key {}: {why}", hint(api_key))
-                }
-                other => warn!("OpenAI request failed for key {}: {other:?}", hint(api_key)),
-            }
-            format!("no OpenAI verdict: {refusal:?}").into()
-        })
+        lock(&self.keys).admit(api_key, now, &self.config)?;
+        self.submit(api_key, call.clone(), Priority::Classify, deadline)
+            .await
     }
 
     /// A key check. It asks OpenAI even when the key is being refused locally
@@ -302,11 +331,16 @@ impl OpenAiGateway {
 
 #[async_trait]
 impl OpenAi for OpenAiGateway {
-    async fn classify(&self, api_key: &str, text: &str) -> Result<OpenAiModerationResult, Err> {
+    async fn classify(
+        &self,
+        api_key: &str,
+        text: &str,
+        retry: &OpenAiRetry,
+    ) -> Result<OpenAiModerationResult, Err> {
         let call = Call::Moderate {
             text: text.to_string(),
         };
-        match self.ask(api_key, call).await? {
+        match self.ask(api_key, call, retry).await? {
             Answer::Moderation(raw) => Ok(translate(raw)),
             Answer::Verdict(_) => Err("OpenAI answered a moderation call with a verdict".into()),
         }
@@ -318,13 +352,14 @@ impl OpenAi for OpenAiGateway {
         model: &str,
         instruction: &str,
         text: &str,
+        retry: &OpenAiRetry,
     ) -> Result<OpenAiInstructionVerdict, Err> {
         let call = Call::Judge {
             model: model.to_string(),
             instruction: instruction.to_string(),
             text: text.to_string(),
         };
-        match self.ask(api_key, call).await? {
+        match self.ask(api_key, call, retry).await? {
             Answer::Verdict(judgement) => Ok(OpenAiInstructionVerdict {
                 matches: judgement.matches,
                 reason: judgement.reason,

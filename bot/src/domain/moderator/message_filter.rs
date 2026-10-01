@@ -88,7 +88,7 @@ mod tests;
 pub use moderation_action::ModerationAction;
 pub use moderation_condition::{
     CategoryTrigger, ModerationCondition, OpenAiCategory, OpenAiCategoryTriggers,
-    OpenAiModerationResult,
+    OpenAiModerationResult, OpenAiRetry,
 };
 pub use moderation_rule::ModerationRule;
 pub use screen_lines::count_effective_lines;

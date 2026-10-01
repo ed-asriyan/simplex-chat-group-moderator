@@ -603,6 +603,7 @@ use crate::domain::moderator::ports::{CategoryTrigger, OpenAiCategoryTriggers};
 
 fn openai_condition(api_key: &str) -> ModerationCondition {
     ModerationCondition::FlaggedByOmniModeration {
+        retry: Default::default(),
         api_key: api_key.to_string(),
         triggers: OpenAiCategoryTriggers {
             hate: CategoryTrigger::OpenAiDecides,
@@ -646,6 +647,7 @@ async fn test_round_trips_openai_moderation_condition_with_every_category_on() {
     assert_round_trips(
         2102,
         ModerationCondition::FlaggedByOmniModeration {
+            retry: Default::default(),
             api_key: "sk-proj-abc".to_string(),
             triggers: OpenAiCategoryTriggers::all(CategoryTrigger::OpenAiDecides),
         },
@@ -758,6 +760,7 @@ async fn test_openai_rows_go_with_replaced_rules_and_with_the_group() {
 
 fn instructed(api_key: &str, model: &str) -> ModerationCondition {
     ModerationCondition::FlaggedByOpenAiInstruction {
+        retry: Default::default(),
         api_key: api_key.to_string(),
         model: model.to_string(),
         instruction: "Block crypto ads.\nAllow \"quotes\" and ünïcode — всё.".to_string(),

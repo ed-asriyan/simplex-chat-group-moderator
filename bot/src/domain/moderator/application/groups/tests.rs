@@ -18,7 +18,12 @@ struct UnusedKeyVerifier;
 
 #[async_trait]
 impl OpenAi for UnusedKeyVerifier {
-    async fn classify(&self, _api_key: &str, _text: &str) -> Result<OpenAiModerationResult, Err> {
+    async fn classify(
+        &self,
+        _api_key: &str,
+        _text: &str,
+        _retry: &crate::domain::moderator::ports::OpenAiRetry,
+    ) -> Result<OpenAiModerationResult, Err> {
         panic!("no message is moderated while saving rules")
     }
 
@@ -28,6 +33,7 @@ impl OpenAi for UnusedKeyVerifier {
         _model: &str,
         _instruction: &str,
         _text: &str,
+        _retry: &crate::domain::moderator::ports::OpenAiRetry,
     ) -> Result<OpenAiInstructionVerdict, Err> {
         panic!("no message is moderated while saving rules")
     }
@@ -203,7 +209,12 @@ impl FakeKeyVerifier {
 
 #[async_trait]
 impl OpenAi for FakeKeyVerifier {
-    async fn classify(&self, _api_key: &str, _text: &str) -> Result<OpenAiModerationResult, Err> {
+    async fn classify(
+        &self,
+        _api_key: &str,
+        _text: &str,
+        _retry: &crate::domain::moderator::ports::OpenAiRetry,
+    ) -> Result<OpenAiModerationResult, Err> {
         panic!("no message is moderated while saving rules")
     }
 
@@ -213,6 +224,7 @@ impl OpenAi for FakeKeyVerifier {
         _model: &str,
         _instruction: &str,
         _text: &str,
+        _retry: &crate::domain::moderator::ports::OpenAiRetry,
     ) -> Result<OpenAiInstructionVerdict, Err> {
         panic!("no message is moderated while saving rules")
     }
@@ -302,6 +314,7 @@ fn app_with(
 
 fn openai_condition(api_key: &str) -> ModerationCondition {
     ModerationCondition::FlaggedByOmniModeration {
+        retry: Default::default(),
         api_key: api_key.to_string(),
         triggers: OpenAiCategoryTriggers {
             hate: CategoryTrigger::OpenAiDecides,
@@ -439,6 +452,7 @@ async fn test_a_malformed_condition_is_rejected_before_openai_is_asked() {
     let repository = Arc::new(SavingRepository::default());
     let verifier = FakeKeyVerifier::answering(&[]);
     let every_category_off = ModerationCondition::FlaggedByOmniModeration {
+        retry: Default::default(),
         api_key: "sk-good".to_string(),
         triggers: OpenAiCategoryTriggers::default(),
     };
@@ -493,6 +507,7 @@ async fn test_a_non_owner_never_gets_openai_asked_about_a_key() {
 
 fn instructed(api_key: &str, model: &str) -> ModerationCondition {
     ModerationCondition::FlaggedByOpenAiInstruction {
+        retry: Default::default(),
         api_key: api_key.to_string(),
         model: model.to_string(),
         instruction: "Block crypto ads.".to_string(),

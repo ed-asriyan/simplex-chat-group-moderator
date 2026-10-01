@@ -49,7 +49,7 @@ use serde::{Deserialize, Serialize};
 
 pub(super) use context::ConditionContext;
 pub use openai_moderation::{
-    CategoryTrigger, OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult,
+    CategoryTrigger, OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult, OpenAiRetry,
 };
 
 mod context;
@@ -198,6 +198,8 @@ pub enum ModerationCondition {
         api_key: String,
         #[serde(flatten)]
         triggers: OpenAiCategoryTriggers,
+        #[serde(flatten)]
+        retry: OpenAiRetry,
     },
     /// An OpenAI `model`, asked with the owner's own `api_key` and given the
     /// owner's `instruction`, answers that the message is what the instruction
@@ -207,6 +209,8 @@ pub enum ModerationCondition {
         api_key: String,
         model: String,
         instruction: String,
+        #[serde(flatten)]
+        retry: OpenAiRetry,
     },
 }
 
@@ -576,14 +580,17 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
             *time_window_minutes,
             "'Author Joined Recently' needs a time window of at least 1 minute",
         ),
-        ModerationCondition::FlaggedByOmniModeration { api_key, triggers } => {
-            normalize_and_validate_omni_moderation(api_key, triggers)
-        }
+        ModerationCondition::FlaggedByOmniModeration {
+            api_key,
+            triggers,
+            retry,
+        } => normalize_and_validate_omni_moderation(api_key, triggers, retry),
         ModerationCondition::FlaggedByOpenAiInstruction {
             api_key,
             model,
             instruction,
-        } => normalize_and_validate_openai_instruction(api_key, model, instruction),
+            retry,
+        } => normalize_and_validate_openai_instruction(api_key, model, instruction, retry),
         ModerationCondition::IsBlank
         | ModerationCondition::ContainsInvisibleCharacters
         | ModerationCondition::ContainsImage
@@ -609,8 +616,10 @@ const MAX_OPENAI_API_KEY_LENGTH: usize = 256;
 fn normalize_and_validate_omni_moderation(
     api_key: &mut String,
     triggers: &OpenAiCategoryTriggers,
+    retry: &OpenAiRetry,
 ) -> Result<(), Err> {
     normalize_openai_api_key(api_key, "Flagged by OpenAI Omni")?;
+    retry.validate("Flagged by OpenAI Omni")?;
 
     for category in OpenAiCategory::ALL {
         if let CategoryTrigger::MinScorePercent(percent) = triggers.get(category)
@@ -654,9 +663,11 @@ fn normalize_and_validate_openai_instruction(
     api_key: &mut String,
     model: &str,
     instruction: &mut String,
+    retry: &OpenAiRetry,
 ) -> Result<(), Err> {
     const TITLE: &str = "Flagged by OpenAI Instruction";
     normalize_openai_api_key(api_key, TITLE)?;
+    retry.validate(TITLE)?;
     if !OPENAI_INSTRUCTION_MODELS.contains(&model) {
         return Err(format!(
             "'{TITLE}' cannot use the model '{model}'. Pick one of: {}",
@@ -1136,13 +1147,17 @@ async fn evaluate(
             ctx.group_message.timestamp,
             *time_window_minutes,
         )),
-        ModerationCondition::FlaggedByOmniModeration { api_key, triggers } => {
+        ModerationCondition::FlaggedByOmniModeration {
+            api_key,
+            triggers,
+            retry,
+        } => {
             let text = &ctx.group_message.text;
             // Nothing to show OpenAI: a caption-less attachment or blank text.
             if text.trim().is_empty() {
                 return Ok(None);
             }
-            match ctx.openai.classify(api_key, text).await {
+            match ctx.openai.classify(api_key, text, retry).await {
                 Ok(verdict) => Ok(openai_moderation::should_moderate(triggers, &verdict)),
                 // No verdict is no match: OpenAI being down, rate limited or
                 // refusing the key must not stop the other rules. The adapter
@@ -1154,6 +1169,7 @@ async fn evaluate(
             api_key,
             model,
             instruction,
+            retry,
         } => {
             let text = &ctx.group_message.text;
             if text.trim().is_empty() {
@@ -1161,7 +1177,7 @@ async fn evaluate(
             }
             match ctx
                 .openai
-                .matches_instruction(api_key, model, instruction, text)
+                .matches_instruction(api_key, model, instruction, text, retry)
                 .await
             {
                 Ok(verdict) if verdict.matches => {

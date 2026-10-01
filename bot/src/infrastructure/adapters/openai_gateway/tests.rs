@@ -1,5 +1,5 @@
 use super::{OpenAiGateway, OpenAiGatewayConfig};
-use crate::domain::moderator::ports::{KeyCheck, OpenAi, OpenAiCategory};
+use crate::domain::moderator::ports::{KeyCheck, OpenAi, OpenAiCategory, OpenAiRetry};
 use crate::infrastructure::drivers::openai::{Judgement, OpenAiApi, OpenAiApiError, RawModeration};
 use async_trait::async_trait;
 use std::collections::{HashMap, VecDeque};
@@ -177,7 +177,10 @@ async fn test_classify_sends_key_and_text_unchanged() {
     let api = FakeApi::new();
     let gateway = start_gateway(&api, config());
 
-    gateway.classify("sk-one", "  привет  ").await.unwrap();
+    gateway
+        .classify("sk-one", "  привет  ", &OpenAiRetry::NONE)
+        .await
+        .unwrap();
 
     assert_eq!(
         api.calls(),
@@ -206,7 +209,10 @@ async fn test_classify_translates_openai_names_and_ignores_unknown_categories() 
     );
     let gateway = start_gateway(&api, config());
 
-    let verdict = gateway.classify("sk-one", "text").await.unwrap();
+    let verdict = gateway
+        .classify("sk-one", "text", &OpenAiRetry::NONE)
+        .await
+        .unwrap();
 
     assert_eq!(
         verdict.flagged.into_iter().collect::<Vec<_>>(),
@@ -237,7 +243,10 @@ async fn test_classify_fails_whenever_openai_gives_no_verdict() {
         api.answer("sk-one", vec![Err(failure.clone())]);
         let gateway = start_gateway(&api, config());
         assert!(
-            gateway.classify("sk-one", "text").await.is_err(),
+            gateway
+                .classify("sk-one", "text", &OpenAiRetry::NONE)
+                .await
+                .is_err(),
             "{failure:?} should be an error"
         );
     }
@@ -314,8 +323,16 @@ async fn test_verify_is_not_charged_to_the_token_bucket() {
         },
     );
 
-    gateway.classify("sk-one", "text").await.unwrap();
-    assert!(gateway.classify("sk-one", "text").await.is_err());
+    gateway
+        .classify("sk-one", "text", &OpenAiRetry::NONE)
+        .await
+        .unwrap();
+    assert!(
+        gateway
+            .classify("sk-one", "text", &OpenAiRetry::NONE)
+            .await
+            .is_err()
+    );
 
     // A flooded group must not stop its owner from saving rules.
     assert_eq!(gateway.verify("sk-one").await, KeyCheck::Valid);
@@ -337,13 +354,33 @@ async fn test_a_key_past_its_rate_is_refused_without_asking_openai() {
         },
     );
 
-    assert!(gateway.classify("sk-one", "a").await.is_ok());
-    assert!(gateway.classify("sk-one", "b").await.is_ok());
-    assert!(gateway.classify("sk-one", "c").await.is_err());
+    assert!(
+        gateway
+            .classify("sk-one", "a", &OpenAiRetry::NONE)
+            .await
+            .is_ok()
+    );
+    assert!(
+        gateway
+            .classify("sk-one", "b", &OpenAiRetry::NONE)
+            .await
+            .is_ok()
+    );
+    assert!(
+        gateway
+            .classify("sk-one", "c", &OpenAiRetry::NONE)
+            .await
+            .is_err()
+    );
     assert_eq!(api.call_count(), 2);
 
     // Another key has a bucket of its own.
-    assert!(gateway.classify("sk-two", "d").await.is_ok());
+    assert!(
+        gateway
+            .classify("sk-two", "d", &OpenAiRetry::NONE)
+            .await
+            .is_ok()
+    );
     assert_eq!(api.call_count(), 3);
 }
 
@@ -357,15 +394,36 @@ async fn test_a_key_bucket_refills_over_time() {
             ..config()
         },
     );
-    gateway.classify("sk-one", "a").await.unwrap();
-    gateway.classify("sk-one", "b").await.unwrap();
-    assert!(gateway.classify("sk-one", "c").await.is_err());
+    gateway
+        .classify("sk-one", "a", &OpenAiRetry::NONE)
+        .await
+        .unwrap();
+    gateway
+        .classify("sk-one", "b", &OpenAiRetry::NONE)
+        .await
+        .unwrap();
+    assert!(
+        gateway
+            .classify("sk-one", "c", &OpenAiRetry::NONE)
+            .await
+            .is_err()
+    );
 
     // Two a minute is one every 30 seconds.
     tokio::time::advance(Duration::from_secs(31)).await;
 
-    assert!(gateway.classify("sk-one", "d").await.is_ok());
-    assert!(gateway.classify("sk-one", "e").await.is_err());
+    assert!(
+        gateway
+            .classify("sk-one", "d", &OpenAiRetry::NONE)
+            .await
+            .is_ok()
+    );
+    assert!(
+        gateway
+            .classify("sk-one", "e", &OpenAiRetry::NONE)
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -379,14 +437,34 @@ async fn test_a_rate_limited_key_rests_until_retry_after() {
     );
     let gateway = start_gateway(&api, config());
 
-    assert!(gateway.classify("sk-one", "a").await.is_err());
-    assert!(gateway.classify("sk-one", "b").await.is_err());
+    assert!(
+        gateway
+            .classify("sk-one", "a", &OpenAiRetry::NONE)
+            .await
+            .is_err()
+    );
+    assert!(
+        gateway
+            .classify("sk-one", "b", &OpenAiRetry::NONE)
+            .await
+            .is_err()
+    );
     assert_eq!(api.call_count(), 1, "a resting key is not sent again");
-    assert!(gateway.classify("sk-two", "c").await.is_ok());
+    assert!(
+        gateway
+            .classify("sk-two", "c", &OpenAiRetry::NONE)
+            .await
+            .is_ok()
+    );
 
     tokio::time::advance(Duration::from_secs(31)).await;
 
-    assert!(gateway.classify("sk-one", "d").await.is_ok());
+    assert!(
+        gateway
+            .classify("sk-one", "d", &OpenAiRetry::NONE)
+            .await
+            .is_ok()
+    );
     assert_eq!(api.keys_called(), vec!["sk-one", "sk-two", "sk-one"]);
 }
 
@@ -405,11 +483,26 @@ async fn test_a_rate_limited_key_without_retry_after_rests_for_the_default() {
         },
     );
 
-    assert!(gateway.classify("sk-one", "a").await.is_err());
+    assert!(
+        gateway
+            .classify("sk-one", "a", &OpenAiRetry::NONE)
+            .await
+            .is_err()
+    );
     tokio::time::advance(Duration::from_secs(10)).await;
-    assert!(gateway.classify("sk-one", "b").await.is_err());
+    assert!(
+        gateway
+            .classify("sk-one", "b", &OpenAiRetry::NONE)
+            .await
+            .is_err()
+    );
     tokio::time::advance(Duration::from_secs(11)).await;
-    assert!(gateway.classify("sk-one", "c").await.is_ok());
+    assert!(
+        gateway
+            .classify("sk-one", "c", &OpenAiRetry::NONE)
+            .await
+            .is_ok()
+    );
     assert_eq!(api.call_count(), 2);
 }
 
@@ -426,14 +519,35 @@ async fn test_a_key_openai_refused_is_refused_locally_for_a_while() {
             },
         );
 
-        assert!(gateway.classify("sk-one", "a").await.is_err());
-        assert!(gateway.classify("sk-one", "b").await.is_err());
+        assert!(
+            gateway
+                .classify("sk-one", "a", &OpenAiRetry::NONE)
+                .await
+                .is_err()
+        );
+        assert!(
+            gateway
+                .classify("sk-one", "b", &OpenAiRetry::NONE)
+                .await
+                .is_err()
+        );
         assert_eq!(api.call_count(), 1, "{refusal:?}: not sent again");
-        assert!(gateway.classify("sk-two", "c").await.is_ok());
+        assert!(
+            gateway
+                .classify("sk-two", "c", &OpenAiRetry::NONE)
+                .await
+                .is_ok()
+        );
 
         tokio::time::advance(Duration::from_secs(601)).await;
 
-        assert!(gateway.classify("sk-one", "d").await.is_ok(), "{refusal:?}");
+        assert!(
+            gateway
+                .classify("sk-one", "d", &OpenAiRetry::NONE)
+                .await
+                .is_ok(),
+            "{refusal:?}"
+        );
         assert_eq!(api.call_count(), 3, "{refusal:?}");
     }
 }
@@ -443,11 +557,21 @@ async fn test_verify_asks_about_a_refused_key_and_a_valid_answer_lifts_the_refus
     let api = FakeApi::new();
     api.answer("sk-one", vec![Err(OpenAiApiError::Forbidden)]);
     let gateway = start_gateway(&api, config());
-    assert!(gateway.classify("sk-one", "a").await.is_err());
+    assert!(
+        gateway
+            .classify("sk-one", "a", &OpenAiRetry::NONE)
+            .await
+            .is_err()
+    );
 
     // The owner allowed Moderations on the key and sends the link again.
     assert_eq!(gateway.verify("sk-one").await, KeyCheck::Valid);
-    assert!(gateway.classify("sk-one", "b").await.is_ok());
+    assert!(
+        gateway
+            .classify("sk-one", "b", &OpenAiRetry::NONE)
+            .await
+            .is_ok()
+    );
     assert_eq!(api.call_count(), 3);
 }
 
@@ -469,7 +593,11 @@ async fn test_no_more_than_max_in_flight_requests_run_at_once() {
     let jobs: Vec<_> = (0..5)
         .map(|i| {
             let gateway = gateway.clone();
-            tokio::spawn(async move { gateway.classify(&format!("sk-{i}"), "text").await })
+            tokio::spawn(async move {
+                gateway
+                    .classify(&format!("sk-{i}"), "text", &OpenAiRetry::NONE)
+                    .await
+            })
         })
         .collect();
     eventually("two requests in flight", || api.call_count() == 2).await;
@@ -498,21 +626,26 @@ async fn test_one_key_cannot_take_more_than_its_share_of_the_queue() {
 
     let first = {
         let gateway = gateway.clone();
-        tokio::spawn(async move { gateway.classify("sk-one", "1").await })
+        tokio::spawn(async move { gateway.classify("sk-one", "1", &OpenAiRetry::NONE).await })
     };
     eventually("the first request in flight", || api.call_count() == 1).await;
     let second = {
         let gateway = gateway.clone();
-        tokio::spawn(async move { gateway.classify("sk-one", "2").await })
+        tokio::spawn(async move { gateway.classify("sk-one", "2", &OpenAiRetry::NONE).await })
     };
     tokio::time::sleep(Duration::from_millis(20)).await;
 
     // sk-one already has one job waiting: the next is refused on the spot…
-    assert!(gateway.classify("sk-one", "3").await.is_err());
+    assert!(
+        gateway
+            .classify("sk-one", "3", &OpenAiRetry::NONE)
+            .await
+            .is_err()
+    );
     // …while another key still gets in line.
     let other = {
         let gateway = gateway.clone();
-        tokio::spawn(async move { gateway.classify("sk-two", "4").await })
+        tokio::spawn(async move { gateway.classify("sk-two", "4", &OpenAiRetry::NONE).await })
     };
     tokio::time::sleep(Duration::from_millis(20)).await;
 
@@ -537,12 +670,20 @@ async fn test_key_checks_jump_the_queue() {
 
     let busy = {
         let gateway = gateway.clone();
-        tokio::spawn(async move { gateway.classify("sk-busy", "text").await })
+        tokio::spawn(async move {
+            gateway
+                .classify("sk-busy", "text", &OpenAiRetry::NONE)
+                .await
+        })
     };
     eventually("the first request in flight", || api.call_count() == 1).await;
     let message = {
         let gateway = gateway.clone();
-        tokio::spawn(async move { gateway.classify("sk-message", "text").await })
+        tokio::spawn(async move {
+            gateway
+                .classify("sk-message", "text", &OpenAiRetry::NONE)
+                .await
+        })
     };
     tokio::time::sleep(Duration::from_millis(20)).await;
     let check = {
@@ -569,9 +710,12 @@ async fn test_classify_gives_up_at_its_deadline() {
         },
     );
 
-    let result = tokio::time::timeout(Duration::from_secs(5), gateway.classify("sk-one", "text"))
-        .await
-        .expect("classify must not outlive its deadline");
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        gateway.classify("sk-one", "text", &OpenAiRetry::NONE),
+    )
+    .await
+    .expect("classify must not outlive its deadline");
     assert!(result.is_err());
 }
 
@@ -589,10 +733,15 @@ async fn test_a_job_that_waited_past_its_deadline_is_never_sent() {
 
     let first = {
         let gateway = gateway.clone();
-        tokio::spawn(async move { gateway.classify("sk-one", "text").await })
+        tokio::spawn(async move { gateway.classify("sk-one", "text", &OpenAiRetry::NONE).await })
     };
     eventually("the first request in flight", || api.call_count() == 1).await;
-    assert!(gateway.classify("sk-two", "text").await.is_err());
+    assert!(
+        gateway
+            .classify("sk-two", "text", &OpenAiRetry::NONE)
+            .await
+            .is_err()
+    );
 
     gate.add_permits(2);
     let _ = first.await.unwrap();
@@ -611,13 +760,25 @@ async fn test_matches_instruction_sends_model_instruction_and_text_and_reads_the
     let gateway = start_gateway(&api, config());
 
     let first = gateway
-        .matches_instruction("sk-one", "gpt-4o-mini", "Block ads.", "  buy  ")
+        .matches_instruction(
+            "sk-one",
+            "gpt-4o-mini",
+            "Block ads.",
+            "  buy  ",
+            &OpenAiRetry::NONE,
+        )
         .await
         .unwrap();
     assert!(first.matches);
     assert_eq!(first.reason, "reason: true");
     let second = gateway
-        .matches_instruction("sk-one", "gpt-4o-mini", "Block ads.", "hi")
+        .matches_instruction(
+            "sk-one",
+            "gpt-4o-mini",
+            "Block ads.",
+            "hi",
+            &OpenAiRetry::NONE,
+        )
         .await
         .unwrap();
     assert!(!second.matches);
@@ -652,7 +813,7 @@ async fn test_matches_instruction_fails_whenever_openai_gives_no_verdict() {
         let gateway = start_gateway(&api, config());
         assert!(
             gateway
-                .matches_instruction("sk-one", "gpt-4o-mini", "i", "t")
+                .matches_instruction("sk-one", "gpt-4o-mini", "i", "t", &OpenAiRetry::NONE)
                 .await
                 .is_err(),
             "{failure:?} should be an error"
@@ -672,20 +833,30 @@ async fn test_one_key_shares_its_rate_between_both_endpoints() {
         },
     );
 
-    assert!(gateway.classify("sk-one", "a").await.is_ok());
     assert!(
         gateway
-            .matches_instruction("sk-one", "gpt-4o-mini", "i", "b")
+            .classify("sk-one", "a", &OpenAiRetry::NONE)
             .await
             .is_ok()
     );
     assert!(
         gateway
-            .matches_instruction("sk-one", "gpt-4o-mini", "i", "c")
+            .matches_instruction("sk-one", "gpt-4o-mini", "i", "b", &OpenAiRetry::NONE)
+            .await
+            .is_ok()
+    );
+    assert!(
+        gateway
+            .matches_instruction("sk-one", "gpt-4o-mini", "i", "c", &OpenAiRetry::NONE)
             .await
             .is_err()
     );
-    assert!(gateway.classify("sk-one", "d").await.is_err());
+    assert!(
+        gateway
+            .classify("sk-one", "d", &OpenAiRetry::NONE)
+            .await
+            .is_err()
+    );
     assert_eq!(api.call_count(), 2);
 }
 
@@ -697,11 +868,16 @@ async fn test_a_key_refused_by_one_endpoint_is_refused_for_both() {
 
     assert!(
         gateway
-            .matches_instruction("sk-one", "gpt-4o-mini", "i", "a")
+            .matches_instruction("sk-one", "gpt-4o-mini", "i", "a", &OpenAiRetry::NONE)
             .await
             .is_err()
     );
-    assert!(gateway.classify("sk-one", "b").await.is_err());
+    assert!(
+        gateway
+            .classify("sk-one", "b", &OpenAiRetry::NONE)
+            .await
+            .is_err()
+    );
     assert_eq!(api.call_count(), 1);
 }
 
@@ -786,4 +962,63 @@ async fn test_a_moderation_key_check_does_not_read_400_as_a_model_problem() {
     );
     let gateway = start_gateway(&api, config());
     assert_eq!(gateway.verify("sk-one").await, KeyCheck::Unreachable);
+}
+
+// ---------------------------------------------------------------------------
+// Retries
+// ---------------------------------------------------------------------------
+
+#[tokio::test(start_paused = true)]
+async fn test_a_transient_failure_is_tried_again_up_to_the_owners_attempts() {
+    let api = FakeApi::new();
+    api.answer(
+        "sk-one",
+        vec![
+            Err(OpenAiApiError::Server { status: 503 }),
+            Err(OpenAiApiError::Server { status: 503 }),
+            Ok(RawModeration::default()),
+        ],
+    );
+    let gateway = start_gateway(&api, config());
+    let retry = OpenAiRetry {
+        max_attempts: 3,
+        retry_delay_seconds: 2,
+    };
+
+    let started = tokio::time::Instant::now();
+    gateway.classify("sk-one", "text", &retry).await.unwrap();
+
+    assert_eq!(api.call_count(), 3);
+    assert!(started.elapsed() >= Duration::from_secs(4));
+}
+
+#[tokio::test(start_paused = true)]
+async fn test_the_last_attempt_fails_for_good() {
+    let api = FakeApi::new();
+    api.answer(
+        "sk-one",
+        vec![Err(OpenAiApiError::Server { status: 500 }); 5],
+    );
+    let gateway = start_gateway(&api, config());
+    let retry = OpenAiRetry {
+        max_attempts: 2,
+        retry_delay_seconds: 0,
+    };
+
+    assert!(gateway.classify("sk-one", "text", &retry).await.is_err());
+    assert_eq!(api.call_count(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn test_a_failure_that_cannot_pass_is_not_tried_again() {
+    let api = FakeApi::new();
+    api.answer("sk-one", vec![Err(OpenAiApiError::Unauthorized)]);
+    let gateway = start_gateway(&api, config());
+    let retry = OpenAiRetry {
+        max_attempts: 5,
+        retry_delay_seconds: 0,
+    };
+
+    assert!(gateway.classify("sk-one", "text", &retry).await.is_err());
+    assert_eq!(api.call_count(), 1);
 }

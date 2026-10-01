@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use crate::domain::moderator::ports::{
     CategoryTrigger, Err, ModerationAction, ModerationCondition, ModerationRule, OpenAiCategory,
-    OpenAiCategoryTriggers, OwnedModerationRule,
+    OpenAiCategoryTriggers, OpenAiRetry, OwnedModerationRule,
 };
 use rusqlite::params;
 use std::sync::{Arc, Mutex};
@@ -182,9 +182,9 @@ struct ConditionData {
     line_rate_limit: HashMap<i64, (u32, u32, u32)>,
     moderation_rate_limit: HashMap<i64, (u32, u32)>,
     joined_recently: HashMap<i64, u32>,
-    openai_api_keys: HashMap<i64, String>,
+    openai_api_keys: HashMap<i64, (String, OpenAiRetry)>,
     openai_triggers: HashMap<i64, OpenAiCategoryTriggers>,
-    openai_instructions: HashMap<i64, (String, String, String)>,
+    openai_instructions: HashMap<i64, (String, String, String, OpenAiRetry)>,
 }
 
 impl ConditionData {
@@ -304,21 +304,29 @@ impl ConditionData {
             )?,
             openai_api_keys: load_condition_settings(
                 guard,
-                "s.api_key",
+                "s.api_key, s.max_attempts, s.retry_delay_seconds",
                 "moderation_condition__flagged_by_omni_moderation",
                 gid,
-                |row| row.get::<_, String>(1),
+                |row| Ok((row.get::<_, String>(1)?, read_retry(row, 2)?)),
             )?,
             openai_triggers: load_openai_category_triggers(guard, gid)?,
             openai_instructions: load_condition_settings(
                 guard,
-                "s.api_key, s.model, s.instruction",
+                "s.api_key, s.model, s.instruction, s.max_attempts, s.retry_delay_seconds",
                 "moderation_condition__flagged_by_openai_instruction",
                 gid,
-                |row| Ok((row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| Ok((row.get(1)?, row.get(2)?, row.get(3)?, read_retry(row, 4)?)),
             )?,
         })
     }
+}
+
+/// The retry settings in columns `first` and `first + 1`.
+fn read_retry(row: &rusqlite::Row<'_>, first: usize) -> rusqlite::Result<OpenAiRetry> {
+    Ok(OpenAiRetry {
+        max_attempts: row.get::<_, i64>(first)? as u32,
+        retry_delay_seconds: row.get::<_, i64>(first + 1)? as u32,
+    })
 }
 
 /// Rebuild the condition rooted at `id` from the loaded rows.
@@ -463,12 +471,16 @@ fn build_condition(
         "AuthorJoinedRecently" => Ok(ModerationCondition::AuthorJoinedRecently {
             time_window_minutes: data.joined_recently.get(&id).copied().unwrap_or(0),
         }),
-        "FlaggedByOmniModeration" => Ok(ModerationCondition::FlaggedByOmniModeration {
-            api_key: data.openai_api_keys.get(&id).cloned().unwrap_or_default(),
-            triggers: data.openai_triggers.get(&id).copied().unwrap_or_default(),
-        }),
+        "FlaggedByOmniModeration" => {
+            let (api_key, retry) = data.openai_api_keys.get(&id).cloned().unwrap_or_default();
+            Ok(ModerationCondition::FlaggedByOmniModeration {
+                api_key,
+                triggers: data.openai_triggers.get(&id).copied().unwrap_or_default(),
+                retry,
+            })
+        }
         "FlaggedByOpenAiInstruction" => {
-            let (api_key, model, instruction) = data
+            let (api_key, model, instruction, retry) = data
                 .openai_instructions
                 .get(&id)
                 .cloned()
@@ -477,6 +489,7 @@ fn build_condition(
                 api_key,
                 model,
                 instruction,
+                retry,
             })
         }
         other => Err(format!("unknown condition type '{other}' on condition {id}").into()),

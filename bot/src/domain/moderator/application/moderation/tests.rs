@@ -3380,7 +3380,12 @@ impl OpenAi for UnusedOpenAi {
         panic!("no key is checked while moderating a message")
     }
 
-    async fn classify(&self, _api_key: &str, _text: &str) -> Result<OpenAiModerationResult, Err> {
+    async fn classify(
+        &self,
+        _api_key: &str,
+        _text: &str,
+        _retry: &crate::domain::moderator::ports::OpenAiRetry,
+    ) -> Result<OpenAiModerationResult, Err> {
         panic!("OpenAI was asked about a message no rule sends to it")
     }
     async fn matches_instruction(
@@ -3389,6 +3394,7 @@ impl OpenAi for UnusedOpenAi {
         _model: &str,
         _instruction: &str,
         _text: &str,
+        _retry: &crate::domain::moderator::ports::OpenAiRetry,
     ) -> Result<OpenAiInstructionVerdict, Err> {
         panic!("OpenAI was asked about a message no rule sends to it")
     }
@@ -3410,7 +3416,12 @@ impl OpenAi for ScriptedOpenAi {
         panic!("no key is checked while moderating a message")
     }
 
-    async fn classify(&self, _api_key: &str, text: &str) -> Result<OpenAiModerationResult, Err> {
+    async fn classify(
+        &self,
+        _api_key: &str,
+        text: &str,
+        _retry: &crate::domain::moderator::ports::OpenAiRetry,
+    ) -> Result<OpenAiModerationResult, Err> {
         self.texts.lock().unwrap().push(text.to_string());
         self.answer.clone().map_err(Err::from)
     }
@@ -3421,6 +3432,7 @@ impl OpenAi for ScriptedOpenAi {
         _model: &str,
         _instruction: &str,
         text: &str,
+        _retry: &crate::domain::moderator::ports::OpenAiRetry,
     ) -> Result<OpenAiInstructionVerdict, Err> {
         self.texts.lock().unwrap().push(text.to_string());
         Ok(OpenAiInstructionVerdict {
@@ -3445,6 +3457,7 @@ fn app_with_openai_rule(
                 rule: ModerationRule {
                     actions: vec![ModerationAction::ModerateMessage],
                     condition: ModerationCondition::FlaggedByOmniModeration {
+                        retry: Default::default(),
                         api_key: "sk-owner".to_string(),
                         triggers,
                     },
@@ -3556,6 +3569,7 @@ async fn test_a_message_a_model_says_matches_the_instruction_is_deleted() {
                 rule: ModerationRule {
                     actions: vec![ModerationAction::ModerateMessage],
                     condition: ModerationCondition::FlaggedByOpenAiInstruction {
+                        retry: Default::default(),
                         api_key: "sk-owner".to_string(),
                         model: "gpt-4o-mini".to_string(),
                         instruction: "Block crypto ads.".to_string(),

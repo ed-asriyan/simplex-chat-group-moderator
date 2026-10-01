@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use super::types::{
     Err, Group, GroupId, GroupMemberRole, KeyCheck, MessageId, MessengerGroupId, ModerationAction,
-    ModerationRule, OpenAiInstructionVerdict, OpenAiModerationResult, OwnedModerationRule,
-    ScheduledMemberRestore, UserId,
+    ModerationRule, OpenAiInstructionVerdict, OpenAiModerationResult, OpenAiRetry,
+    OwnedModerationRule, ScheduledMemberRestore, UserId,
 };
 
 /// Outbound port: notify a group owner that moderation actions were performed.
@@ -237,7 +237,12 @@ pub trait UserModerationActivityRepository: Send + Sync {
 /// Key checks (`verify`, `verify_model`) are asked when an owner saves rules.
 #[async_trait]
 pub trait OpenAi: Send + Sync {
-    async fn classify(&self, api_key: &str, text: &str) -> Result<OpenAiModerationResult, Err>;
+    async fn classify(
+        &self,
+        api_key: &str,
+        text: &str,
+        retry: &OpenAiRetry,
+    ) -> Result<OpenAiModerationResult, Err>;
 
     /// Whether `model`, given the owner's `instruction`, says `text` is what
     /// the instruction describes, and why.
@@ -247,6 +252,7 @@ pub trait OpenAi: Send + Sync {
         model: &str,
         instruction: &str,
         text: &str,
+        retry: &OpenAiRetry,
     ) -> Result<OpenAiInstructionVerdict, Err>;
 
     /// Whether a key can call the moderation endpoint.

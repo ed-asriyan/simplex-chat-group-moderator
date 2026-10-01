@@ -2,7 +2,7 @@
 
 pub use crate::domain::moderator::message_filter::{
     CategoryTrigger, ModerationAction, ModerationCondition, ModerationMatch, ModerationRule,
-    OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult,
+    OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult, OpenAiRetry,
 };
 use chrono::{DateTime, Utc};
 use std::error::Error;

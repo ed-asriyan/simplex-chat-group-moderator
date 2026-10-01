@@ -841,6 +841,7 @@ use super::{CategoryTrigger, OpenAiCategoryTriggers};
 
 fn openai(api_key: &str, triggers: OpenAiCategoryTriggers) -> ModerationCondition {
     ModerationCondition::FlaggedByOmniModeration {
+        retry: Default::default(),
         api_key: api_key.to_string(),
         triggers,
     }
@@ -962,6 +963,7 @@ fn test_openai_condition_describes_itself_without_its_key() {
 
 fn instructed(api_key: &str, model: &str, instruction: &str) -> ModerationCondition {
     ModerationCondition::FlaggedByOpenAiInstruction {
+        retry: Default::default(),
         api_key: api_key.to_string(),
         model: model.to_string(),
         instruction: instruction.to_string(),
@@ -990,6 +992,36 @@ fn test_openai_instruction_accepts_every_listed_model_and_nothing_else() {
             err.contains("cannot use the model") && err.contains("gpt-4o-mini"),
             "{model:?}: unexpected error: {err}"
         );
+    }
+}
+
+#[test]
+fn test_openai_retry_settings_are_capped() {
+    use super::OpenAiRetry;
+    for (max_attempts, retry_delay_seconds) in [(1, 0), (5, 10), (3, 1)] {
+        let mut condition = instructed("sk-proj-abc", "gpt-4o-mini", "Block ads.");
+        if let ModerationCondition::FlaggedByOpenAiInstruction { retry, .. } = &mut condition {
+            *retry = OpenAiRetry {
+                max_attempts,
+                retry_delay_seconds,
+            };
+        }
+        condition.normalize_and_validate().unwrap();
+    }
+    for (max_attempts, retry_delay_seconds, expected) in [
+        (0, 1, "between 1 and 5 attempts"),
+        (6, 1, "between 1 and 5 attempts"),
+        (3, 11, "at most 10 seconds"),
+    ] {
+        let mut condition = instructed("sk-proj-abc", "gpt-4o-mini", "Block ads.");
+        if let ModerationCondition::FlaggedByOpenAiInstruction { retry, .. } = &mut condition {
+            *retry = OpenAiRetry {
+                max_attempts,
+                retry_delay_seconds,
+            };
+        }
+        let err = err_of(&mut condition);
+        assert!(err.contains(expected), "{err}");
     }
 }
 

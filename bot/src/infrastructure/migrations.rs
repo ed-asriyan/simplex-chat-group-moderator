@@ -81,7 +81,7 @@ mod tests {
         let version: i64 = guard
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 31);
+        assert_eq!(version, 32);
     }
 
     /// 0022 rebuilds every rule as a `moderation_rules` row plus a condition
@@ -655,6 +655,7 @@ mod tests {
         assert_eq!(
             rules[0].rule.condition,
             ModerationCondition::FlaggedByOmniModeration {
+                retry: Default::default(),
                 api_key: "sk-proj-abc".to_string(),
                 triggers: OpenAiCategoryTriggers {
                     hate: CategoryTrigger::OpenAiDecides,

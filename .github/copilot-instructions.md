@@ -84,8 +84,10 @@ Each bounded context follows the same internal shape:
     messages and key checks) for both OpenAI conditions (`FlaggedByOmniModeration`
     and `FlaggedByOpenAiInstruction`, each with the owner's own key). It builds
     its own HTTP drivers, so `bin/bot.rs` only calls `OpenAiGateway::new()`;
-    tests start it over scripted ones. Every OpenAI
-    request, whichever endpoint, goes through its in-process queue: a token
+    tests start it over scripted ones. A message call is tried up to the condition's own `max_attempts` times,
+    `retry_delay_seconds` apart (the driver itself makes one try), each try
+    paced like any other request. Every
+    OpenAI request, whichever endpoint, goes through its in-process queue: a token
     bucket per key — OpenAI's limits are the key's, not the endpoint's — a cap
     on what one key may have waiting, a cap on requests in flight, a rest after
     429 and a local refusal after 401/403; key checks jump the queue. A job that cannot be taken fails at once rather than blocking,

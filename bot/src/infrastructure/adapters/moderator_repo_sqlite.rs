@@ -283,10 +283,19 @@ fn insert_condition(
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::FlaggedByOmniModeration { api_key, triggers } => {
+        ModerationCondition::FlaggedByOmniModeration {
+            api_key,
+            triggers,
+            retry,
+        } => {
             tx.execute(
-                "INSERT INTO moderation_condition__flagged_by_omni_moderation (condition_id, api_key) VALUES (?1, ?2)",
-                params![condition_id, api_key],
+                "INSERT INTO moderation_condition__flagged_by_omni_moderation (condition_id, api_key, max_attempts, retry_delay_seconds) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    condition_id,
+                    api_key,
+                    retry.max_attempts,
+                    retry.retry_delay_seconds
+                ],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
             let mut stmt = tx
@@ -309,10 +318,18 @@ fn insert_condition(
             api_key,
             model,
             instruction,
+            retry,
         } => {
             tx.execute(
-                "INSERT INTO moderation_condition__flagged_by_openai_instruction (condition_id, api_key, model, instruction) VALUES (?1, ?2, ?3, ?4)",
-                params![condition_id, api_key, model, instruction],
+                "INSERT INTO moderation_condition__flagged_by_openai_instruction (condition_id, api_key, model, instruction, max_attempts, retry_delay_seconds) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    condition_id,
+                    api_key,
+                    model,
+                    instruction,
+                    retry.max_attempts,
+                    retry.retry_delay_seconds
+                ],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
