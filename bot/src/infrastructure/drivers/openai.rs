@@ -50,7 +50,8 @@ pub struct RawModeration {
 /// what the instruction describes, and why.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct Judgement {
-    pub matches: bool,
+    /// Whether the message should be deleted: the text matches the instruction.
+    pub delete: bool,
     pub reason: String,
 }
 
@@ -214,10 +215,8 @@ fn parse_moderation_response(
 // ---------------------------------------------------------------------------
 
 /// What the answer's fields mean, as the model is told.
-const MATCHES_DESCRIPTION: &str =
-    "true if the message is one the instructions ask to catch, false otherwise";
-const REASON_DESCRIPTION: &str =
-    "Why, in one short sentence of at most 20 words, naming what in the message decided it";
+const MATCHES_DESCRIPTION: &str = "Whether the message should be deleted.";
+const REASON_DESCRIPTION: &str = "The reason why the message should or should not be deleted.";
 
 /// Room for the verdict and a sentence of reason. An answer cut off by this
 /// limit is no verdict, so it is generous next to what the schema asks for.
@@ -238,15 +237,15 @@ fn judgement_request_body(model: &str, instruction: &str, text: &str) -> serde_j
         "text": {
             "format": {
                 "type": "json_schema",
-                "name": "verdict",
+                "name": "message_delete_decision",
                 "strict": true,
                 "schema": {
                     "type": "object",
                     "properties": {
-                        "matches": { "type": "boolean", "description": MATCHES_DESCRIPTION },
+                        "delete": { "type": "boolean", "description": MATCHES_DESCRIPTION },
                         "reason": { "type": "string", "description": REASON_DESCRIPTION }
                     },
-                    "required": ["matches", "reason"],
+                    "required": ["delete", "reason"],
                     "additionalProperties": false
                 }
             }

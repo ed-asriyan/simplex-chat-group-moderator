@@ -76,7 +76,7 @@ impl FakeApi {
             .or_default()
             .extend(verdicts.into_iter().map(|verdict| {
                 verdict.map(|matches| Judgement {
-                    matches,
+                    delete: matches,
                     reason: format!("reason: {matches}"),
                 })
             }));
@@ -133,7 +133,7 @@ impl OpenAiApi for FakeApi {
             .get_mut(api_key)
             .and_then(VecDeque::pop_front)
             .unwrap_or(Ok(Judgement {
-                matches: false,
+                delete: false,
                 reason: String::new(),
             }))
     }

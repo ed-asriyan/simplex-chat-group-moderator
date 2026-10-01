@@ -266,9 +266,9 @@ fn judgement_answer(verdict_text: &str) -> String {
     .to_string()
 }
 
-fn judgement(matches: bool, reason: &str) -> Judgement {
+fn judgement(delete: bool, reason: &str) -> Judgement {
     Judgement {
-        matches,
+        delete,
         reason: reason.to_string(),
     }
 }
@@ -294,10 +294,10 @@ fn test_request_holds_the_answer_to_a_boolean_and_a_reason() {
     assert_eq!(format["strict"], true);
     assert_eq!(
         format["schema"]["required"],
-        serde_json::json!(["matches", "reason"])
+        serde_json::json!(["delete", "reason"])
     );
     assert_eq!(format["schema"]["additionalProperties"], false);
-    assert_eq!(format["schema"]["properties"]["matches"]["type"], "boolean");
+    assert_eq!(format["schema"]["properties"]["delete"]["type"], "boolean");
     assert_eq!(format["schema"]["properties"]["reason"]["type"], "string");
 }
 
@@ -307,7 +307,7 @@ fn test_reads_the_verdict_and_its_reason() {
         parse_judgement_response(
             200,
             None,
-            &judgement_answer(r#"{"matches":true,"reason":"Promotes a crypto airdrop."}"#)
+            &judgement_answer(r#"{"delete":true,"reason":"Promotes a crypto airdrop."}"#)
         ),
         Ok(judgement(true, "Promotes a crypto airdrop."))
     );
@@ -315,7 +315,7 @@ fn test_reads_the_verdict_and_its_reason() {
         parse_judgement_response(
             200,
             None,
-            &judgement_answer("{\n  \"matches\": false,\n  \"reason\": \"A greeting.\"\n}")
+            &judgement_answer("{\n  \"delete\": false,\n  \"reason\": \"A greeting.\"\n}")
         ),
         Ok(judgement(false, "A greeting."))
     );
@@ -328,7 +328,7 @@ fn test_finds_the_verdict_after_other_output_items() {
         "output": [
             { "type": "reasoning", "id": "rs_1", "summary": [] },
             { "type": "message", "content": [
-                { "type": "output_text", "text": "{\"matches\":true,\"reason\":\"Spam.\"}" }
+                { "type": "output_text", "text": "{\"delete\":true,\"reason\":\"Spam.\"}" }
             ] }
         ]
     })
@@ -371,8 +371,8 @@ fn test_anything_but_the_schema_is_no_verdict() {
     for text in [
         "true",
         "{\"value\":true}",
-        "{\"matches\":\"yes\",\"reason\":\"r\"}",
-        "{\"matches\":true}",
+        "{\"delete\":\"yes\",\"reason\":\"r\"}",
+        "{\"delete\":true}",
         "maybe",
         "",
     ] {

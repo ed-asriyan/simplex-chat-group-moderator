@@ -361,7 +361,7 @@ impl OpenAi for OpenAiGateway {
         };
         match self.ask(api_key, call, retry).await? {
             Answer::Verdict(judgement) => Ok(OpenAiInstructionVerdict {
-                matches: judgement.matches,
+                matches: judgement.delete,
                 reason: judgement.reason,
             }),
             Answer::Moderation(_) => Err("OpenAI answered a model call with moderation".into()),
