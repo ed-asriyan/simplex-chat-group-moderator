@@ -958,11 +958,11 @@ fn test_openai_condition_describes_itself_without_its_key() {
 }
 
 // ---------------------------------------------------------------------------
-// FlaggedByOpenAiInstruction
+// FlaggedByOpenRouterInstruction
 // ---------------------------------------------------------------------------
 
 fn instructed(api_key: &str, model: &str, instruction: &str) -> ModerationCondition {
-    ModerationCondition::FlaggedByOpenAiInstruction {
+    ModerationCondition::FlaggedByOpenRouterInstruction {
         retry: Default::default(),
         api_key: api_key.to_string(),
         model: model.to_string(),
@@ -971,37 +971,47 @@ fn instructed(api_key: &str, model: &str, instruction: &str) -> ModerationCondit
 }
 
 #[test]
-fn test_openai_instruction_is_accepted_with_key_and_instruction_trimmed() {
-    let mut condition = instructed(" sk-proj-abc\n", "gpt-4o-mini", "\n  Block crypto ads.  \n");
+fn test_openrouter_instruction_is_accepted_with_key_and_instruction_trimmed() {
+    let mut condition = instructed(
+        " sk-proj-abc\n",
+        "openai/gpt-4o-mini",
+        "\n  Block crypto ads.  \n",
+    );
     condition.normalize_and_validate().unwrap();
     assert_eq!(
         condition,
-        instructed("sk-proj-abc", "gpt-4o-mini", "Block crypto ads.")
+        instructed("sk-proj-abc", "openai/gpt-4o-mini", "Block crypto ads.")
     );
 }
 
 #[test]
-fn test_openai_instruction_accepts_every_listed_model_and_nothing_else() {
-    for model in super::OPENAI_INSTRUCTION_MODELS {
+fn test_openrouter_instruction_accepts_every_listed_model_and_nothing_else() {
+    for model in super::OPENROUTER_INSTRUCTION_MODELS {
         let mut condition = instructed("sk-proj-abc", model, "Block ads.");
         condition.normalize_and_validate().unwrap();
     }
-    for model in ["gpt-5", "o3-mini", "GPT-4o-mini", " gpt-4o-mini", ""] {
+    for model in [
+        "openai/gpt-5",
+        "gpt-4o-mini",
+        "OpenAI/gpt-4o-mini",
+        " openai/gpt-4o-mini",
+        "",
+    ] {
         let err = err_of(&mut instructed("sk-proj-abc", model, "Block ads."));
         assert!(
-            err.contains("cannot use the model") && err.contains("gpt-4o-mini"),
+            err.contains("cannot use the model") && err.contains("openai/gpt-4o-mini"),
             "{model:?}: unexpected error: {err}"
         );
     }
 }
 
 #[test]
-fn test_openai_retry_settings_are_capped() {
-    use super::OpenAiRetry;
+fn test_api_retry_settings_are_capped() {
+    use super::ApiRetry;
     for (max_attempts, retry_delay_seconds) in [(1, 0), (5, 10), (3, 1)] {
-        let mut condition = instructed("sk-proj-abc", "gpt-4o-mini", "Block ads.");
-        if let ModerationCondition::FlaggedByOpenAiInstruction { retry, .. } = &mut condition {
-            *retry = OpenAiRetry {
+        let mut condition = instructed("sk-proj-abc", "openai/gpt-4o-mini", "Block ads.");
+        if let ModerationCondition::FlaggedByOpenRouterInstruction { retry, .. } = &mut condition {
+            *retry = ApiRetry {
                 max_attempts,
                 retry_delay_seconds,
             };
@@ -1013,9 +1023,9 @@ fn test_openai_retry_settings_are_capped() {
         (6, 1, "between 1 and 5 attempts"),
         (3, 11, "at most 10 seconds"),
     ] {
-        let mut condition = instructed("sk-proj-abc", "gpt-4o-mini", "Block ads.");
-        if let ModerationCondition::FlaggedByOpenAiInstruction { retry, .. } = &mut condition {
-            *retry = OpenAiRetry {
+        let mut condition = instructed("sk-proj-abc", "openai/gpt-4o-mini", "Block ads.");
+        if let ModerationCondition::FlaggedByOpenRouterInstruction { retry, .. } = &mut condition {
+            *retry = ApiRetry {
                 max_attempts,
                 retry_delay_seconds,
             };
@@ -1026,9 +1036,13 @@ fn test_openai_retry_settings_are_capped() {
 }
 
 #[test]
-fn test_openai_instruction_needs_an_instruction() {
+fn test_openrouter_instruction_needs_an_instruction() {
     for instruction in ["", "   ", "\n\t"] {
-        let err = err_of(&mut instructed("sk-proj-abc", "gpt-4o-mini", instruction));
+        let err = err_of(&mut instructed(
+            "sk-proj-abc",
+            "openai/gpt-4o-mini",
+            instruction,
+        ));
         assert!(
             err.contains("needs an instruction"),
             "{instruction:?}: {err}"
@@ -1037,13 +1051,17 @@ fn test_openai_instruction_needs_an_instruction() {
 }
 
 #[test]
-fn test_openai_instruction_length_is_capped() {
-    let longest = "я".repeat(super::MAX_OPENAI_INSTRUCTION_LENGTH);
-    let mut condition = instructed("sk-proj-abc", "gpt-4o-mini", &longest);
+fn test_openrouter_instruction_length_is_capped() {
+    let longest = "я".repeat(super::MAX_OPENROUTER_INSTRUCTION_LENGTH);
+    let mut condition = instructed("sk-proj-abc", "openai/gpt-4o-mini", &longest);
     condition.normalize_and_validate().unwrap();
 
-    let too_long = "я".repeat(super::MAX_OPENAI_INSTRUCTION_LENGTH + 1);
-    let err = err_of(&mut instructed("sk-proj-abc", "gpt-4o-mini", &too_long));
+    let too_long = "я".repeat(super::MAX_OPENROUTER_INSTRUCTION_LENGTH + 1);
+    let err = err_of(&mut instructed(
+        "sk-proj-abc",
+        "openai/gpt-4o-mini",
+        &too_long,
+    ));
     assert!(
         err.contains("instruction is too long"),
         "unexpected error: {err}"
@@ -1051,18 +1069,22 @@ fn test_openai_instruction_length_is_capped() {
 }
 
 #[test]
-fn test_openai_instruction_key_is_checked_like_every_openai_key() {
-    let err = err_of(&mut instructed("  ", "gpt-4o-mini", "Block ads."));
+fn test_openrouter_instruction_key_is_checked_like_every_api_key() {
+    let err = err_of(&mut instructed("  ", "openai/gpt-4o-mini", "Block ads."));
     assert!(err.contains("API key"), "unexpected error: {err}");
 
-    let err = err_of(&mut instructed("sk-proj abc", "gpt-4o-mini", "Block ads."));
+    let err = err_of(&mut instructed(
+        "sk-proj abc",
+        "openai/gpt-4o-mini",
+        "Block ads.",
+    ));
     assert!(err.contains("API key") && !err.contains("sk-proj"), "{err}");
 }
 
 #[test]
-fn test_openai_instruction_describes_itself_without_its_key() {
+fn test_openrouter_instruction_describes_itself_without_its_key() {
     assert_eq!(
-        instructed("sk-proj-abc", "gpt-4.1-mini", "Block ads.").describe(),
-        "flagged by OpenAI instruction (gpt-4.1-mini)"
+        instructed("sk-proj-abc", "openai/gpt-4.1-mini", "Block ads.").describe(),
+        "flagged by OpenRouter instruction (openai/gpt-4.1-mini)"
     );
 }

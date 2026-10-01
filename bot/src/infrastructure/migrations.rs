@@ -81,7 +81,7 @@ mod tests {
         let version: i64 = guard
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 32);
+        assert_eq!(version, 33);
     }
 
     /// 0022 rebuilds every rule as a `moderation_rules` row plus a condition
@@ -673,6 +673,69 @@ mod tests {
         let left: i64 = guard
             .query_row(
                 "SELECT COUNT(*) FROM moderation_condition__flagged_by_omni_moderation__categories",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(left, 0);
+    }
+
+    /// 0033 renames `FlaggedByOpenAiInstruction` to
+    /// `FlaggedByOpenRouterInstruction`. A stored condition has to come back
+    /// under the new name, with its OpenAI model under OpenRouter's name for it
+    /// and every other setting intact.
+    #[tokio::test]
+    async fn test_0033_moves_the_openai_instruction_condition_to_openrouter() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        apply_through(&mut conn, 32).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name)
+                  VALUES (8, 800, 80, 'Instruction Group');
+             INSERT INTO moderation_rules (id, group_id, rank) VALUES (1, 8, 0);
+             INSERT INTO moderation_actions (id, rule_id, rank, type)
+                  VALUES (1, 1, 0, 'ModerateMessage');
+             INSERT INTO moderation_action__moderate_message (action_id) VALUES (1);
+             INSERT INTO moderation_conditions (id, rule_id, parent_id, rank, type)
+                  VALUES (1, 1, NULL, 0, 'FlaggedByOpenAiInstruction');
+             INSERT INTO moderation_condition__flagged_by_openai_instruction
+                  (condition_id, api_key, model, instruction, max_attempts, retry_delay_seconds)
+                  VALUES (1, 'sk-proj-abc', 'gpt-4.1-mini', 'Match ads.', 2, 4);",
+        )
+        .unwrap();
+
+        apply_through(&mut conn, usize::MAX).unwrap();
+        let conn = Arc::new(Mutex::new(conn));
+        let repo =
+            crate::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository::new(
+                conn.clone(),
+            );
+        use crate::domain::moderator::ports::{
+            ApiRetry, ModerationCondition, ModerationRepository,
+        };
+        let rules = repo.get_group_rules(&8).await.unwrap();
+        assert_eq!(
+            rules[0].rule.condition,
+            ModerationCondition::FlaggedByOpenRouterInstruction {
+                api_key: "sk-proj-abc".to_string(),
+                model: "openai/gpt-4.1-mini".to_string(),
+                instruction: "Match ads.".to_string(),
+                retry: ApiRetry {
+                    max_attempts: 2,
+                    retry_delay_seconds: 4,
+                },
+            }
+        );
+
+        // Deleting the group still reaches the renamed table.
+        let guard = conn.lock().unwrap();
+        guard
+            .execute("DELETE FROM moderation_groups WHERE group_id = 8", [])
+            .unwrap();
+        let left: i64 = guard
+            .query_row(
+                "SELECT COUNT(*) FROM moderation_condition__flagged_by_openrouter_instruction",
                 [],
                 |row| row.get(0),
             )

@@ -19,7 +19,7 @@ There are two independent surfaces — DM conversation handling and group messag
 ### The web editor is schema-driven
 `webeditor/` is four static files published to GitHub Pages: `index.html` (a shell), `editor.css`, `editor.js` (the renderer) and `ai.js` (the AI handoff; see below). Their only dependency is lz-string. **`editor.js` knows no condition or action type by name.** It builds its registry from `rules-schema.json` at load: the entry's `title` gives the row label, its leading emoji gives the icon *and* the group in the type picker; `description` becomes the text behind the row's `ⓘ`; `properties` become the controls (`integer` → number field, `boolean` → checkbox, `array` of strings → chips, or a textarea in bulk mode past `BIG_LIST` (20) entries, `$ref` to a condition → nested rows, `string` with `format: password` → a masked field with a show button (a JSON Schema annotation; the value itself travels in the link like any other, but never into the AI prompt — see below), `string` → a text field, `string` with `format: textarea` → several lines, shown in the Apply diff by length rather than in full, `oneOf` of `const`s plus at most one integer branch → a select with a number field for the integer branch, whose `options.unit` follows the number); `default`, `minimum`/`maximum`, `maxItems`/`maxLength` and each field's own `description` are used as they are. So **a new rule type needs no frontend code** — only the `oneOf` entry described in the steps below. The one exception is a type whose title opens with a *new* subject emoji: the picker's group label for an emoji lives in `GROUPS` in `editor.js`, and an emoji missing from it falls into "Other". A type the schema does not know (a rule stored by a newer bot) renders as a read-only unknown row and is sent back untouched.
 
-What the schema cannot express lives in optional `options` keys on the same entry, each with a fallback when absent: `summary` (the one-line value summary in the row), `phrase` (the human wording in the rules list, mirroring `ModerationCondition::describe`), `execution_rank` and `covered_by` (action order and coverage — that knowledge belongs to `action_planner`; an entry is either a type name or `{type, when}` when the coverage depends on a setting, as `KickAuthor` covers `ModerateMessage` only with `delete_all_messages` on), `label` (a short field label when the schema `title` is a whole sentence), `short` (the row label when the title is too long for a nested row on a phone — the full title stays under `ⓘ` and in the AI prompt), `never_under_not` (mirrors `check_no_moderation_rate_limit_under_not`). `definitions.condition.options.max_depth` / `max_nodes` mirror `MAX_CONDITION_DEPTH` / `MAX_CONDITION_NODES`, the `model` field of `FlaggedByOpenAiInstruction` lists exactly `OPENAI_INSTRUCTION_MODELS` (models that take `temperature` 0 and a strict JSON schema — the reasoning models do not), and the schema root's `options.message_max_bytes` mirrors `MESSAGE_MAX_LENGTH_IN_BYTES` from `drivers/simplex/consts.rs`. The templates take `{field}`, `{field|n}`, `{field|list}`, `{field|phrase(s)}` and `{field?yes:no}` (with `$` for the value).
+What the schema cannot express lives in optional `options` keys on the same entry, each with a fallback when absent: `summary` (the one-line value summary in the row), `phrase` (the human wording in the rules list, mirroring `ModerationCondition::describe`), `execution_rank` and `covered_by` (action order and coverage — that knowledge belongs to `action_planner`; an entry is either a type name or `{type, when}` when the coverage depends on a setting, as `KickAuthor` covers `ModerateMessage` only with `delete_all_messages` on), `label` (a short field label when the schema `title` is a whole sentence), `short` (the row label when the title is too long for a nested row on a phone — the full title stays under `ⓘ` and in the AI prompt), `never_under_not` (mirrors `check_no_moderation_rate_limit_under_not`). `definitions.condition.options.max_depth` / `max_nodes` mirror `MAX_CONDITION_DEPTH` / `MAX_CONDITION_NODES`, the `model` field of `FlaggedByOpenRouterInstruction` lists exactly `OPENROUTER_INSTRUCTION_MODELS` (OpenRouter slugs of models that take `temperature` 0 and a strict JSON schema — OpenRouter's `structured_outputs` — and answer without reasoning first; check a new one against `https://openrouter.ai/api/v1/models?supported_parameters=structured_outputs`), and the schema root's `options.message_max_bytes` mirrors `MESSAGE_MAX_LENGTH_IN_BYTES` from `drivers/simplex/consts.rs`. The templates take `{field}`, `{field|n}`, `{field|list}`, `{field|phrase(s)}` and `{field?yes:no}` (with `$` for the value).
 
 Those three keys are what the editor enforces *before* the bot does: it warns on a tree past the limits, and refuses a pasted ruleset that breaks them. Keeping them in step with the Rust constants is part of changing those constants.
 
@@ -80,18 +80,22 @@ Each bounded context follows the same internal shape:
     SimpleX driver (`BotMessenger`, `GroupModerator`).
   - `cross_domain_router.rs` — lets `bot_dm` call into `moderator` by
     implementing `bot_dm::GroupOperations` on top of `moderator::GroupAdministration`.
-  - `openai_gateway.rs` — implements the `OpenAi` port (verdicts on
-    messages and key checks) for both OpenAI conditions (`FlaggedByOmniModeration`
-    and `FlaggedByOpenAiInstruction`, each with the owner's own key). It builds
-    its own HTTP drivers, so `bin/bot.rs` only calls `OpenAiGateway::new()`;
+  - `ai_gateway.rs` — implements the `OpenAi` port for `FlaggedByOmniModeration`
+    and the `OpenRouter` port for `FlaggedByOpenRouterInstruction` (verdicts on
+    messages and key checks, each with the owner's own key). It builds
+    its own HTTP drivers, so `bin/bot.rs` only calls `AiGateway::new()` and hands
+    the one gateway to both ports;
     tests start it over scripted ones. A message call is tried up to the condition's own `max_attempts` times,
     `retry_delay_seconds` apart (the driver itself makes one try), each try
     paced like any other request. Every
-    OpenAI request, whichever endpoint, goes through its in-process queue: a token
-    bucket per key — OpenAI's limits are the key's, not the endpoint's — a cap
+    request, whichever provider, goes through its in-process queue: a token
+    bucket per key — a provider's limits are the key's, not the endpoint's — a cap
     on what one key may have waiting, a cap on requests in flight, a rest after
-    429 and a local refusal after 401/403; key checks jump the queue. A job that cannot be taken fails at once rather than blocking,
-    and an OpenAI failure reads as "no match". The ports are request/response,
+    429 and a local refusal after 401/403 or no money; key checks jump the queue.
+    The drivers' errors are read as one gateway-level `Failure`; a text
+    OpenRouter's moderation flagged (403 with `reasons`) is no verdict but never
+    held against the key. A job that cannot be taken fails at once rather than blocking,
+    and a provider failure reads as "no match". The ports are request/response,
     so the queue can later move out of the process without the domain noticing.
   - `moderation_notification_router.rs` — lets `moderator` notify `bot_dm` by
     implementing `moderator::ModerationNotifier` on top of
@@ -103,10 +107,15 @@ Each bounded context follows the same internal shape:
   is the per-key counter with TTL eviction that every "how much did this member
   do recently" adapter is built on. `drivers/openai.rs` is the one client for
   OpenAI (`OpenAiApi`, implemented over HTTP by `HttpOpenAiApi`): the
-  Moderation and Responses endpoints, their URLs, the POST with its retries of
+  Moderation endpoint, its URL, the POST with its retries of
   transient failures and the error mapping, all in OpenAI's own words
   (category names like `hate/threatening`, statuses, `insufficient_quota`) —
-  it knows nothing about members, messages or groups. What makes something a driver is
+  it knows nothing about members, messages or groups. `drivers/openrouter.rs`
+  is the same for OpenRouter (`OpenRouterApi` / `HttpOpenRouterApi`): the chat
+  completions call with a strict JSON schema, routed only to providers that
+  honour it (`require_parameters`) and do not train on the text
+  (`data_collection: deny`), and OpenRouter's errors (402 for credits, 403 for
+  a key or for a flagged text). What makes something a driver is
   not that it is remote but that it holds no domain type: a driver is where the
   storage could be swapped (memory for Redis) without any port or adapter
   moving. Retention policy is *not* the driver's — the counter honours whatever
@@ -195,7 +204,7 @@ A rule's condition is a **tree**, not a single predicate: besides the leaves the
 6. **Bug template:** Update `moderation-rule-bug.yml` to add the new rule's title (as it appears in `rules-schema.json`) to the `rule-type` dropdown options list so bug reporters can select it.
 
 ### Renaming or replacing a condition
-Stored rules are the only thing that has to survive: the bot always sends the owner a freshly generated editor link, so old type tags never come back through a link. Do **not** add `#[serde(alias = ...)]`s or compatibility deserializers for old shapes. Instead, add a migration that rewrites the stored rows — update `moderation_conditions.type` and rename the condition's tables (`ALTER TABLE ... RENAME TO`) for a rename, or rebuild the affected nodes for a condition replaced by differently shaped ones. Precedents: `0025_neutral_condition_names.sql`, and `0031_openai_instruction_and_omni_rename.sql` for a plain rename.
+Stored rules are the only thing that has to survive: the bot always sends the owner a freshly generated editor link, so old type tags never come back through a link. Do **not** add `#[serde(alias = ...)]`s or compatibility deserializers for old shapes. Instead, add a migration that rewrites the stored rows — update `moderation_conditions.type` and rename the condition's tables (`ALTER TABLE ... RENAME TO`) for a rename, or rebuild the affected nodes for a condition replaced by differently shaped ones. Precedents: `0025_neutral_condition_names.sql`, and `0031_openai_instruction_and_omni_rename.sql` / `0033_openrouter_instruction.sql` for a plain rename.
 
 ## Adding a new moderation action type (do all of these)
 `ModerationAction` (in `domain/moderator/message_filter/moderation_action.rs`) is the **single source of truth** for actions: a `#[serde(tag = "type")]` enum (`ModerateMessage`, `SetAuthorObserver { duration_minutes: u32 }`, `KickAuthor { delete_all_messages: bool }`). Like conditions, the PascalCase variant name is the serde `type` tag (URL hash, `rules-schema.json`, and the `moderation_actions.type` column), and its snake_case form is the `<name>` used for the `moderation_action__<name>` settings table.

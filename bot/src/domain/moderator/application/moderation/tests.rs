@@ -6,9 +6,10 @@ use crate::domain::moderator::message_filter::ModerationCondition;
 use crate::domain::moderator::ports::{
     CategoryTrigger, Err, Group, GroupId, GroupMessage, KeyCheck, MessageAttachment,
     MessengerGroup, MessengerGroupId, ModerationAction, ModerationEngine, ModerationNotifier,
-    ModerationRule, OpenAi, OpenAiCategory, OpenAiCategoryTriggers, OpenAiInstructionVerdict,
-    OpenAiModerationResult, OwnedModerationRule, UserCharacterActivityRepository, UserId,
-    UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
+    ModerationRule, OpenAi, OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult,
+    OpenRouter, OpenRouterInstructionVerdict, OwnedModerationRule, UserCharacterActivityRepository,
+    UserId, UserLineActivityRepository, UserMessageActivityRepository,
+    UserModerationActivityRepository,
 };
 use crate::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
 use crate::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
@@ -234,7 +235,8 @@ async fn test_process_group_message_moderate_message_action() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -312,7 +314,8 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -393,7 +396,8 @@ async fn test_process_group_message_kick_author_without_deleting_messages() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -471,7 +475,8 @@ async fn test_process_group_message_kick_author_deleting_all_messages() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -552,7 +557,8 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -620,7 +626,8 @@ async fn test_process_group_message_no_match_does_nothing() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -702,7 +709,8 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -791,7 +799,8 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -884,7 +893,8 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -967,7 +977,8 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -1042,7 +1053,8 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -1116,7 +1128,8 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -1190,7 +1203,8 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -1282,7 +1296,8 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -1373,7 +1388,8 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -1458,7 +1474,8 @@ async fn test_process_group_message_message_rate_limit_triggers_on_threshold() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let make_msg = |msg_id: i64| GroupMessage {
@@ -1544,7 +1561,8 @@ async fn test_process_group_message_message_rate_limit_kick_author() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let make_msg = |author_id: i64, msg_id: i64| GroupMessage {
@@ -1626,7 +1644,8 @@ async fn test_process_group_message_message_rate_limit_dry_mode() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -1690,7 +1709,8 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let base_time = Utc::now() - chrono::Duration::hours(1);
@@ -1786,7 +1806,8 @@ async fn test_track_user_message_called_when_message_rate_limit_rule_configured(
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg_time = Utc::now();
@@ -1872,7 +1893,8 @@ async fn test_track_user_message_uses_max_window_across_multiple_message_rate_li
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -1933,7 +1955,8 @@ async fn test_track_characters_called_when_character_rate_limit_rule_configured(
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg_time = Utc::now();
@@ -2008,7 +2031,8 @@ async fn test_track_characters_not_called_without_a_character_rate_limit_rule() 
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     app.process_group_message(GroupMessage {
@@ -2071,7 +2095,8 @@ async fn test_track_lines_called_when_line_rate_limit_rule_configured() {
         lines.clone(),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg_time = Utc::now();
@@ -2163,7 +2188,8 @@ async fn test_track_lines_uses_the_widest_configured_wrap() {
         lines.clone(),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     app.process_group_message(GroupMessage {
@@ -2228,7 +2254,8 @@ async fn test_track_lines_counts_nothing_for_a_captionless_attachment() {
         lines.clone(),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     app.process_group_message(GroupMessage {
@@ -2286,7 +2313,8 @@ async fn test_track_lines_not_called_without_a_line_rate_limit_rule() {
         lines.clone(),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     app.process_group_message(GroupMessage {
@@ -2346,7 +2374,8 @@ async fn test_track_characters_not_called_when_window_is_zero() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     app.process_group_message(GroupMessage {
@@ -2412,7 +2441,8 @@ async fn test_track_user_message_not_called_when_no_message_rate_limit_rules() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -2461,7 +2491,8 @@ async fn test_track_user_message_not_called_when_group_has_empty_rules() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -2519,7 +2550,8 @@ async fn test_track_user_message_not_called_when_message_rate_limit_window_is_ze
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -2577,7 +2609,8 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let msg = GroupMessage {
@@ -2666,7 +2699,8 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         moderation_activity_repo,
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let make_msg = |msg_id: i64, text: &str| GroupMessage {
@@ -2762,7 +2796,8 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         mod_recorder.clone(),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let clean_msg = GroupMessage {
@@ -2844,7 +2879,8 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
         Arc::new(InMemoryUserLineActivityRepository::new()),
         mod_recorder.clone(),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     let bad_msg = GroupMessage {
@@ -2938,7 +2974,8 @@ async fn test_editing_one_message_does_not_hit_the_message_rate_limit() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     app.process_group_message(edit_test_message("first version", false))
@@ -2984,7 +3021,8 @@ async fn test_edit_is_still_moderated_by_a_content_rule() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     app.process_group_message(edit_test_message("edited into badword", true))
@@ -3045,7 +3083,8 @@ async fn test_edit_feeds_none_of_the_traffic_counters() {
         lines.clone(),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     app.process_group_message(edit_test_message("hello", false))
@@ -3118,7 +3157,8 @@ async fn test_moderating_an_edit_does_not_join_the_moderated_tally() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         mod_recorder.clone(),
         Arc::new(MockMemberRestoreRepository::default()),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     app.process_group_message(edit_test_message("edited into badword", true))
@@ -3166,7 +3206,8 @@ fn app_with_observer_rule(
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         restores,
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     )
 }
 
@@ -3247,7 +3288,8 @@ async fn test_dry_mode_schedules_nothing() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         restores.clone(),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     app.process_group_message(triggering_message(Utc::now()))
@@ -3289,7 +3331,8 @@ async fn test_kicking_the_author_cancels_a_scheduled_restore() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         restores.clone(),
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     app.process_group_message(triggering_message(Utc::now()))
@@ -3344,7 +3387,8 @@ async fn test_failed_restore_bookkeeping_still_moderates_and_notifies() {
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         restores,
-        Arc::new(UnusedOpenAi),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
     );
 
     app.process_group_message(triggering_message(Utc::now()))
@@ -3368,15 +3412,11 @@ async fn test_failed_restore_bookkeeping_still_moderates_and_notifies() {
 // ---------------------------------------------------------------------------
 
 /// The classifier for groups whose rules never send a message to OpenAI.
-pub struct UnusedOpenAi;
+pub struct UnusedAi;
 
 #[async_trait]
-impl OpenAi for UnusedOpenAi {
+impl OpenAi for UnusedAi {
     async fn verify(&self, _api_key: &str) -> KeyCheck {
-        panic!("no key is checked while moderating a message")
-    }
-
-    async fn verify_model(&self, _api_key: &str, _model: &str) -> KeyCheck {
         panic!("no key is checked while moderating a message")
     }
 
@@ -3384,35 +3424,39 @@ impl OpenAi for UnusedOpenAi {
         &self,
         _api_key: &str,
         _text: &str,
-        _retry: &crate::domain::moderator::ports::OpenAiRetry,
+        _retry: &crate::domain::moderator::ports::ApiRetry,
     ) -> Result<OpenAiModerationResult, Err> {
         panic!("OpenAI was asked about a message no rule sends to it")
     }
+}
+
+#[async_trait]
+impl OpenRouter for UnusedAi {
+    async fn verify_model(&self, _api_key: &str, _model: &str) -> KeyCheck {
+        panic!("no key is checked while moderating a message")
+    }
+
     async fn matches_instruction(
         &self,
         _api_key: &str,
         _model: &str,
         _instruction: &str,
         _text: &str,
-        _retry: &crate::domain::moderator::ports::OpenAiRetry,
-    ) -> Result<OpenAiInstructionVerdict, Err> {
-        panic!("OpenAI was asked about a message no rule sends to it")
+        _retry: &crate::domain::moderator::ports::ApiRetry,
+    ) -> Result<OpenRouterInstructionVerdict, Err> {
+        panic!("OpenRouter was asked about a message no rule sends to it")
     }
 }
 
 /// Answers every message the same way and records the texts it was asked about.
-pub struct ScriptedOpenAi {
+pub struct ScriptedAi {
     answer: Result<OpenAiModerationResult, String>,
     texts: Mutex<Vec<String>>,
 }
 
 #[async_trait]
-impl OpenAi for ScriptedOpenAi {
+impl OpenAi for ScriptedAi {
     async fn verify(&self, _api_key: &str) -> KeyCheck {
-        panic!("no key is checked while moderating a message")
-    }
-
-    async fn verify_model(&self, _api_key: &str, _model: &str) -> KeyCheck {
         panic!("no key is checked while moderating a message")
     }
 
@@ -3420,10 +3464,17 @@ impl OpenAi for ScriptedOpenAi {
         &self,
         _api_key: &str,
         text: &str,
-        _retry: &crate::domain::moderator::ports::OpenAiRetry,
+        _retry: &crate::domain::moderator::ports::ApiRetry,
     ) -> Result<OpenAiModerationResult, Err> {
         self.texts.lock().unwrap().push(text.to_string());
         self.answer.clone().map_err(Err::from)
+    }
+}
+
+#[async_trait]
+impl OpenRouter for ScriptedAi {
+    async fn verify_model(&self, _api_key: &str, _model: &str) -> KeyCheck {
+        panic!("no key is checked while moderating a message")
     }
 
     async fn matches_instruction(
@@ -3432,10 +3483,10 @@ impl OpenAi for ScriptedOpenAi {
         _model: &str,
         _instruction: &str,
         text: &str,
-        _retry: &crate::domain::moderator::ports::OpenAiRetry,
-    ) -> Result<OpenAiInstructionVerdict, Err> {
+        _retry: &crate::domain::moderator::ports::ApiRetry,
+    ) -> Result<OpenRouterInstructionVerdict, Err> {
         self.texts.lock().unwrap().push(text.to_string());
-        Ok(OpenAiInstructionVerdict {
+        Ok(OpenRouterInstructionVerdict {
             matches: true,
             reason: "Promotes a coin.".to_string(),
         })
@@ -3443,7 +3494,7 @@ impl OpenAi for ScriptedOpenAi {
 }
 
 fn app_with_openai_rule(
-    openai: Arc<ScriptedOpenAi>,
+    openai: Arc<ScriptedAi>,
     deleted_messages: Arc<Mutex<Vec<(GroupId, i64)>>>,
     notifications: Arc<Mutex<Vec<(UserId, GroupId, Vec<ModerationAction>, String, String)>>>,
 ) -> MessageModerationApplication {
@@ -3477,6 +3528,7 @@ fn app_with_openai_rule(
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
+        openai.clone(),
         openai,
     )
 }
@@ -3490,7 +3542,7 @@ fn hateful() -> OpenAiModerationResult {
 
 #[tokio::test]
 async fn test_a_message_openai_flags_is_deleted_and_reported() {
-    let openai = Arc::new(ScriptedOpenAi {
+    let openai = Arc::new(ScriptedAi {
         answer: Ok(hateful()),
         texts: Mutex::new(Vec::new()),
     });
@@ -3510,7 +3562,7 @@ async fn test_a_message_openai_flags_is_deleted_and_reported() {
 
 #[tokio::test]
 async fn test_openai_being_down_moderates_nothing_and_is_not_an_error() {
-    let openai = Arc::new(ScriptedOpenAi {
+    let openai = Arc::new(ScriptedAi {
         answer: Err("OpenAI is down".to_string()),
         texts: Mutex::new(Vec::new()),
     });
@@ -3531,7 +3583,7 @@ async fn test_openai_being_down_moderates_nothing_and_is_not_an_error() {
 async fn test_an_edit_is_sent_to_openai_too() {
     // Editing a clean message into a hateful one is the obvious way around a
     // check that only looks at new messages.
-    let openai = Arc::new(ScriptedOpenAi {
+    let openai = Arc::new(ScriptedAi {
         answer: Ok(hateful()),
         texts: Mutex::new(Vec::new()),
     });
@@ -3555,7 +3607,7 @@ async fn test_an_edit_is_sent_to_openai_too() {
 
 #[tokio::test]
 async fn test_a_message_a_model_says_matches_the_instruction_is_deleted() {
-    let openai = Arc::new(ScriptedOpenAi {
+    let openai = Arc::new(ScriptedAi {
         answer: Err("no moderation scripted".to_string()),
         texts: Mutex::new(Vec::new()),
     });
@@ -3568,10 +3620,10 @@ async fn test_a_message_a_model_says_matches_the_instruction_is_deleted() {
                 id: 1,
                 rule: ModerationRule {
                     actions: vec![ModerationAction::ModerateMessage],
-                    condition: ModerationCondition::FlaggedByOpenAiInstruction {
+                    condition: ModerationCondition::FlaggedByOpenRouterInstruction {
                         retry: Default::default(),
                         api_key: "sk-owner".to_string(),
-                        model: "gpt-4o-mini".to_string(),
+                        model: "openai/gpt-4o-mini".to_string(),
                         instruction: "Block crypto ads.".to_string(),
                     },
                 },
@@ -3591,6 +3643,7 @@ async fn test_a_message_a_model_says_matches_the_instruction_is_deleted() {
         Arc::new(InMemoryUserModerationActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         openai.clone(),
+        openai.clone(),
     );
 
     app.process_group_message(edit_test_message("buy my coin", false))
@@ -3600,6 +3653,6 @@ async fn test_a_message_a_model_says_matches_the_instruction_is_deleted() {
     assert_eq!(*deleted.lock().unwrap(), vec![(10, 1)]);
     assert_eq!(
         notifications.lock().unwrap()[0].4,
-        "OpenAI gpt-4o-mini: Promotes a coin."
+        "openai/gpt-4o-mini: Promotes a coin."
     );
 }

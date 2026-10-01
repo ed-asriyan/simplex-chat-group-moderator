@@ -10,8 +10,8 @@
 use std::collections::HashMap;
 
 use crate::domain::moderator::ports::{
-    CategoryTrigger, Err, ModerationAction, ModerationCondition, ModerationRule, OpenAiCategory,
-    OpenAiCategoryTriggers, OpenAiRetry, OwnedModerationRule,
+    ApiRetry, CategoryTrigger, Err, ModerationAction, ModerationCondition, ModerationRule,
+    OpenAiCategory, OpenAiCategoryTriggers, OwnedModerationRule,
 };
 use rusqlite::params;
 use std::sync::{Arc, Mutex};
@@ -182,9 +182,9 @@ struct ConditionData {
     line_rate_limit: HashMap<i64, (u32, u32, u32)>,
     moderation_rate_limit: HashMap<i64, (u32, u32)>,
     joined_recently: HashMap<i64, u32>,
-    openai_api_keys: HashMap<i64, (String, OpenAiRetry)>,
+    openai_api_keys: HashMap<i64, (String, ApiRetry)>,
     openai_triggers: HashMap<i64, OpenAiCategoryTriggers>,
-    openai_instructions: HashMap<i64, (String, String, String, OpenAiRetry)>,
+    openrouter_instructions: HashMap<i64, (String, String, String, ApiRetry)>,
 }
 
 impl ConditionData {
@@ -310,10 +310,10 @@ impl ConditionData {
                 |row| Ok((row.get::<_, String>(1)?, read_retry(row, 2)?)),
             )?,
             openai_triggers: load_openai_category_triggers(guard, gid)?,
-            openai_instructions: load_condition_settings(
+            openrouter_instructions: load_condition_settings(
                 guard,
                 "s.api_key, s.model, s.instruction, s.max_attempts, s.retry_delay_seconds",
-                "moderation_condition__flagged_by_openai_instruction",
+                "moderation_condition__flagged_by_openrouter_instruction",
                 gid,
                 |row| Ok((row.get(1)?, row.get(2)?, row.get(3)?, read_retry(row, 4)?)),
             )?,
@@ -322,8 +322,8 @@ impl ConditionData {
 }
 
 /// The retry settings in columns `first` and `first + 1`.
-fn read_retry(row: &rusqlite::Row<'_>, first: usize) -> rusqlite::Result<OpenAiRetry> {
-    Ok(OpenAiRetry {
+fn read_retry(row: &rusqlite::Row<'_>, first: usize) -> rusqlite::Result<ApiRetry> {
+    Ok(ApiRetry {
         max_attempts: row.get::<_, i64>(first)? as u32,
         retry_delay_seconds: row.get::<_, i64>(first + 1)? as u32,
     })
@@ -479,13 +479,13 @@ fn build_condition(
                 retry,
             })
         }
-        "FlaggedByOpenAiInstruction" => {
+        "FlaggedByOpenRouterInstruction" => {
             let (api_key, model, instruction, retry) = data
-                .openai_instructions
+                .openrouter_instructions
                 .get(&id)
                 .cloned()
                 .unwrap_or_default();
-            Ok(ModerationCondition::FlaggedByOpenAiInstruction {
+            Ok(ModerationCondition::FlaggedByOpenRouterInstruction {
                 api_key,
                 model,
                 instruction,

@@ -755,11 +755,11 @@ async fn test_openai_rows_go_with_replaced_rules_and_with_the_group() {
 }
 
 // ---------------------------------------------------------------------------
-// FlaggedByOpenAiInstruction
+// FlaggedByOpenRouterInstruction
 // ---------------------------------------------------------------------------
 
 fn instructed(api_key: &str, model: &str) -> ModerationCondition {
-    ModerationCondition::FlaggedByOpenAiInstruction {
+    ModerationCondition::FlaggedByOpenRouterInstruction {
         retry: Default::default(),
         api_key: api_key.to_string(),
         model: model.to_string(),
@@ -768,19 +768,19 @@ fn instructed(api_key: &str, model: &str) -> ModerationCondition {
 }
 
 #[tokio::test]
-async fn test_round_trips_openai_instruction_condition() {
-    assert_round_trips(2201, instructed("sk-proj-abc", "gpt-4o-mini")).await;
+async fn test_round_trips_openrouter_instruction_condition() {
+    assert_round_trips(2201, instructed("sk-or-v1-abc", "openai/gpt-4o-mini")).await;
 }
 
 #[tokio::test]
-async fn test_round_trips_openai_instruction_beside_openai_moderation_in_one_tree() {
+async fn test_round_trips_openrouter_instruction_beside_omni_moderation_in_one_tree() {
     assert_round_trips(
         2202,
         ModerationCondition::All {
             conditions: vec![
                 openai_condition("sk-one"),
                 ModerationCondition::Not {
-                    condition: Box::new(instructed("sk-two", "gpt-4.1-mini")),
+                    condition: Box::new(instructed("sk-or-two", "google/gemini-2.5-flash-lite")),
                 },
             ],
         },
@@ -789,23 +789,29 @@ async fn test_round_trips_openai_instruction_beside_openai_moderation_in_one_tre
 }
 
 #[tokio::test]
-async fn test_openai_instruction_rows_go_with_replaced_rules_and_with_the_group() {
+async fn test_openrouter_instruction_rows_go_with_replaced_rules_and_with_the_group() {
     let (conn, repo, group_id) = openai_repo(2203).await;
     let rules = [ModerationRule {
         actions: vec![ModerationAction::ModerateMessage],
-        condition: instructed("sk-proj-abc", "gpt-4o-mini"),
+        condition: instructed("sk-or-v1-abc", "openai/gpt-4o-mini"),
     }];
 
     repo.set_group_rules(&group_id, &rules).await.unwrap();
     repo.set_group_rules(&group_id, &rules).await.unwrap();
     assert_eq!(
-        count(&conn, "moderation_condition__flagged_by_openai_instruction"),
+        count(
+            &conn,
+            "moderation_condition__flagged_by_openrouter_instruction"
+        ),
         1
     );
 
     repo.delete_group_data(&2203).await.unwrap();
     assert_eq!(
-        count(&conn, "moderation_condition__flagged_by_openai_instruction"),
+        count(
+            &conn,
+            "moderation_condition__flagged_by_openrouter_instruction"
+        ),
         0
     );
 }

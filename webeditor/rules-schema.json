@@ -1222,8 +1222,8 @@
                 },
                 {
                     "type": "object",
-                    "title": "💬 Flagged by OpenAI Instruction",
-                    "description": "Sends the text of each message this condition checks, together with **your instruction**, to an OpenAI model with **your own** API key, and matches when the model answers that the message is what the instruction describes. The model also says why in one sentence, and that sentence is what the moderation notification shows. Pictures are not sent, and a message without text is never checked. The text leaves SimpleX's end-to-end encryption and is processed by OpenAI. If OpenAI cannot be reached or gives no clear answer, the condition does not match.\n\nEvery checked message is billed to your OpenAI account. **Before pasting a key:** 1) create a [separate OpenAI project](https://help.openai.com/en/articles/9186755-managing-projects-in-the-api-platform) for this bot; 2) create a **restricted** key in it that allows only Responses (Write); 3) put the project on **prepaid credits with auto-recharge off** and load only what you are ready to spend — a monthly budget only sends an alert, it does not stop spending. When the credits run out the condition simply stops matching.\n\nInside **All of These Conditions Match (AND)**, put this condition last: the others are checked first, and OpenAI is only asked when they all match. For fixed categories of harm, use **Flagged by OpenAI Omni** instead.",
+                    "title": "💬 Flagged by OpenRouter Instruction",
+                    "description": "Sends the text of each message this condition checks, together with **your instruction**, to a model of your choice through [OpenRouter](https://openrouter.ai) with **your own** OpenRouter API key, and matches when the model answers that the message is what the instruction describes. The model also says why in one sentence, and that sentence is what the moderation notification shows. Pictures are not sent, and a message without text is never checked. The text leaves SimpleX's end-to-end encryption and is processed by OpenRouter and the provider it routes the model to; the bot only lets OpenRouter pick providers that do not keep the text to train on. If OpenRouter cannot be reached or gives no clear answer, the condition does not match.\n\n**Setting it up:** 1) sign up at [openrouter.ai](https://openrouter.ai); 2) buy credits on the [Credits page](https://openrouter.ai/settings/credits) — they are prepaid, so leave auto top-up off and load only what you are ready to spend; 3) on the [API Keys page](https://openrouter.ai/settings/keys) create a key for this bot alone and give it a **credit limit**: OpenRouter stops the key once it has spent that much; 4) paste the key below and pick a model. Every checked message is billed to your credits at that model's price — compare them in [OpenRouter's model list, cheapest first](https://openrouter.ai/models?supported_parameters=structured_outputs&order=pricing-low-to-high). When the credits or the key's limit run out, the condition simply stops matching.\n\nThe OpenAI and Anthropic models sit behind OpenRouter's own moderation: a message it flags as abusive never reaches the model, and this condition does not match it. If your instruction is about abuse, pick a Google, Mistral or Meta model, or use **Flagged by OpenAI Omni** instead.\n\nInside **All of These Conditions Match (AND)**, put this condition last: the others are checked first, and OpenRouter is only asked when they all match.",
                     "required": [
                         "type",
                         "api_key",
@@ -1234,8 +1234,8 @@
                     "properties": {
                         "type": {
                             "type": "string",
-                            "const": "FlaggedByOpenAiInstruction",
-                            "default": "FlaggedByOpenAiInstruction",
+                            "const": "FlaggedByOpenRouterInstruction",
+                            "default": "FlaggedByOpenRouterInstruction",
                             "options": {
                                 "hidden": true
                             }
@@ -1244,36 +1244,56 @@
                             "type": "string",
                             "format": "password",
                             "maxLength": 256,
-                            "title": "OpenAI API Key",
+                            "title": "OpenRouter API Key",
                             "default": "",
-                            "description": "Your own OpenAI API key, restricted to Responses (see ⓘ above). The bot asks the chosen model a tiny test question with it when you send the rules, and refuses to save them if that fails."
+                            "description": "Your own OpenRouter API key (`sk-or-…`), ideally one made for this bot with a credit limit (see ⓘ above). The bot asks the chosen model a tiny test question with it when you send the rules, and refuses to save them if that fails."
                         },
                         "model": {
                             "title": "Model",
-                            "description": "The OpenAI model that reads each message.",
+                            "description": "The model that reads each message, by its OpenRouter name. Each one here answers in the strict yes/no format the bot needs. Prices differ a lot between them: see [OpenRouter's model list](https://openrouter.ai/models?supported_parameters=structured_outputs&order=pricing-low-to-high). The `openai/` and `anthropic/` models never see a message OpenRouter's own moderation flags.",
                             "oneOf": [
                                 {
-                                    "const": "gpt-4o-mini",
-                                    "title": "gpt-4o-mini"
+                                    "const": "google/gemini-2.5-flash-lite",
+                                    "title": "google/gemini-2.5-flash-lite"
                                 },
                                 {
-                                    "const": "gpt-4.1-nano",
-                                    "title": "gpt-4.1-nano"
+                                    "const": "mistralai/mistral-small-3.2-24b-instruct",
+                                    "title": "mistralai/mistral-small-3.2-24b-instruct"
                                 },
                                 {
-                                    "const": "gpt-4.1-mini",
-                                    "title": "gpt-4.1-mini"
+                                    "const": "meta-llama/llama-3.3-70b-instruct",
+                                    "title": "meta-llama/llama-3.3-70b-instruct"
                                 },
                                 {
-                                    "const": "gpt-4o",
-                                    "title": "gpt-4o"
+                                    "const": "meta-llama/llama-4-maverick",
+                                    "title": "meta-llama/llama-4-maverick"
                                 },
                                 {
-                                    "const": "gpt-4.1",
-                                    "title": "gpt-4.1"
+                                    "const": "openai/gpt-4.1-nano",
+                                    "title": "openai/gpt-4.1-nano"
+                                },
+                                {
+                                    "const": "openai/gpt-4o-mini",
+                                    "title": "openai/gpt-4o-mini"
+                                },
+                                {
+                                    "const": "openai/gpt-4.1-mini",
+                                    "title": "openai/gpt-4.1-mini"
+                                },
+                                {
+                                    "const": "anthropic/claude-haiku-4.5",
+                                    "title": "anthropic/claude-haiku-4.5"
+                                },
+                                {
+                                    "const": "openai/gpt-4o",
+                                    "title": "openai/gpt-4o"
+                                },
+                                {
+                                    "const": "openai/gpt-4.1",
+                                    "title": "openai/gpt-4.1"
                                 }
                             ],
-                            "default": "gpt-4o-mini"
+                            "default": "google/gemini-2.5-flash-lite"
                         },
                         "instruction": {
                             "type": "string",
@@ -1286,7 +1306,7 @@
                         "max_attempts": {
                             "type": "integer",
                             "title": "Attempts",
-                            "description": "How many times the bot calls OpenAI for one message before giving up and treating the message as not matching. 1 means no retry. Only failures that can pass are retried — OpenAI being down, a timeout, rate limiting — not a rejected key. The message waits while this runs, so keep it low.",
+                            "description": "How many times the bot calls OpenRouter for one message before giving up and treating the message as not matching. 1 means no retry. Only failures that can pass are retried — OpenRouter or the model being down, a timeout, rate limiting — not a rejected key. The message waits while this runs, so keep it low.",
                             "minimum": 1,
                             "maximum": 5,
                             "default": 3
@@ -1305,7 +1325,7 @@
                     },
                     "options": {
                         "summary": "{model}",
-                        "phrase": "flagged by OpenAI instruction ({model})"
+                        "phrase": "flagged by OpenRouter instruction ({model})"
                     }
                 },
                 {

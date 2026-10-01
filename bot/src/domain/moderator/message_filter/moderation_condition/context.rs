@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use super::ModerationCondition;
 use crate::domain::moderator::ports::{
-    GroupMessage, OpenAi, UserCharacterActivityRepository, UserLineActivityRepository,
+    GroupMessage, OpenAi, OpenRouter, UserCharacterActivityRepository, UserLineActivityRepository,
     UserMessageActivityRepository, UserModerationActivityRepository,
 };
 
@@ -22,6 +22,7 @@ pub(in crate::domain::moderator::message_filter) struct ConditionContext<'a> {
     pub line_activity_repo: &'a dyn UserLineActivityRepository,
     pub moderation_activity_repo: &'a dyn UserModerationActivityRepository,
     pub openai: &'a dyn OpenAi,
+    pub openrouter: &'a dyn OpenRouter,
 
     /// Whether this message is moderated by a rule that does not itself depend
     /// on `AuthorHitsModerationRateLimit`. Computed by the pre-pass and read by
@@ -47,6 +48,7 @@ impl<'a> ConditionContext<'a> {
         line_activity_repo: &'a dyn UserLineActivityRepository,
         moderation_activity_repo: &'a dyn UserModerationActivityRepository,
         openai: &'a dyn OpenAi,
+        openrouter: &'a dyn OpenRouter,
     ) -> Self {
         Self {
             group_message,
@@ -55,6 +57,7 @@ impl<'a> ConditionContext<'a> {
             line_activity_repo,
             moderation_activity_repo,
             openai,
+            openrouter,
             message_is_moderated: false,
             moderation_rate_limit_pinned: false,
             memo: HashMap::new(),

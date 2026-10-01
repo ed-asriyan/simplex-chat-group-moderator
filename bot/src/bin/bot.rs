@@ -5,17 +5,17 @@ use bot::domain::bot_dm::ports::{
 use bot::domain::moderator::ports::{
     GroupAdministration, GroupMessage, GroupModerator, MemberRestoreRepository,
     MemberRestoreRunner, MessageAttachment, MessengerGroup, ModerationEngine, ModerationNotifier,
-    ModerationRepository, OpenAi, UserCharacterActivityRepository, UserLineActivityRepository,
-    UserMessageActivityRepository, UserModerationActivityRepository,
+    ModerationRepository, OpenAi, OpenRouter, UserCharacterActivityRepository,
+    UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
 };
 use bot::domain::moderator::{
     GroupAdministrationApplication, MemberRestoreApplication, MessageModerationApplication,
 };
+use bot::infrastructure::adapters::ai_gateway::AiGateway;
 use bot::infrastructure::adapters::cross_domain_router::CrossDomainRouter;
 use bot::infrastructure::adapters::member_restore_repo_sqlite::SqliteMemberRestoreRepository;
 use bot::infrastructure::adapters::moderation_notification_router::ModerationNotificationRouter;
 use bot::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository;
-use bot::infrastructure::adapters::openai_gateway::OpenAiGateway;
 use bot::infrastructure::adapters::simplex_adapter::SimplexAdapter;
 use bot::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
 use bot::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
@@ -247,9 +247,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let member_restore_repo: Arc<dyn MemberRestoreRepository> =
         Arc::new(SqliteMemberRestoreRepository::new(conn.clone()));
 
-    // ---- the one queue every OpenAI request goes through ----
-    let openai: Arc<dyn OpenAi> =
-        Arc::new(OpenAiGateway::new().map_err(|e| -> Box<dyn Error> { e.to_string().into() })?);
+    // ---- the one queue every OpenAI and OpenRouter request goes through ----
+    let ai_gateway =
+        Arc::new(AiGateway::new().map_err(|e| -> Box<dyn Error> { e.to_string().into() })?);
+    let openai: Arc<dyn OpenAi> = ai_gateway.clone();
+    let openrouter: Arc<dyn OpenRouter> = ai_gateway;
 
     let simplex_adapter = Arc::new(SimplexAdapter::new(simplex_driver.clone()));
     let bot_messenger: Arc<dyn BotMessenger> = simplex_adapter.clone();
@@ -270,10 +272,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         user_moderation_activity_repo,
         member_restore_repo.clone(),
         openai.clone(),
+        openrouter.clone(),
     ));
-    let group_administration: Arc<dyn GroupAdministration> = Arc::new(
-        GroupAdministrationApplication::new(moderation_repo, group_moderator.clone(), openai),
-    );
+    let group_administration: Arc<dyn GroupAdministration> =
+        Arc::new(GroupAdministrationApplication::new(
+            moderation_repo,
+            group_moderator.clone(),
+            openai,
+            openrouter,
+        ));
     let member_restore_runner: Arc<dyn MemberRestoreRunner> = Arc::new(
         MemberRestoreApplication::new(member_restore_repo, group_moderator),
     );

@@ -1,5 +1,5 @@
-//! Rule saving: conditions are validated, and OpenAI keys checked with OpenAI,
-//! before anything reaches the repository.
+//! Rule saving: conditions are validated, and API keys checked with their
+//! provider (OpenAI or OpenRouter), before anything reaches the repository.
 
 use super::GroupAdministrationApplication;
 use crate::domain::moderator::application::tests::{MockGroupModerator, MockModerationRepository};
@@ -7,13 +7,13 @@ use crate::domain::moderator::message_filter::ModerationCondition;
 use crate::domain::moderator::ports::{
     CategoryTrigger, Err, Group, GroupAdministration, GroupId, KeyCheck, MessengerGroupId,
     ModerationAction, ModerationRepository, ModerationRule, OpenAi, OpenAiCategoryTriggers,
-    OpenAiInstructionVerdict, OpenAiModerationResult, OwnedModerationRule, UserId,
+    OpenAiModerationResult, OpenRouter, OpenRouterInstructionVerdict, OwnedModerationRule, UserId,
 };
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// The verifier for rule sets without an OpenAI key: being asked is the bug.
+/// The verifier for rule sets without an API key: being asked is the bug.
 struct UnusedKeyVerifier;
 
 #[async_trait]
@@ -22,28 +22,31 @@ impl OpenAi for UnusedKeyVerifier {
         &self,
         _api_key: &str,
         _text: &str,
-        _retry: &crate::domain::moderator::ports::OpenAiRetry,
+        _retry: &crate::domain::moderator::ports::ApiRetry,
     ) -> Result<OpenAiModerationResult, Err> {
-        panic!("no message is moderated while saving rules")
-    }
-
-    async fn matches_instruction(
-        &self,
-        _api_key: &str,
-        _model: &str,
-        _instruction: &str,
-        _text: &str,
-        _retry: &crate::domain::moderator::ports::OpenAiRetry,
-    ) -> Result<OpenAiInstructionVerdict, Err> {
         panic!("no message is moderated while saving rules")
     }
 
     async fn verify(&self, _api_key: &str) -> KeyCheck {
         panic!("OpenAI was asked about a key although no rule carries one")
     }
+}
+
+#[async_trait]
+impl OpenRouter for UnusedKeyVerifier {
+    async fn matches_instruction(
+        &self,
+        _api_key: &str,
+        _model: &str,
+        _instruction: &str,
+        _text: &str,
+        _retry: &crate::domain::moderator::ports::ApiRetry,
+    ) -> Result<OpenRouterInstructionVerdict, Err> {
+        panic!("no message is moderated while saving rules")
+    }
 
     async fn verify_model(&self, _api_key: &str, _model: &str) -> KeyCheck {
-        panic!("OpenAI was asked about a key although no rule carries one")
+        panic!("OpenRouter was asked about a key although no rule carries one")
     }
 }
 
@@ -60,6 +63,7 @@ fn app_owning_group(group_id: GroupId, owner_id: UserId) -> GroupAdministrationA
             rules: vec![],
         }),
         Arc::new(MockGroupModerator::default()),
+        Arc::new(UnusedKeyVerifier),
         Arc::new(UnusedKeyVerifier),
     )
 }
@@ -213,19 +217,8 @@ impl OpenAi for FakeKeyVerifier {
         &self,
         _api_key: &str,
         _text: &str,
-        _retry: &crate::domain::moderator::ports::OpenAiRetry,
+        _retry: &crate::domain::moderator::ports::ApiRetry,
     ) -> Result<OpenAiModerationResult, Err> {
-        panic!("no message is moderated while saving rules")
-    }
-
-    async fn matches_instruction(
-        &self,
-        _api_key: &str,
-        _model: &str,
-        _instruction: &str,
-        _text: &str,
-        _retry: &crate::domain::moderator::ports::OpenAiRetry,
-    ) -> Result<OpenAiInstructionVerdict, Err> {
         panic!("no message is moderated while saving rules")
     }
 
@@ -235,6 +228,20 @@ impl OpenAi for FakeKeyVerifier {
             .get(api_key)
             .copied()
             .unwrap_or(KeyCheck::Valid)
+    }
+}
+
+#[async_trait]
+impl OpenRouter for FakeKeyVerifier {
+    async fn matches_instruction(
+        &self,
+        _api_key: &str,
+        _model: &str,
+        _instruction: &str,
+        _text: &str,
+        _retry: &crate::domain::moderator::ports::ApiRetry,
+    ) -> Result<OpenRouterInstructionVerdict, Err> {
+        panic!("no message is moderated while saving rules")
     }
 
     /// Recorded, and answered, as `key@model`.
@@ -308,6 +315,7 @@ fn app_with(
     GroupAdministrationApplication::new(
         repository.clone(),
         Arc::new(MockGroupModerator::default()),
+        verifier.clone(),
         verifier.clone(),
     )
 }
@@ -506,7 +514,7 @@ async fn test_a_non_owner_never_gets_openai_asked_about_a_key() {
 }
 
 fn instructed(api_key: &str, model: &str) -> ModerationCondition {
-    ModerationCondition::FlaggedByOpenAiInstruction {
+    ModerationCondition::FlaggedByOpenRouterInstruction {
         retry: Default::default(),
         api_key: api_key.to_string(),
         model: model.to_string(),
@@ -518,14 +526,14 @@ fn instructed(api_key: &str, model: &str) -> ModerationCondition {
 async fn test_a_model_key_is_checked_with_its_model() {
     let repository = Arc::new(SavingRepository::default());
     let verifier = FakeKeyVerifier::answering(&[]);
-    let rules = vec![moderate_when(instructed("sk-good", "gpt-4o-mini"))];
+    let rules = vec![moderate_when(instructed("sk-good", "openai/gpt-4o-mini"))];
 
     app_with(&repository, &verifier)
         .set_group_rules(100, 10, rules.clone())
         .await
         .unwrap();
 
-    assert_eq!(verifier.asked(), vec!["sk-good@gpt-4o-mini"]);
+    assert_eq!(verifier.asked(), vec!["sk-good@openai/gpt-4o-mini"]);
     assert_eq!(repository.saved(), Some(rules));
 }
 
@@ -534,13 +542,13 @@ async fn test_each_distinct_key_and_model_pair_is_checked_once() {
     let repository = Arc::new(SavingRepository::default());
     let verifier = FakeKeyVerifier::answering(&[]);
     let rules = vec![
-        moderate_when(instructed("sk-one", "gpt-4o-mini")),
+        moderate_when(instructed("sk-one", "openai/gpt-4o-mini")),
         moderate_when(ModerationCondition::Not {
-            condition: Box::new(instructed("sk-one", "gpt-4o-mini")),
+            condition: Box::new(instructed("sk-one", "openai/gpt-4o-mini")),
         }),
-        moderate_when(instructed("sk-one", "gpt-4.1-mini")),
+        moderate_when(instructed("sk-one", "openai/gpt-4.1-mini")),
         // The same key used for moderation is a separate check: another
-        // endpoint, another permission.
+        // provider altogether.
         moderate_when(openai_condition("sk-one")),
     ];
 
@@ -551,7 +559,11 @@ async fn test_each_distinct_key_and_model_pair_is_checked_once() {
 
     assert_eq!(
         verifier.asked(),
-        vec!["sk-one", "sk-one@gpt-4.1-mini", "sk-one@gpt-4o-mini"]
+        vec![
+            "sk-one",
+            "sk-one@openai/gpt-4.1-mini",
+            "sk-one@openai/gpt-4o-mini"
+        ]
     );
 }
 
@@ -559,18 +571,25 @@ async fn test_each_distinct_key_and_model_pair_is_checked_once() {
 async fn test_a_model_the_key_cannot_use_is_not_saved_and_the_owner_is_told_which() {
     let key = "sk-proj-secret-part-WXYZ";
     let cases = [
-        (KeyCheck::ModelUnavailable, "cannot use the model gpt-4.1"),
-        (KeyCheck::Forbidden, "Responses"),
-        (KeyCheck::Rejected, "rejected"),
-        (KeyCheck::QuotaExceeded, "quota"),
-        (KeyCheck::Unreachable, "reach OpenAI"),
+        (
+            KeyCheck::ModelUnavailable,
+            "cannot have openai/gpt-4.1 answer",
+        ),
+        (KeyCheck::Forbidden, "may not use openai/gpt-4.1"),
+        (KeyCheck::Rejected, "OpenRouter rejected"),
+        (KeyCheck::QuotaExceeded, "credits"),
+        (KeyCheck::Unreachable, "reach OpenRouter"),
     ];
     for (check, says) in cases {
         let repository = Arc::new(SavingRepository::default());
-        let verifier = FakeKeyVerifier::answering(&[(&format!("{key}@gpt-4.1"), check)]);
+        let verifier = FakeKeyVerifier::answering(&[(&format!("{key}@openai/gpt-4.1"), check)]);
 
         let err = app_with(&repository, &verifier)
-            .set_group_rules(100, 10, vec![moderate_when(instructed(key, "gpt-4.1"))])
+            .set_group_rules(
+                100,
+                10,
+                vec![moderate_when(instructed(key, "openai/gpt-4.1"))],
+            )
             .await
             .expect_err("the rules must not be saved")
             .to_string();
@@ -585,16 +604,20 @@ async fn test_a_model_the_key_cannot_use_is_not_saved_and_the_owner_is_told_whic
 }
 
 #[tokio::test]
-async fn test_an_unlisted_model_is_rejected_before_openai_is_asked() {
+async fn test_an_unlisted_model_is_rejected_before_openrouter_is_asked() {
     let repository = Arc::new(SavingRepository::default());
     let verifier = FakeKeyVerifier::answering(&[]);
 
     let err = app_with(&repository, &verifier)
-        .set_group_rules(100, 10, vec![moderate_when(instructed("sk-good", "gpt-5"))])
+        .set_group_rules(
+            100,
+            10,
+            vec![moderate_when(instructed("sk-good", "openai/gpt-5"))],
+        )
         .await
         .expect_err("an unlisted model is rejected")
         .to_string();
 
-    assert!(err.contains("cannot use the model 'gpt-5'"), "{err}");
+    assert!(err.contains("cannot use the model 'openai/gpt-5'"), "{err}");
     assert!(verifier.asked().is_empty());
 }

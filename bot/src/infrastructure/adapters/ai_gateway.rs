@@ -1,22 +1,27 @@
-//! The one way the bot talks to OpenAI: an in-process queue in front of the
-//! [`OpenAiApi`] driver.
+//! The one way the bot talks to remote AI providers: an in-process queue in
+//! front of the [`OpenAiApi`] and [`OpenRouterApi`] drivers.
 //!
-//! Implements the moderator context's `OpenAi` port. Every request — a
-//! message for the moderation model, a message for a model following an
-//! instruction, or a key to verify — becomes a job on one bounded queue
-//! that a single dispatcher drains, so how fast the bot talks to OpenAI is
-//! decided in one place, and per key whichever endpoint the key is used for —
-//! OpenAI's rate limits are the key's, not the endpoint's:
+//! Implements the moderator context's `OpenAi` and `OpenRouter` ports. Every
+//! request — a message for OpenAI's moderation model, a message for an
+//! OpenRouter model following an instruction, or a key to verify — becomes a
+//! job on one bounded queue that a single dispatcher drains, so how fast the
+//! bot talks to providers is decided in one place, and per key whichever
+//! endpoint the key is used for — rate limits are the key's, not the
+//! endpoint's:
 //! - a token bucket per key (`requests_per_minute_per_key`) keeps a flooded
 //!   group from burning its owner's quota — a job with no token is refused,
 //!   not delayed;
 //! - at most `max_pending_per_key` jobs of one key wait at a time, so one key
 //!   cannot fill the queue for everyone else;
 //! - at most `max_in_flight` HTTP requests run at once, over all keys;
-//! - a key OpenAI answered 429 for rests until its `Retry-After` has passed;
-//! - a key OpenAI refused (401/403) is refused locally for `rejected_key_ttl`
-//!   instead of being sent again with every message;
+//! - a key the provider answered 429 for rests until its `Retry-After` has
+//!   passed;
+//! - a key the provider refused (401/403, no money) is refused locally for
+//!   `rejected_key_ttl` instead of being sent again with every message;
 //! - key checks jump the queue: an owner is waiting on them.
+//!
+//! The two drivers fail in their own words; the gateway reads both as one
+//! [`Failure`], which is all the pacing needs to know.
 //!
 //! Nothing here blocks the caller on a full queue: a job that cannot be taken
 //! is an immediate `Err`, and a job that waits past its deadline is dropped
@@ -32,18 +37,21 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 use tokio::time::Instant;
 
 use crate::domain::moderator::ports::{
-    Err, KeyCheck, OpenAi, OpenAiCategory, OpenAiInstructionVerdict, OpenAiModerationResult,
-    OpenAiRetry,
+    ApiRetry, Err, KeyCheck, OpenAi, OpenAiCategory, OpenAiModerationResult, OpenRouter,
+    OpenRouterInstructionVerdict,
 };
 use crate::infrastructure::drivers::openai::{
-    HttpOpenAiApi, Judgement, OpenAiApi, OpenAiApiError, RawModeration,
+    HttpOpenAiApi, OpenAiApi, OpenAiApiError, RawModeration,
+};
+use crate::infrastructure::drivers::openrouter::{
+    HttpOpenRouterApi, Judgement, OpenRouterApi, OpenRouterApiError,
 };
 
 #[cfg(test)]
 mod tests;
 
 #[derive(Clone, Debug)]
-struct OpenAiGatewayConfig {
+struct AiGatewayConfig {
     /// Requests one key may make per minute; also the size of its burst.
     requests_per_minute_per_key: u32,
     /// Jobs of one key that may wait for a free slot at the same time.
@@ -52,27 +60,29 @@ struct OpenAiGatewayConfig {
     max_in_flight: usize,
     /// Jobs the queue holds before refusing new ones.
     queue_capacity: usize,
-    /// How long a message waits for the moderation model, queueing included.
+    /// How long a message waits for OpenAI's moderation model, queueing
+    /// included.
     classify_deadline: Duration,
-    /// How long a message waits for a model following an instruction,
-    /// queueing included. Longer: a chat model answers slower than the
-    /// moderation endpoint.
+    /// How long a message waits for an OpenRouter model following an
+    /// instruction, queueing included. Longer: a chat model answers slower
+    /// than the moderation endpoint, and OpenRouter adds its routing.
     judge_deadline: Duration,
     /// How long a key check waits, queueing and its one retry included.
     verify_deadline: Duration,
-    /// How long a key OpenAI refused is refused locally.
+    /// How long a key its provider refused is refused locally.
     rejected_key_ttl: Duration,
-    /// How long a rate-limited key rests when OpenAI sent no `Retry-After`.
+    /// How long a rate-limited key rests when the provider sent no
+    /// `Retry-After`.
     default_rate_limit_cooldown: Duration,
 }
 
 /// Requests one key may make per minute: below the free tier's reported 250.
 const REQUESTS_PER_MINUTE_PER_KEY: u32 = 200;
 
-/// HTTP requests to OpenAI running at the same time, over all keys.
+/// HTTP requests running at the same time, over all keys and both providers.
 const MAX_IN_FLIGHT: usize = 8;
 
-impl Default for OpenAiGatewayConfig {
+impl Default for AiGatewayConfig {
     fn default() -> Self {
         Self {
             requests_per_minute_per_key: REQUESTS_PER_MINUTE_PER_KEY,
@@ -89,7 +99,7 @@ impl Default for OpenAiGatewayConfig {
 }
 
 /// How long one HTTP attempt may take. A request outliving its caller's
-/// deadline still holds a slot, so this stays short: a hung OpenAI costs
+/// deadline still holds a slot, so this stays short: a hung provider costs
 /// seconds of capacity, not more.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -108,10 +118,10 @@ const KEY_CHECK_INSTRUCTION: &str = "Answer false.";
 /// Past this many keys, keys with nothing going on are forgotten.
 const KEY_STATES_SOFT_LIMIT: usize = 1_024;
 
-pub struct OpenAiGateway {
+pub struct AiGateway {
     jobs: mpsc::UnboundedSender<Job>,
     keys: Arc<Mutex<KeyStates>>,
-    config: OpenAiGatewayConfig,
+    config: AiGatewayConfig,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -122,12 +132,13 @@ enum Priority {
     Classify,
 }
 
-/// What a job asks OpenAI.
+/// What a job asks, and of which provider.
 #[derive(Clone)]
 enum Call {
-    /// The moderation model's scores for a text.
+    /// OpenAI's moderation model's scores for a text.
     Moderate { text: String },
-    /// A model's yes/no on whether a text is what an instruction describes.
+    /// An OpenRouter model's yes/no on whether a text is what an instruction
+    /// describes.
     Judge {
         model: String,
         instruction: String,
@@ -135,24 +146,106 @@ enum Call {
     },
 }
 
-/// What OpenAI answered to a [`Call`], in the driver's terms.
+/// What the provider answered to a [`Call`], in the driver's terms.
 enum Answer {
     Moderation(RawModeration),
     Verdict(Judgement),
 }
 
+/// The drivers the dispatcher sends calls to.
+struct Apis {
+    openai: Arc<dyn OpenAiApi>,
+    openrouter: Arc<dyn OpenRouterApi>,
+}
+
 impl Call {
-    async fn send(&self, api: &dyn OpenAiApi, api_key: &str) -> Result<Answer, OpenAiApiError> {
+    async fn send(&self, apis: &Apis, api_key: &str) -> Result<Answer, Failure> {
         match self {
-            Call::Moderate { text } => api.moderate(api_key, text).await.map(Answer::Moderation),
+            Call::Moderate { text } => apis
+                .openai
+                .moderate(api_key, text)
+                .await
+                .map(Answer::Moderation)
+                .map_err(Failure::from),
             Call::Judge {
                 model,
                 instruction,
                 text,
-            } => api
+            } => apis
+                .openrouter
                 .judge(api_key, model, instruction, text)
                 .await
-                .map(Answer::Verdict),
+                .map(Answer::Verdict)
+                .map_err(Failure::from),
+        }
+    }
+}
+
+/// Why a provider gave no answer, read the same way for both: what the pacing
+/// and the key checks need to know, and no more.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Failure {
+    /// 401: the provider does not know the key.
+    Unauthorized,
+    /// 403 for the key: it may not make this request.
+    Forbidden,
+    /// The account behind the key cannot pay.
+    NoCredits,
+    /// The provider would not look at this text (OpenRouter's moderation in
+    /// front of a model flagged it). Not the key's fault.
+    TextRefused,
+    /// 429: too many requests, with the provider's `Retry-After` if any.
+    RateLimited { retry_after: Option<Duration> },
+    /// Any other non-success status.
+    Server { status: u16, transient: bool },
+    /// A success status with a body that is not the answer asked for.
+    Malformed(String),
+    /// The request never got an HTTP answer.
+    Transport(String),
+}
+
+impl Failure {
+    /// Whether asking again can give a different answer.
+    fn is_transient(&self) -> bool {
+        match self {
+            Self::RateLimited { .. } | Self::Transport(_) => true,
+            Self::Server { transient, .. } => *transient,
+            Self::Unauthorized
+            | Self::Forbidden
+            | Self::NoCredits
+            | Self::TextRefused
+            | Self::Malformed(_) => false,
+        }
+    }
+}
+
+impl From<OpenAiApiError> for Failure {
+    fn from(error: OpenAiApiError) -> Self {
+        let transient = error.is_transient();
+        match error {
+            OpenAiApiError::Unauthorized => Self::Unauthorized,
+            OpenAiApiError::Forbidden => Self::Forbidden,
+            OpenAiApiError::InsufficientQuota => Self::NoCredits,
+            OpenAiApiError::RateLimited { retry_after } => Self::RateLimited { retry_after },
+            OpenAiApiError::Server { status } => Self::Server { status, transient },
+            OpenAiApiError::Malformed(why) => Self::Malformed(why),
+            OpenAiApiError::Transport(why) => Self::Transport(why),
+        }
+    }
+}
+
+impl From<OpenRouterApiError> for Failure {
+    fn from(error: OpenRouterApiError) -> Self {
+        let transient = error.is_transient();
+        match error {
+            OpenRouterApiError::Unauthorized => Self::Unauthorized,
+            OpenRouterApiError::Forbidden => Self::Forbidden,
+            OpenRouterApiError::InsufficientCredits => Self::NoCredits,
+            OpenRouterApiError::InputFlagged { .. } => Self::TextRefused,
+            OpenRouterApiError::RateLimited { retry_after } => Self::RateLimited { retry_after },
+            OpenRouterApiError::Server { status } => Self::Server { status, transient },
+            OpenRouterApiError::Malformed(why) => Self::Malformed(why),
+            OpenRouterApiError::Transport(why) => Self::Transport(why),
         }
     }
 }
@@ -162,10 +255,10 @@ struct Job {
     call: Call,
     priority: Priority,
     deadline: Instant,
-    reply: oneshot::Sender<Result<Answer, OpenAiApiError>>,
+    reply: oneshot::Sender<Result<Answer, Failure>>,
 }
 
-/// Why a job got no answer from OpenAI.
+/// Why a job got no answer from its provider.
 #[derive(Debug)]
 enum Refusal {
     /// Refused before it was sent: the key is out of tokens, resting, refused,
@@ -173,28 +266,33 @@ enum Refusal {
     Local(&'static str),
     /// Waited past its deadline.
     Timeout,
-    /// OpenAI answered with an error.
-    Api(OpenAiApiError),
+    /// The provider answered with an error.
+    Api(Failure),
 }
 
-impl OpenAiGateway {
-    /// The gateway over HTTPS, with its own driver and the default pacing.
+impl AiGateway {
+    /// The gateway over HTTPS, with its own drivers and the default pacing.
     /// Starts the dispatcher on the current Tokio runtime.
     pub fn new() -> Result<Self, Err> {
         Ok(Self::start(
             Arc::new(HttpOpenAiApi::new(HTTP_TIMEOUT, HTTP_MAX_ATTEMPTS)?),
-            OpenAiGatewayConfig::default(),
+            Arc::new(HttpOpenRouterApi::new(HTTP_TIMEOUT)?),
+            AiGatewayConfig::default(),
         ))
     }
 
-    /// The gateway over any driver: what `new` builds on, and what the tests
-    /// hand their scripted API to.
-    fn start(api: Arc<dyn OpenAiApi>, config: OpenAiGatewayConfig) -> Self {
+    /// The gateway over any drivers: what `new` builds on, and what the tests
+    /// hand their scripted APIs to.
+    fn start(
+        openai: Arc<dyn OpenAiApi>,
+        openrouter: Arc<dyn OpenRouterApi>,
+        config: AiGatewayConfig,
+    ) -> Self {
         let (jobs, receiver) = mpsc::unbounded_channel();
         let keys = Arc::new(Mutex::new(KeyStates::default()));
         tokio::spawn(dispatch(
             receiver,
-            api,
+            Arc::new(Apis { openai, openrouter }),
             Arc::new(Semaphore::new(config.max_in_flight.max(1))),
             keys.clone(),
             config.clone(),
@@ -202,7 +300,8 @@ impl OpenAiGateway {
         Self { jobs, keys, config }
     }
 
-    /// Queue one job and wait for OpenAI's answer, until `deadline` at most.
+    /// Queue one job and wait for its provider's answer, until `deadline` at
+    /// most.
     async fn submit(
         &self,
         api_key: &str,
@@ -222,7 +321,7 @@ impl OpenAiGateway {
             if priority == Priority::Classify {
                 lock(&self.keys).unqueue(api_key);
             }
-            return Err(Refusal::Local("the OpenAI queue is not running"));
+            return Err(Refusal::Local("the AI queue is not running"));
         }
         match tokio::time::timeout_at(deadline, answer).await {
             Ok(Ok(result)) => result.map_err(Refusal::Api),
@@ -231,12 +330,12 @@ impl OpenAiGateway {
         }
     }
 
-    /// A message's call, tried up to `retry.max_attempts` times while OpenAI
-    /// fails in a way that can pass, `retry.retry_delay_seconds` apart. Each
+    /// A message's call, tried up to `retry.max_attempts` times while the
+    /// provider fails in a way that can pass, `retry.retry_delay_seconds` apart. Each
     /// try is admitted against the key's pacing and has the call's whole
     /// deadline. A refusal is logged here, so the ports can just say "no
     /// verdict".
-    async fn ask(&self, api_key: &str, call: Call, retry: &OpenAiRetry) -> Result<Answer, Err> {
+    async fn ask(&self, api_key: &str, call: Call, retry: &ApiRetry) -> Result<Answer, Err> {
         let attempts = retry.max_attempts.max(1);
         let delay = Duration::from_secs(u64::from(retry.retry_delay_seconds));
         let mut attempt = 1;
@@ -253,17 +352,17 @@ impl OpenAiGateway {
             if !can_pass || attempt >= attempts {
                 match &refusal {
                     Refusal::Local(why) => {
-                        debug!("OpenAI request skipped for key {}: {why}", hint(api_key))
+                        debug!("AI request skipped for key {}: {why}", hint(api_key))
                     }
                     other => warn!(
-                        "OpenAI request failed for key {} after {attempt} of {attempts} attempt(s), giving up: {other:?}",
+                        "AI request failed for key {} after {attempt} of {attempts} attempt(s), giving up: {other:?}",
                         hint(api_key)
                     ),
                 }
-                return Err(format!("no OpenAI verdict: {refusal:?}").into());
+                return Err(format!("no verdict: {refusal:?}").into());
             }
             warn!(
-                "OpenAI request failed for key {} on attempt {attempt} of {attempts}, retrying in {}s: {refusal:?}",
+                "AI request failed for key {} on attempt {attempt} of {attempts}, retrying in {}s: {refusal:?}",
                 hint(api_key),
                 delay.as_secs()
             );
@@ -284,12 +383,13 @@ impl OpenAiGateway {
             .await
     }
 
-    /// A key check. It asks OpenAI even when the key is being refused locally
+    /// A key check. It asks the provider even when the key is being refused
+    /// locally
     /// — the owner may just have fixed its permissions — and a `Valid` answer
     /// lifts that refusal. It is not charged to the key's token bucket, and a
     /// transient failure is retried once before it reads as `Unreachable`.
     /// `about_model` turns a 400 or 404 into `ModelUnavailable`: for a model
-    /// check that is the model, not OpenAI, saying no.
+    /// check that is the model, not the provider, saying no.
     async fn check(&self, api_key: &str, call: impl Fn() -> Call, about_model: bool) -> KeyCheck {
         let deadline = Instant::now() + self.config.verify_deadline;
         for attempt in 0..2 {
@@ -301,22 +401,22 @@ impl OpenAiGateway {
                 Err(refusal) => refusal,
             };
             let backoff = match refusal {
-                Refusal::Api(OpenAiApiError::Unauthorized) => return KeyCheck::Rejected,
-                Refusal::Api(OpenAiApiError::Forbidden) => return KeyCheck::Forbidden,
-                Refusal::Api(OpenAiApiError::InsufficientQuota) => {
-                    return KeyCheck::QuotaExceeded;
-                }
-                Refusal::Api(OpenAiApiError::Server { status: 400 | 404 }) if about_model => {
+                Refusal::Api(Failure::Unauthorized) => return KeyCheck::Rejected,
+                Refusal::Api(Failure::Forbidden) => return KeyCheck::Forbidden,
+                Refusal::Api(Failure::NoCredits) => return KeyCheck::QuotaExceeded,
+                Refusal::Api(Failure::Server {
+                    status: 400 | 404, ..
+                }) if about_model => {
                     return KeyCheck::ModelUnavailable;
                 }
-                Refusal::Api(OpenAiApiError::RateLimited { retry_after }) => retry_after
+                Refusal::Api(Failure::RateLimited { retry_after }) => retry_after
                     .unwrap_or(Duration::from_secs(1))
                     .min(Duration::from_secs(2)),
                 Refusal::Api(_) => Duration::from_millis(500),
                 Refusal::Local(_) | Refusal::Timeout => break,
             };
             warn!(
-                "OpenAI key check for {} failed on attempt {}: {refusal:?}",
+                "Key check for {} failed on attempt {}: {refusal:?}",
                 hint(api_key),
                 attempt + 1
             );
@@ -330,12 +430,12 @@ impl OpenAiGateway {
 }
 
 #[async_trait]
-impl OpenAi for OpenAiGateway {
+impl OpenAi for AiGateway {
     async fn classify(
         &self,
         api_key: &str,
         text: &str,
-        retry: &OpenAiRetry,
+        retry: &ApiRetry,
     ) -> Result<OpenAiModerationResult, Err> {
         let call = Call::Moderate {
             text: text.to_string(),
@@ -346,33 +446,36 @@ impl OpenAi for OpenAiGateway {
         }
     }
 
+    async fn verify(&self, api_key: &str) -> KeyCheck {
+        let call = || Call::Moderate {
+            text: KEY_CHECK_TEXT.to_string(),
+        };
+        self.check(api_key, call, false).await
+    }
+}
+
+#[async_trait]
+impl OpenRouter for AiGateway {
     async fn matches_instruction(
         &self,
         api_key: &str,
         model: &str,
         instruction: &str,
         text: &str,
-        retry: &OpenAiRetry,
-    ) -> Result<OpenAiInstructionVerdict, Err> {
+        retry: &ApiRetry,
+    ) -> Result<OpenRouterInstructionVerdict, Err> {
         let call = Call::Judge {
             model: model.to_string(),
             instruction: instruction.to_string(),
             text: text.to_string(),
         };
         match self.ask(api_key, call, retry).await? {
-            Answer::Verdict(judgement) => Ok(OpenAiInstructionVerdict {
+            Answer::Verdict(judgement) => Ok(OpenRouterInstructionVerdict {
                 matches: judgement.delete,
                 reason: judgement.reason,
             }),
-            Answer::Moderation(_) => Err("OpenAI answered a model call with moderation".into()),
+            Answer::Moderation(_) => Err("OpenRouter answered a model call with moderation".into()),
         }
-    }
-
-    async fn verify(&self, api_key: &str) -> KeyCheck {
-        let call = || Call::Moderate {
-            text: KEY_CHECK_TEXT.to_string(),
-        };
-        self.check(api_key, call, false).await
     }
 
     async fn verify_model(&self, api_key: &str, model: &str) -> KeyCheck {
@@ -433,9 +536,9 @@ struct KeyState {
     refilled_at: Instant,
     /// Messages of this key waiting for a free slot.
     queued: usize,
-    /// OpenAI answered 429: leave the key alone until then.
+    /// The provider answered 429: leave the key alone until then.
     resting_until: Option<Instant>,
-    /// OpenAI refused the key: refuse it here until then.
+    /// The provider refused the key: refuse it here until then.
     refused_until: Option<Instant>,
 }
 
@@ -446,7 +549,7 @@ impl KeyStates {
         &mut self,
         api_key: &str,
         now: Instant,
-        config: &OpenAiGatewayConfig,
+        config: &AiGatewayConfig,
     ) -> Result<(), Refusal> {
         if self.keys.len() > KEY_STATES_SOFT_LIMIT {
             self.forget_idle_keys(now);
@@ -461,10 +564,12 @@ impl KeyStates {
         });
 
         if state.refused_until.is_some_and(|until| now < until) {
-            return Err(Refusal::Local("OpenAI refused this key recently"));
+            return Err(Refusal::Local("the provider refused this key recently"));
         }
         if state.resting_until.is_some_and(|until| now < until) {
-            return Err(Refusal::Local("OpenAI rate limited this key recently"));
+            return Err(Refusal::Local(
+                "the provider rate limited this key recently",
+            ));
         }
         let elapsed = now
             .saturating_duration_since(state.refilled_at)
@@ -478,7 +583,7 @@ impl KeyStates {
             return Err(Refusal::Local("this key has too many messages waiting"));
         }
         if self.queued >= config.queue_capacity {
-            return Err(Refusal::Local("the OpenAI queue is full"));
+            return Err(Refusal::Local("the AI queue is full"));
         }
         state.tokens -= 1.0;
         state.queued += 1;
@@ -494,13 +599,13 @@ impl KeyStates {
         self.queued = self.queued.saturating_sub(1);
     }
 
-    /// Learn from OpenAI's answer about `api_key`.
+    /// Learn from the provider's answer about `api_key`.
     fn record(
         &mut self,
         api_key: &str,
-        error: Option<&OpenAiApiError>,
+        error: Option<&Failure>,
         now: Instant,
-        config: &OpenAiGatewayConfig,
+        config: &AiGatewayConfig,
     ) {
         let Some(state) = self.keys.get_mut(api_key) else {
             // A key check for a key no message has used: nothing to lift, and
@@ -512,12 +617,10 @@ impl KeyStates {
                 state.refused_until = None;
                 state.resting_until = None;
             }
-            Some(
-                OpenAiApiError::Unauthorized
-                | OpenAiApiError::Forbidden
-                | OpenAiApiError::InsufficientQuota,
-            ) => state.refused_until = Some(now + config.rejected_key_ttl),
-            Some(OpenAiApiError::RateLimited { retry_after }) => {
+            Some(Failure::Unauthorized | Failure::Forbidden | Failure::NoCredits) => {
+                state.refused_until = Some(now + config.rejected_key_ttl)
+            }
+            Some(Failure::RateLimited { retry_after }) => {
                 state.resting_until =
                     Some(now + retry_after.unwrap_or(config.default_rate_limit_cooldown));
             }
@@ -542,14 +645,14 @@ impl KeyStates {
 // The dispatcher
 // ---------------------------------------------------------------------------
 
-/// Takes jobs off the channel and sends them to OpenAI, `max_in_flight` at a
-/// time, key checks first, each queue in arrival order.
+/// Takes jobs off the channel and sends them to their provider,
+/// `max_in_flight` at a time, key checks first, each queue in arrival order.
 async fn dispatch(
     mut receiver: mpsc::UnboundedReceiver<Job>,
-    api: Arc<dyn OpenAiApi>,
+    apis: Arc<Apis>,
     slots: Arc<Semaphore>,
     keys: Arc<Mutex<KeyStates>>,
-    config: OpenAiGatewayConfig,
+    config: AiGatewayConfig,
 ) {
     let mut checks: VecDeque<Job> = VecDeque::new();
     let mut messages: VecDeque<Job> = VecDeque::new();
@@ -595,11 +698,11 @@ async fn dispatch(
             drop(slot);
             continue;
         };
-        let api = api.clone();
+        let apis = apis.clone();
         let keys = keys.clone();
         let config = config.clone();
         tokio::spawn(async move {
-            let result = job.call.send(api.as_ref(), &job.api_key).await;
+            let result = job.call.send(&apis, &job.api_key).await;
             lock(&keys).record(&job.api_key, result.as_ref().err(), Instant::now(), &config);
             // The caller may have given up already; nobody to tell then.
             let _ = job.reply.send(result);

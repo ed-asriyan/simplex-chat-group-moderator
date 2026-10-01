@@ -7,8 +7,8 @@ use chrono::{DateTime, Utc};
 use std::time::Duration;
 
 use super::types::{
-    Err, Group, GroupId, GroupMemberRole, KeyCheck, MessageId, MessengerGroupId, ModerationAction,
-    ModerationRule, OpenAiInstructionVerdict, OpenAiModerationResult, OpenAiRetry,
+    ApiRetry, Err, Group, GroupId, GroupMemberRole, KeyCheck, MessageId, MessengerGroupId,
+    ModerationAction, ModerationRule, OpenAiModerationResult, OpenRouterInstructionVerdict,
     OwnedModerationRule, ScheduledMemberRestore, UserId,
 };
 
@@ -225,25 +225,37 @@ pub trait UserModerationActivityRepository: Send + Sync {
     ) -> Result<u32, Err>;
 }
 
-/// Outbound port: everything the moderator asks OpenAI, always with the
-/// owner's own key.
+/// Outbound port: what the moderator asks OpenAI, always with the owner's own
+/// key: verdicts from the moderation model.
 ///
-/// Verdicts on one text come from the moderation model (`classify`) or from a
-/// model following the owner's instruction (`matches_instruction`). An `Err`
-/// there means there is no verdict — OpenAI was unreachable, refused the key,
-/// rate limited it, or the request waited too long — and callers treat it as
-/// "no match": a failing provider must not stop the rest of moderation.
+/// An `Err` from `classify` means there is no verdict — OpenAI was
+/// unreachable, refused the key, rate limited it, or the request waited too
+/// long — and callers treat it as "no match": a failing provider must not stop
+/// the rest of moderation.
 ///
-/// Key checks (`verify`, `verify_model`) are asked when an owner saves rules.
+/// `verify` is asked when an owner saves rules.
 #[async_trait]
 pub trait OpenAi: Send + Sync {
     async fn classify(
         &self,
         api_key: &str,
         text: &str,
-        retry: &OpenAiRetry,
+        retry: &ApiRetry,
     ) -> Result<OpenAiModerationResult, Err>;
 
+    /// Whether a key can call the moderation endpoint.
+    async fn verify(&self, api_key: &str) -> KeyCheck;
+}
+
+/// Outbound port: what the moderator asks OpenRouter, always with the owner's
+/// own key: verdicts from a model following the owner's instruction.
+///
+/// An `Err` from `matches_instruction` means there is no verdict, exactly as
+/// for [`OpenAi::classify`], and callers treat it as "no match".
+///
+/// `verify_model` is asked when an owner saves rules.
+#[async_trait]
+pub trait OpenRouter: Send + Sync {
     /// Whether `model`, given the owner's `instruction`, says `text` is what
     /// the instruction describes, and why.
     async fn matches_instruction(
@@ -252,13 +264,10 @@ pub trait OpenAi: Send + Sync {
         model: &str,
         instruction: &str,
         text: &str,
-        retry: &OpenAiRetry,
-    ) -> Result<OpenAiInstructionVerdict, Err>;
+        retry: &ApiRetry,
+    ) -> Result<OpenRouterInstructionVerdict, Err>;
 
-    /// Whether a key can call the moderation endpoint.
-    async fn verify(&self, api_key: &str) -> KeyCheck;
-
-    /// Whether a key can have `model` answer through the Responses API — a
-    /// real request, a few tokens long.
+    /// Whether a key can have `model` answer — a real request, a few tokens
+    /// long, so it also proves the account has credits.
     async fn verify_model(&self, api_key: &str, model: &str) -> KeyCheck;
 }

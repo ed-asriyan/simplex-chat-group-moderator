@@ -1,10 +1,6 @@
-//! The client for OpenAI: one API key, two things asked of it.
-//!
-//! - **Moderation** (`POST /v1/moderations`, `omni-moderation-latest`): scores
-//!   a text in OpenAI's categories.
-//! - **Judgement** (`POST /v1/responses`): a chosen model reads an instruction
-//!   and a text and answers, held to it by a strict JSON schema, whether the
-//!   text is what the instruction describes, and why.
+//! The client for OpenAI's Moderation endpoint (`POST /v1/moderations`,
+//! `omni-moderation-latest`): scores a text in OpenAI's categories, with the
+//! owner's API key.
 //!
 //! A driver, not an adapter: it speaks OpenAI's own words — category names
 //! like `hate/threatening`, HTTP statuses, `insufficient_quota` — and holds no
@@ -28,7 +24,6 @@ mod tests;
 type Err = Box<dyn Error + Send + Sync>;
 
 const MODERATIONS_URL: &str = "https://api.openai.com/v1/moderations";
-const RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
 
 const MODERATION_MODEL: &str = "omni-moderation-latest";
 
@@ -46,15 +41,6 @@ pub struct RawModeration {
     pub category_scores: HashMap<String, f64>,
 }
 
-/// A model's answer to an instruction about one text: whether the text is
-/// what the instruction describes, and why.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-pub struct Judgement {
-    /// Whether the message should be deleted: the text matches the instruction.
-    pub delete: bool,
-    pub reason: String,
-}
-
 /// Why OpenAI gave no answer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OpenAiApiError {
@@ -68,8 +54,8 @@ pub enum OpenAiApiError {
     /// 429 for anything else: too many requests. `retry_after` is OpenAI's
     /// `Retry-After` header, when it sent one that reads as seconds.
     RateLimited { retry_after: Option<Duration> },
-    /// Any other non-success status: 400 and 404 for a model the key may not
-    /// use or a request the model does not support, 5xx for OpenAI's trouble.
+    /// Any other non-success status: 4xx for a request OpenAI did not take,
+    /// 5xx for OpenAI's trouble.
     Server { status: u16 },
     /// A success status with a body that is not the answer asked for.
     Malformed(String),
@@ -96,15 +82,6 @@ impl OpenAiApiError {
 pub trait OpenAiApi: Send + Sync {
     /// The moderation model's scores for `text`.
     async fn moderate(&self, api_key: &str, text: &str) -> Result<RawModeration, OpenAiApiError>;
-
-    /// Whether `model`, given `instruction`, says `text` is what it describes.
-    async fn judge(
-        &self,
-        api_key: &str,
-        model: &str,
-        instruction: &str,
-        text: &str,
-    ) -> Result<Judgement, OpenAiApiError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -211,113 +188,6 @@ fn parse_moderation_response(
 }
 
 // ---------------------------------------------------------------------------
-// Judgement: the wire format
-// ---------------------------------------------------------------------------
-
-/// What the answer's fields mean, as the model is told.
-const MATCHES_DESCRIPTION: &str = "Whether the message should be deleted.";
-const REASON_DESCRIPTION: &str = "The reason why the message should or should not be deleted.";
-
-/// Room for the verdict and a sentence of reason. An answer cut off by this
-/// limit is no verdict, so it is generous next to what the schema asks for.
-const MAX_OUTPUT_TOKENS: u32 = 200;
-
-/// The instruction goes in as the system message and the text as the user
-/// message: the model reads the text as data to judge, and the schema leaves it
-/// nothing to answer with but `true` or `false` and a sentence saying why.
-/// `temperature` 0 so the same text gets the same verdict; `store` false so
-/// OpenAI keeps no copy of the conversation for later retrieval.
-fn judgement_request_body(model: &str, instruction: &str, text: &str) -> serde_json::Value {
-    serde_json::json!({
-        "model": model,
-        "input": [
-            { "role": "system", "content": [{ "type": "input_text", "text": instruction }] },
-            { "role": "user", "content": [{ "type": "input_text", "text": text }] }
-        ],
-        "text": {
-            "format": {
-                "type": "json_schema",
-                "name": "message_delete_decision",
-                "strict": true,
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "delete": { "type": "boolean", "description": MATCHES_DESCRIPTION },
-                        "reason": { "type": "string", "description": REASON_DESCRIPTION }
-                    },
-                    "required": ["delete", "reason"],
-                    "additionalProperties": false
-                }
-            }
-        },
-        "temperature": 0,
-        "max_output_tokens": MAX_OUTPUT_TOKENS,
-        "store": false
-    })
-}
-
-#[derive(Deserialize)]
-struct Response {
-    status: Option<String>,
-    #[serde(default)]
-    output: Vec<OutputItem>,
-}
-
-#[derive(Deserialize)]
-struct OutputItem {
-    #[serde(rename = "type")]
-    kind: String,
-    #[serde(default)]
-    content: Vec<ContentPart>,
-}
-
-#[derive(Deserialize)]
-struct ContentPart {
-    #[serde(rename = "type")]
-    kind: String,
-    text: Option<String>,
-    refusal: Option<String>,
-}
-
-/// Reads the Responses endpoint's answer. Anything but a completed answer
-/// carrying the verdict — a refusal, an answer cut short, text that is not the
-/// schema — is `Malformed`: no verdict, rather than a guessed one.
-fn parse_judgement_response(
-    status: u16,
-    retry_after: Option<&str>,
-    body: &str,
-) -> Result<Judgement, OpenAiApiError> {
-    if !(200..=299).contains(&status) {
-        return Err(error_for_status(status, retry_after, body));
-    }
-    let malformed = |why: String| OpenAiApiError::Malformed(why);
-    let response: Response = serde_json::from_str(body).map_err(|e| malformed(e.to_string()))?;
-    if let Some(status) = response.status.as_deref()
-        && status != "completed"
-    {
-        return Err(malformed(format!("the answer is {status}")));
-    }
-    // Reasoning and other items may come first; the verdict is in a message.
-    let parts = response
-        .output
-        .iter()
-        .filter(|item| item.kind == "message")
-        .flat_map(|item| item.content.iter());
-    for part in parts {
-        if let Some(refusal) = part.refusal.as_deref().filter(|_| part.kind == "refusal") {
-            return Err(malformed(format!("the model refused: {refusal}")));
-        }
-        if part.kind == "output_text"
-            && let Some(text) = part.text.as_deref()
-        {
-            return serde_json::from_str::<Judgement>(text)
-                .map_err(|e| malformed(format!("the answer is not the verdict: {e}")));
-        }
-    }
-    Err(malformed("the answer carries no verdict".to_string()))
-}
-
-// ---------------------------------------------------------------------------
 // Over HTTPS
 // ---------------------------------------------------------------------------
 
@@ -408,24 +278,6 @@ impl OpenAiApi for HttpOpenAiApi {
                     answer.retry_after.as_deref(),
                     &answer.body,
                 )
-            },
-        )
-        .await
-    }
-
-    async fn judge(
-        &self,
-        api_key: &str,
-        model: &str,
-        instruction: &str,
-        text: &str,
-    ) -> Result<Judgement, OpenAiApiError> {
-        self.post(
-            RESPONSES_URL,
-            api_key,
-            &judgement_request_body(model, instruction, text),
-            |answer| {
-                parse_judgement_response(answer.status, answer.retry_after.as_deref(), &answer.body)
             },
         )
         .await

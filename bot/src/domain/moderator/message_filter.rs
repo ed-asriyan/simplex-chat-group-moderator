@@ -87,15 +87,15 @@ mod tests;
 
 pub use moderation_action::ModerationAction;
 pub use moderation_condition::{
-    CategoryTrigger, ModerationCondition, OpenAiCategory, OpenAiCategoryTriggers,
-    OpenAiModerationResult, OpenAiRetry,
+    ApiRetry, CategoryTrigger, ModerationCondition, OpenAiCategory, OpenAiCategoryTriggers,
+    OpenAiModerationResult,
 };
 pub use moderation_rule::ModerationRule;
 pub use screen_lines::count_effective_lines;
 
 use super::ports::{
-    Err, GroupMessage, OpenAi, UserCharacterActivityRepository, UserLineActivityRepository,
-    UserMessageActivityRepository, UserModerationActivityRepository,
+    Err, GroupMessage, OpenAi, OpenRouter, UserCharacterActivityRepository,
+    UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
 };
 use moderation_condition::{ConditionContext, check_condition};
 
@@ -117,6 +117,7 @@ pub async fn should_moderate(
     line_activity_repo: &dyn UserLineActivityRepository,
     moderation_activity_repo: &dyn UserModerationActivityRepository,
     openai: &dyn OpenAi,
+    openrouter: &dyn OpenRouter,
 ) -> Result<Option<ModerationMatch>, Err> {
     let mut ctx = ConditionContext::new(
         group_message,
@@ -125,6 +126,7 @@ pub async fn should_moderate(
         line_activity_repo,
         moderation_activity_repo,
         openai,
+        openrouter,
     );
 
     // Only pay for the pre-pass when some rule actually asks how many of the

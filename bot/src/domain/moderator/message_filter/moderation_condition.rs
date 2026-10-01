@@ -27,6 +27,7 @@
 #[cfg(test)]
 mod tests;
 
+mod api_retry;
 mod attachment;
 mod character_rate_limit;
 mod exact_message;
@@ -47,9 +48,10 @@ use futures::future::BoxFuture;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
+pub use api_retry::ApiRetry;
 pub(super) use context::ConditionContext;
 pub use openai_moderation::{
-    CategoryTrigger, OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult, OpenAiRetry,
+    CategoryTrigger, OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult,
 };
 
 mod context;
@@ -199,18 +201,19 @@ pub enum ModerationCondition {
         #[serde(flatten)]
         triggers: OpenAiCategoryTriggers,
         #[serde(flatten)]
-        retry: OpenAiRetry,
+        retry: ApiRetry,
     },
-    /// An OpenAI `model`, asked with the owner's own `api_key` and given the
-    /// owner's `instruction`, answers that the message is what the instruction
-    /// describes. Sends the message text to OpenAI; a message with no text is
-    /// never sent and never matches.
-    FlaggedByOpenAiInstruction {
+    /// A `model` on OpenRouter, asked with the owner's own OpenRouter
+    /// `api_key` and given the owner's `instruction`, answers that the message
+    /// is what the instruction describes. Sends the message text to OpenRouter
+    /// and the provider it routes to; a message with no text is never sent and
+    /// never matches.
+    FlaggedByOpenRouterInstruction {
         api_key: String,
         model: String,
         instruction: String,
         #[serde(flatten)]
-        retry: OpenAiRetry,
+        retry: ApiRetry,
     },
 }
 
@@ -423,8 +426,8 @@ impl ModerationCondition {
                 time_window_minutes,
             } => format!("author joined less than {time_window_minutes} min ago"),
             Self::FlaggedByOmniModeration { .. } => "flagged by OpenAI Omni".into(),
-            Self::FlaggedByOpenAiInstruction { model, .. } => {
-                format!("flagged by OpenAI instruction ({model})")
+            Self::FlaggedByOpenRouterInstruction { model, .. } => {
+                format!("flagged by OpenRouter instruction ({model})")
             }
         }
     }
@@ -585,12 +588,12 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
             triggers,
             retry,
         } => normalize_and_validate_omni_moderation(api_key, triggers, retry),
-        ModerationCondition::FlaggedByOpenAiInstruction {
+        ModerationCondition::FlaggedByOpenRouterInstruction {
             api_key,
             model,
             instruction,
             retry,
-        } => normalize_and_validate_openai_instruction(api_key, model, instruction, retry),
+        } => normalize_and_validate_openrouter_instruction(api_key, model, instruction, retry),
         ModerationCondition::IsBlank
         | ModerationCondition::ContainsInvisibleCharacters
         | ModerationCondition::ContainsImage
@@ -609,16 +612,17 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
     }
 }
 
-/// Maximum length (in characters) of an OpenAI API key. Today's keys are about
-/// 170 characters; the cap only keeps a pasted paragraph out of the database.
-const MAX_OPENAI_API_KEY_LENGTH: usize = 256;
+/// Maximum length (in characters) of an API key, OpenAI's or OpenRouter's.
+/// Today's keys are under 200 characters; the cap only keeps a pasted
+/// paragraph out of the database.
+const MAX_API_KEY_LENGTH: usize = 256;
 
 fn normalize_and_validate_omni_moderation(
     api_key: &mut String,
     triggers: &OpenAiCategoryTriggers,
-    retry: &OpenAiRetry,
+    retry: &ApiRetry,
 ) -> Result<(), Err> {
-    normalize_openai_api_key(api_key, "Flagged by OpenAI Omni")?;
+    normalize_api_key(api_key, "OpenAI", "Flagged by OpenAI Omni")?;
     retry.validate("Flagged by OpenAI Omni")?;
 
     for category in OpenAiCategory::ALL {
@@ -643,35 +647,41 @@ fn normalize_and_validate_omni_moderation(
     Ok(())
 }
 
-/// The OpenAI models `FlaggedByOpenAiInstruction` may ask. All of them take
-/// `temperature` 0 and a strict JSON schema, which is what keeps the answer a
-/// repeatable boolean; the reasoning models reject one or the other. Mirrored
-/// by the `model` field's `oneOf` in `rules-schema.json`.
-pub const OPENAI_INSTRUCTION_MODELS: [&str; 5] = [
-    "gpt-4o-mini",
-    "gpt-4.1-nano",
-    "gpt-4.1-mini",
-    "gpt-4o",
-    "gpt-4.1",
+/// The OpenRouter models `FlaggedByOpenRouterInstruction` may ask. Every one
+/// takes `temperature` 0 and a strict JSON schema (OpenRouter's
+/// `structured_outputs`) and answers without reasoning first, which is what
+/// keeps the answer a fast, repeatable boolean. Mirrored by the `model`
+/// field's `oneOf` in `rules-schema.json`.
+pub const OPENROUTER_INSTRUCTION_MODELS: [&str; 10] = [
+    "google/gemini-2.5-flash-lite",
+    "mistralai/mistral-small-3.2-24b-instruct",
+    "meta-llama/llama-3.3-70b-instruct",
+    "meta-llama/llama-4-maverick",
+    "openai/gpt-4.1-nano",
+    "openai/gpt-4o-mini",
+    "openai/gpt-4.1-mini",
+    "anthropic/claude-haiku-4.5",
+    "openai/gpt-4o",
+    "openai/gpt-4.1",
 ];
 
 /// Maximum length (in characters) of an instruction. It travels in the editor
 /// link and in every request, so it is billed on every message it checks.
-pub const MAX_OPENAI_INSTRUCTION_LENGTH: usize = 4000;
+pub const MAX_OPENROUTER_INSTRUCTION_LENGTH: usize = 4000;
 
-fn normalize_and_validate_openai_instruction(
+fn normalize_and_validate_openrouter_instruction(
     api_key: &mut String,
     model: &str,
     instruction: &mut String,
-    retry: &OpenAiRetry,
+    retry: &ApiRetry,
 ) -> Result<(), Err> {
-    const TITLE: &str = "Flagged by OpenAI Instruction";
-    normalize_openai_api_key(api_key, TITLE)?;
+    const TITLE: &str = "Flagged by OpenRouter Instruction";
+    normalize_api_key(api_key, "OpenRouter", TITLE)?;
     retry.validate(TITLE)?;
-    if !OPENAI_INSTRUCTION_MODELS.contains(&model) {
+    if !OPENROUTER_INSTRUCTION_MODELS.contains(&model) {
         return Err(format!(
             "'{TITLE}' cannot use the model '{model}'. Pick one of: {}",
-            OPENAI_INSTRUCTION_MODELS.join(", ")
+            OPENROUTER_INSTRUCTION_MODELS.join(", ")
         )
         .into());
     }
@@ -680,9 +690,9 @@ fn normalize_and_validate_openai_instruction(
         return Err(format!("'{TITLE}' needs an instruction").into());
     }
     let length = trimmed.chars().count();
-    if length > MAX_OPENAI_INSTRUCTION_LENGTH {
+    if length > MAX_OPENROUTER_INSTRUCTION_LENGTH {
         return Err(format!(
-            "The instruction is too long: {length} characters, maximum is {MAX_OPENAI_INSTRUCTION_LENGTH}"
+            "The instruction is too long: {length} characters, maximum is {MAX_OPENROUTER_INSTRUCTION_LENGTH}"
         )
         .into());
     }
@@ -691,19 +701,22 @@ fn normalize_and_validate_openai_instruction(
 }
 
 /// The key is trimmed, because it is pasted by hand; the errors never repeat
-/// it, because they land in the owner's chat and in the logs.
-fn normalize_openai_api_key(api_key: &mut String, title: &str) -> Result<(), Err> {
+/// it, because they land in the owner's chat and in the logs. `provider` names
+/// whose key it is, as the owner knows it.
+fn normalize_api_key(api_key: &mut String, provider: &str, title: &str) -> Result<(), Err> {
     let trimmed = api_key.trim();
     if trimmed.is_empty() {
-        return Err(format!("'{title}' needs an OpenAI API key").into());
+        return Err(format!("'{title}' needs an {provider} API key").into());
     }
     if trimmed.chars().any(char::is_whitespace) {
-        return Err("The OpenAI API key must not contain spaces or line breaks".into());
+        return Err(
+            format!("The {provider} API key must not contain spaces or line breaks").into(),
+        );
     }
     let length = trimmed.chars().count();
-    if length > MAX_OPENAI_API_KEY_LENGTH {
+    if length > MAX_API_KEY_LENGTH {
         return Err(format!(
-            "The OpenAI API key is too long: {length} characters, maximum is {MAX_OPENAI_API_KEY_LENGTH}"
+            "The {provider} API key is too long: {length} characters, maximum is {MAX_API_KEY_LENGTH}"
         )
         .into());
     }
@@ -944,7 +957,7 @@ fn should_moderate_by_condition(message: &str, condition: &ModerationCondition) 
         | ModerationCondition::AuthorHitsModerationRateLimit { .. }
         | ModerationCondition::AuthorJoinedRecently { .. }
         | ModerationCondition::FlaggedByOmniModeration { .. }
-        | ModerationCondition::FlaggedByOpenAiInstruction { .. }
+        | ModerationCondition::FlaggedByOpenRouterInstruction { .. }
         | ModerationCondition::All { .. }
         | ModerationCondition::Any { .. }
         | ModerationCondition::Not { .. } => None,
@@ -954,20 +967,20 @@ fn should_moderate_by_condition(message: &str, condition: &ModerationCondition) 
 /// Maximum length (in characters) of a model's reason as the owner is shown
 /// it. The schema asks for one short sentence; this holds a model that ignores
 /// that to a notification's worth.
-const MAX_OPENAI_REASON_LENGTH: usize = 200;
+const MAX_MODEL_REASON_LENGTH: usize = 200;
 
 /// The model's own reason, on one line and cut to size, after the model's name
 /// so the owner knows whose judgement it is.
-fn openai_instruction_reason(model: &str, reason: &str) -> String {
+fn openrouter_instruction_reason(model: &str, reason: &str) -> String {
     let reason = reason.split_whitespace().collect::<Vec<_>>().join(" ");
     if reason.is_empty() {
-        return format!("OpenAI {model} says it matches the instruction");
+        return format!("{model} says it matches the instruction");
     }
-    let mut shown: String = reason.chars().take(MAX_OPENAI_REASON_LENGTH).collect();
-    if reason.chars().count() > MAX_OPENAI_REASON_LENGTH {
+    let mut shown: String = reason.chars().take(MAX_MODEL_REASON_LENGTH).collect();
+    if reason.chars().count() > MAX_MODEL_REASON_LENGTH {
         shown.push('…');
     }
-    format!("OpenAI {model}: {shown}")
+    format!("{model}: {shown}")
 }
 
 /// Evaluate one condition, reusing the per-message memo.
@@ -1165,7 +1178,7 @@ async fn evaluate(
                 Err(_) => Ok(None),
             }
         }
-        ModerationCondition::FlaggedByOpenAiInstruction {
+        ModerationCondition::FlaggedByOpenRouterInstruction {
             api_key,
             model,
             instruction,
@@ -1176,12 +1189,12 @@ async fn evaluate(
                 return Ok(None);
             }
             match ctx
-                .openai
+                .openrouter
                 .matches_instruction(api_key, model, instruction, text, retry)
                 .await
             {
                 Ok(verdict) if verdict.matches => {
-                    Ok(Some(openai_instruction_reason(model, &verdict.reason)))
+                    Ok(Some(openrouter_instruction_reason(model, &verdict.reason)))
                 }
                 Ok(_) | Err(_) => Ok(None),
             }

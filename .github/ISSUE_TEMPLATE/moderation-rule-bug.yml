@@ -51,7 +51,7 @@ body:
         - Author Hits Moderation Rate Limit
         - Author Joined Recently
         - Flagged by OpenAI Omni
-        - Flagged by OpenAI Instruction
+        - Flagged by OpenRouter Instruction
         - All of These Conditions Match (AND)
         - Any of These Conditions Match (OR)
         - This Condition Does Not Match (NOT)

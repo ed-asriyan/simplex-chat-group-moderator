@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::domain::moderator::ports::{
     Err, Group, GroupAdministration, GroupId, GroupInvitation, GroupModerator, KeyCheck,
     MessengerGroupId, ModerationCondition, ModerationRepository, ModerationRule, OpenAi,
-    OwnedModerationRule, UserId,
+    OpenRouter, OwnedModerationRule, UserId,
 };
 
 #[cfg(test)]
@@ -14,8 +14,11 @@ mod tests;
 pub struct GroupAdministrationApplication {
     repository: Arc<dyn ModerationRepository>,
     group_moderator: Arc<dyn GroupModerator>,
-    /// Asks OpenAI about every key a saved rule set carries, before it is stored.
+    /// Asks OpenAI about every OpenAI key a saved rule set carries, before it
+    /// is stored.
     openai: Arc<dyn OpenAi>,
+    /// The same for every OpenRouter key and the model it is to ask.
+    openrouter: Arc<dyn OpenRouter>,
 }
 
 impl GroupAdministrationApplication {
@@ -23,11 +26,13 @@ impl GroupAdministrationApplication {
         repository: Arc<dyn ModerationRepository>,
         group_moderator: Arc<dyn GroupModerator>,
         openai: Arc<dyn OpenAi>,
+        openrouter: Arc<dyn OpenRouter>,
     ) -> Self {
         Self {
             repository,
             group_moderator,
             openai,
+            openrouter,
         }
     }
 
@@ -41,17 +46,18 @@ impl GroupAdministrationApplication {
         }
     }
 
-    /// Ask OpenAI about every distinct key in `rules`, wherever in a tree it
-    /// sits: for the moderation endpoint, and for each model a key is to ask.
-    /// The first check OpenAI does not pass stops the save.
-    async fn verify_openai_keys(&self, rules: &[ModerationRule]) -> Result<(), Err> {
+    /// Ask the provider about every distinct key in `rules`, wherever in a
+    /// tree it sits: OpenAI for the moderation endpoint, OpenRouter for each
+    /// model a key is to ask. The first check that does not pass stops the
+    /// save.
+    async fn verify_api_keys(&self, rules: &[ModerationRule]) -> Result<(), Err> {
         let mut checks = BTreeSet::new();
         for rule in rules {
             rule.condition.walk(&mut |condition| match condition {
                 ModerationCondition::FlaggedByOmniModeration { api_key, .. } => {
                     checks.insert(KeyUse::Moderation(api_key.clone()));
                 }
-                ModerationCondition::FlaggedByOpenAiInstruction { api_key, model, .. } => {
+                ModerationCondition::FlaggedByOpenRouterInstruction { api_key, model, .. } => {
                     checks.insert(KeyUse::Model(api_key.clone(), model.clone()));
                 }
                 _ => {}
@@ -60,7 +66,7 @@ impl GroupAdministrationApplication {
         for key_use in &checks {
             let check = match key_use {
                 KeyUse::Moderation(key) => self.openai.verify(key).await,
-                KeyUse::Model(key, model) => self.openai.verify_model(key, model).await,
+                KeyUse::Model(key, model) => self.openrouter.verify_model(key, model).await,
             };
             if check != KeyCheck::Valid {
                 return Err(key_check_error(key_use, check).into());
@@ -73,16 +79,18 @@ impl GroupAdministrationApplication {
 /// One thing a key is saved to do.
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 enum KeyUse {
+    /// An OpenAI key, for the moderation endpoint.
     Moderation(String),
+    /// An OpenRouter key, for a model.
     Model(String, String),
 }
 
-/// What to tell the owner about a key OpenAI did not accept. The key is named
-/// by its last characters only: the message goes to the chat and the logs.
+/// What to tell the owner about a key the provider did not accept. The key is
+/// named by its last characters only: the message goes to the chat and the
+/// logs.
 fn key_check_error(key_use: &KeyUse, check: KeyCheck) -> String {
-    let (key, endpoint, model) = match key_use {
-        KeyUse::Moderation(key) => (key, "Moderations", None),
-        KeyUse::Model(key, model) => (key, "Responses", Some(model.as_str())),
+    let key = match key_use {
+        KeyUse::Moderation(key) | KeyUse::Model(key, _) => key,
     };
     let tail: String = {
         let mut tail: Vec<char> = key.chars().rev().take(4).collect();
@@ -90,23 +98,50 @@ fn key_check_error(key_use: &KeyUse, check: KeyCheck) -> String {
         tail.into_iter().collect()
     };
     let key = format!("…{tail}");
+    match key_use {
+        KeyUse::Moderation(_) => openai_key_check_error(&key, check),
+        KeyUse::Model(_, model) => openrouter_key_check_error(&key, model, check),
+    }
+}
+
+fn openai_key_check_error(key: &str, check: KeyCheck) -> String {
     match check {
         KeyCheck::Valid => format!("The OpenAI API key {key} works"),
         KeyCheck::Rejected => format!(
             "OpenAI rejected the API key {key}. Check that it was copied whole and has not been revoked."
         ),
         KeyCheck::Forbidden => format!(
-            "The OpenAI API key {key} may not use {endpoint}. Allow {endpoint} in the key's permissions on the OpenAI platform."
+            "The OpenAI API key {key} may not use Moderations. Allow Moderations in the key's permissions on the OpenAI platform."
         ),
         KeyCheck::QuotaExceeded => format!(
             "OpenAI refused the API key {key}: the account's quota is exhausted or its billing is not set up."
         ),
         KeyCheck::ModelUnavailable => format!(
-            "The OpenAI API key {key} cannot use the model {}. Check that the key's project allows it.",
-            model.unwrap_or("asked for")
+            "The OpenAI API key {key} cannot use the moderation model. Check that the key's project allows it."
         ),
         KeyCheck::Unreachable => format!(
             "Could not reach OpenAI to check the API key {key}. Send the link again in a minute."
+        ),
+    }
+}
+
+fn openrouter_key_check_error(key: &str, model: &str, check: KeyCheck) -> String {
+    match check {
+        KeyCheck::Valid => format!("The OpenRouter API key {key} works with {model}"),
+        KeyCheck::Rejected => format!(
+            "OpenRouter rejected the API key {key}. Check that it was copied whole and has not been deleted or disabled at openrouter.ai/settings/keys."
+        ),
+        KeyCheck::Forbidden => format!(
+            "The OpenRouter API key {key} may not use {model}. Check the key's guardrail at openrouter.ai/settings/keys."
+        ),
+        KeyCheck::QuotaExceeded => format!(
+            "OpenRouter refused the API key {key}: the account has no credits left, or the key has spent its own credit limit. Add credits at openrouter.ai/settings/credits."
+        ),
+        KeyCheck::ModelUnavailable => format!(
+            "The OpenRouter API key {key} cannot have {model} answer: no provider of that model currently takes a strict JSON answer without collecting data. Pick another model."
+        ),
+        KeyCheck::Unreachable => format!(
+            "Could not reach OpenRouter to check the API key {key}. Send the link again in a minute."
         ),
     }
 }
@@ -163,7 +198,7 @@ impl GroupAdministration for GroupAdministrationApplication {
         for rule in &mut rules {
             rule.normalize_and_validate()?;
         }
-        self.verify_openai_keys(&rules).await?;
+        self.verify_api_keys(&rules).await?;
 
         self.repository.set_group_rules(&group_id, &rules).await?;
         Ok(())

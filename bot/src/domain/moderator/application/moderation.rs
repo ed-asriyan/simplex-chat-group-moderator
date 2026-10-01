@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::domain::moderator::message_filter::{count_effective_lines, should_moderate};
 use crate::domain::moderator::ports::{
     Err, GroupMemberRole, GroupMessage, GroupModerator, MemberRestoreRepository, ModerationAction,
-    ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule, OpenAi,
+    ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule, OpenAi, OpenRouter,
     UserCharacterActivityRepository, UserLineActivityRepository, UserMessageActivityRepository,
     UserModerationActivityRepository,
 };
@@ -24,6 +24,7 @@ pub struct MessageModerationApplication {
     moderation_activity_repository: Arc<dyn UserModerationActivityRepository>,
     restores: Arc<dyn MemberRestoreRepository>,
     openai: Arc<dyn OpenAi>,
+    openrouter: Arc<dyn OpenRouter>,
 }
 
 impl MessageModerationApplication {
@@ -37,6 +38,7 @@ impl MessageModerationApplication {
         moderation_activity_repository: Arc<dyn UserModerationActivityRepository>,
         restores: Arc<dyn MemberRestoreRepository>,
         openai: Arc<dyn OpenAi>,
+        openrouter: Arc<dyn OpenRouter>,
     ) -> Self {
         Self {
             repository,
@@ -48,6 +50,7 @@ impl MessageModerationApplication {
             moderation_activity_repository,
             restores,
             openai,
+            openrouter,
         }
     }
 
@@ -212,6 +215,7 @@ impl ModerationEngine for MessageModerationApplication {
             self.line_activity_repository.as_ref(),
             self.moderation_activity_repository.as_ref(),
             self.openai.as_ref(),
+            self.openrouter.as_ref(),
         )
         .await?
         {

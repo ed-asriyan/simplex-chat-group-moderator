@@ -210,7 +210,7 @@ fn test_zero_maximum_never_matches() {
 
 #[tokio::test]
 async fn test_integration_with_message_filter_rules() {
-    use crate::domain::moderator::message_filter::tests::UnusedOpenAi;
+    use crate::domain::moderator::message_filter::tests::UnusedAi;
     use crate::domain::moderator::message_filter::{
         ModerationAction, ModerationCondition, ModerationRule,
         should_moderate as top_level_moderate,
@@ -255,7 +255,8 @@ async fn test_integration_with_message_filter_rules() {
             &char_repo,
             &line_repo,
             &mod_repo,
-            &UnusedOpenAi,
+            &UnusedAi,
+            &UnusedAi,
         )
         .await
         .unwrap()

@@ -1,8 +1,8 @@
 //! Types the moderator context exchanges across its ports.
 
 pub use crate::domain::moderator::message_filter::{
-    CategoryTrigger, ModerationAction, ModerationCondition, ModerationMatch, ModerationRule,
-    OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult, OpenAiRetry,
+    ApiRetry, CategoryTrigger, ModerationAction, ModerationCondition, ModerationMatch,
+    ModerationRule, OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult,
 };
 use chrono::{DateTime, Utc};
 use std::error::Error;
@@ -91,31 +91,35 @@ pub struct ScheduledMemberRestore {
     pub execute_at: DateTime<Utc>,
 }
 
-/// What OpenAI said about an API key an owner is saving.
+/// What the provider — OpenAI or OpenRouter — said about an API key an owner
+/// is saving.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyCheck {
-    /// The key can call the Moderation API.
+    /// The key can make the request the condition will make.
     Valid,
-    /// OpenAI does not know the key (401).
+    /// The provider does not know the key (401): mistyped, revoked or
+    /// disabled.
     Rejected,
-    /// The key exists but may not call the Moderation API (403): a restricted
-    /// key without the Moderations permission.
+    /// The key exists but may not make that request (403): an OpenAI key
+    /// without the Moderations permission, or an OpenRouter key whose
+    /// guardrail does not allow the model.
     Forbidden,
-    /// The account behind the key has no quota or no billing set up
-    /// (429 `insufficient_quota`). Retrying does not help.
+    /// The account behind the key cannot pay (OpenAI: 429
+    /// `insufficient_quota`; OpenRouter: 402, or the key's own credit limit is
+    /// spent). Retrying does not help.
     QuotaExceeded,
-    /// The key may not use the model, or the model does not take the request
-    /// (400/404): a project that does not allow it, or a model OpenAI retired.
+    /// The model cannot be asked this way (400/404): a model the provider
+    /// retired, or one that has no endpoint left taking the request.
     ModelUnavailable,
-    /// OpenAI could not be asked: network trouble, 5xx, rate limiting, or an
-    /// answer that could not be read. Says nothing about the key itself.
+    /// The provider could not be asked: network trouble, 5xx, rate limiting,
+    /// or an answer that could not be read. Says nothing about the key itself.
     Unreachable,
 }
 
 /// A model's answer about one message: whether it is what the owner's
 /// instruction describes, and the model's own one-sentence reason.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OpenAiInstructionVerdict {
+pub struct OpenRouterInstructionVerdict {
     pub matches: bool,
     pub reason: String,
 }
