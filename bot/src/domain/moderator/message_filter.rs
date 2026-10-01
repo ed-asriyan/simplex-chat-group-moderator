@@ -49,6 +49,10 @@
 //! The pre-pass and the main loop share one memo (on `ConditionContext`), so each distinct
 //! condition is still evaluated at most once per message.
 //!
+//! The pre-pass's reason is also kept for the owner. The main loop skips a rule whose actions
+//! are already covered, and the rule that moderated this message is often covered by the very
+//! kick the rate limit triggers — so its reason is appended if the loop did not record it.
+//!
 //! # Where things live
 //! One module per entity, each owning the type and every submodule that only serves it:
 //! - `moderation_condition` — [`ModerationCondition`]: its parameters, the checks applied when
@@ -131,20 +135,20 @@ pub async fn should_moderate(
 
     // Only pay for the pre-pass when some rule actually asks how many of the
     // author's messages were moderated.
+    let mut moderated_by: Option<String> = None;
     if rules
         .iter()
         .any(|rule| rule.condition.contains_moderation_rate_limit())
     {
         ctx.moderation_rate_limit_pinned = true;
-        let mut message_is_moderated = false;
         for rule in rules {
-            if check_condition(&mut ctx, &rule.condition).await?.is_some() {
-                message_is_moderated = true;
+            if let Some(reason) = check_condition(&mut ctx, &rule.condition).await? {
+                moderated_by = Some(reason);
                 break;
             }
         }
         ctx.moderation_rate_limit_pinned = false;
-        ctx.message_is_moderated = message_is_moderated;
+        ctx.message_is_moderated = moderated_by.is_some();
     }
 
     let mut current_actions: Vec<ModerationAction> = Vec::new();
@@ -164,6 +168,17 @@ pub async fn should_moderate(
             current_actions = candidate_actions;
             reasons.push(reason);
         }
+    }
+
+    // The rule that moderated this message may have been skipped above because
+    // a stronger plan already covered its actions — typically the very kick the
+    // moderation rate limit asked for. Without its reason the owner would read
+    // "N messages moderated" with nothing saying why this one was.
+    if let Some(reason) = moderated_by
+        && !current_actions.is_empty()
+        && !reasons.contains(&reason)
+    {
+        reasons.push(reason);
     }
 
     if current_actions.is_empty() {

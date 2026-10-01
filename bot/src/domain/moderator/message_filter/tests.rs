@@ -1181,11 +1181,14 @@ async fn test_moderation_rate_limit_is_order_independent() {
             },
         ]
     );
-    assert!(
-        result
-            .reasons
-            .iter()
-            .any(|r| r.contains("messages moderated in"))
+    // The keyword rule is skipped by the main loop (the kick covers its
+    // action), but it is why this message counted, so the owner is told.
+    assert_eq!(
+        result.reasons,
+        vec![
+            "author had 3 messages moderated in 60 min".to_string(),
+            "contains word: 'badword'".to_string(),
+        ]
     );
 }
 
@@ -1380,12 +1383,11 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
             },
         ]
     );
-    assert!(
-        result
-            .reasons
-            .iter()
-            .any(|r| r.contains("messages moderated in"))
-    );
+    assert_eq!(result.reasons.len(), 2);
+    assert!(result.reasons[0].contains("messages moderated in"));
+    // The reported case: the kick covers the word rule, which the owner would
+    // otherwise never hear was why this message counted.
+    assert_eq!(result.reasons[1], "contains word: 'badword'");
 }
 
 #[tokio::test]

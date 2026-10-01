@@ -774,7 +774,7 @@
                 {
                     "type": "object",
                     "title": "👤 Author Hits Moderation Rate Limit",
-                    "description": "Matches when the given number of the author's messages have **already** been moderated by the bot within the time window. The message being checked right now joins that tally only after the decision is made, so it counts from the author's next message on: with a threshold of 2, the rule fires on their third moderated message.",
+                    "description": "Matches when the given number of the author's messages have been moderated by the bot within the time window. The message being checked right now counts too when another rule moderates it, so the rule fires on the very message that reaches the threshold: with a threshold of 2, on their second moderated message. Until the window runs out, it also matches the author's next message even when nothing else would moderate it.",
                     "required": [
                         "type",
                         "message_count",
@@ -793,7 +793,7 @@
                         "message_count": {
                             "type": "integer",
                             "title": "Number of Moderated Messages",
-                            "description": "Matches when the number of the author's messages already moderated by the bot in the time window reaches this number. The message being checked is not part of that count yet.",
+                            "description": "Matches when the number of the author's messages moderated by the bot in the time window reaches this number. The message being checked counts toward it when another rule moderates it.",
                             "minimum": 1,
                             "default": 3
                         },
