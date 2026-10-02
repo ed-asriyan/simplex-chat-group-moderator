@@ -133,7 +133,8 @@ fn test_request_puts_the_instruction_first_and_the_message_as_data() {
     assert_eq!(body["messages"][1]["role"], "user");
     assert_eq!(body["messages"][1]["content"], "  buy crypto  ");
     assert_eq!(body["temperature"], 0);
-    assert_eq!(body["max_tokens"], 200);
+    // No cap: an answer cut short is no verdict, so the model is let finish.
+    assert!(body.get("max_tokens").is_none());
 }
 
 #[test]

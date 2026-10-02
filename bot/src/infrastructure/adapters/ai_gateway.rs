@@ -64,8 +64,7 @@ struct AiGatewayConfig {
     /// included.
     classify_deadline: Duration,
     /// How long a message waits for an OpenRouter model following an
-    /// instruction, queueing included. Longer: a chat model answers slower
-    /// than the moderation endpoint, and OpenRouter adds its routing.
+    /// instruction, queueing included.
     judge_deadline: Duration,
     /// How long a key check waits, queueing and its one retry included.
     verify_deadline: Duration,
@@ -89,19 +88,19 @@ impl Default for AiGatewayConfig {
             max_pending_per_key: 20,
             max_in_flight: MAX_IN_FLIGHT,
             queue_capacity: 1_000,
-            classify_deadline: Duration::from_secs(2),
-            judge_deadline: Duration::from_secs(4),
-            verify_deadline: Duration::from_secs(10),
+            classify_deadline: Duration::from_secs(30),
+            judge_deadline: Duration::from_secs(30),
+            verify_deadline: Duration::from_secs(30),
             rejected_key_ttl: Duration::from_secs(10 * 60),
             default_rate_limit_cooldown: Duration::from_secs(20),
         }
     }
 }
 
-/// How long one HTTP attempt may take. A request outliving its caller's
-/// deadline still holds a slot, so this stays short: a hung provider costs
-/// seconds of capacity, not more.
-const HTTP_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long one HTTP attempt may take: as long as the longest deadline, so a
+/// slow model gets to finish its answer. A request outliving its caller's
+/// deadline still holds a slot until then.
+const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Tries per HTTP request. One: how often a message is tried again is the
 /// owner's setting on the condition, and the gateway's `ask` does the retrying

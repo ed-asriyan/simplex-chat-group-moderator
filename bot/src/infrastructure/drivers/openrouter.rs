@@ -163,10 +163,6 @@ fn parse_retry_after(value: &str) -> Option<Duration> {
 const DELETE_DESCRIPTION: &str = "Whether the message should be deleted.";
 const REASON_DESCRIPTION: &str = "The reason why the message should or should not be deleted.";
 
-/// Room for the verdict and a sentence of reason. An answer cut off by this
-/// limit is no verdict, so it is generous next to what the schema asks for.
-const MAX_TOKENS: u32 = 200;
-
 /// The instruction goes in as the system message and the text as the user
 /// message: the model reads the text as data to judge, and the schema leaves it
 /// nothing to answer with but `true` or `false` and a sentence saying why.
@@ -201,7 +197,6 @@ fn judgement_request_body(model: &str, instruction: &str, text: &str) -> serde_j
             }
         },
         "temperature": 0,
-        "max_tokens": MAX_TOKENS,
         "provider": {
             "require_parameters": true,
             "data_collection": "deny"
