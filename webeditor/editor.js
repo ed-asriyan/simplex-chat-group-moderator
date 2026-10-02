@@ -36,6 +36,7 @@ const GROUPS = {
     "📏": "Size & shape",
     "📎": "Attachments",
     "👤": "Author",
+    "👥": "Group",
     "🧩": "Combine",
     "🔀": "Combine",
     "✖️": "Combine",

@@ -227,6 +227,53 @@ async fn test_round_trips_line_rate_limit_settings() {
     assert_eq!(loaded[0].rule, rules[0]);
 }
 
+/// The group-wide rate limits have tables of their own, apart from the
+/// author's; each has to come back with its settings, nested or not.
+#[tokio::test]
+async fn test_round_trips_group_rate_limit_settings() {
+    let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+    migrations::run(conn.clone()).await.unwrap();
+
+    let repo = SqliteModerationRepository::new(conn.clone());
+    let group_id = repo
+        .save_owner(&1003, "Group Rate Limit Group", &456)
+        .await
+        .unwrap();
+
+    let rules = vec![
+        ModerationRule {
+            actions: vec![ModerationAction::ModerateMessage],
+            condition: ModerationCondition::GroupHitsMessageRateLimit {
+                message_count: 50,
+                time_window_minutes: 1,
+            },
+        },
+        ModerationRule {
+            actions: vec![ModerationAction::ModerateMessage],
+            condition: ModerationCondition::Any {
+                conditions: vec![
+                    ModerationCondition::GroupHitsCharacterRateLimit {
+                        character_count: 10000,
+                        time_window_minutes: 5,
+                    },
+                    ModerationCondition::GroupHitsLineRateLimit {
+                        line_count: 200,
+                        time_window_minutes: 10,
+                        chars_per_line: 40,
+                    },
+                ],
+            },
+        },
+    ];
+
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+
+    let loaded = repo.get_group_rules(&group_id).await.unwrap();
+    assert_eq!(loaded.len(), 2);
+    assert_eq!(loaded[0].rule, rules[0]);
+    assert_eq!(loaded[1].rule, rules[1]);
+}
+
 // ---------------------------------------------------------------------------
 // Persistence round-trips
 //

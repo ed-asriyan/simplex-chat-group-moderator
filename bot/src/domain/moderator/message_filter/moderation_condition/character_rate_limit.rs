@@ -1,5 +1,6 @@
 use crate::domain::moderator::ports::{
-    Err, MessengerGroupId, UserCharacterActivityRepository, UserId,
+    Err, GroupCharacterActivityRepository, MessengerGroupId, UserCharacterActivityRepository,
+    UserId,
 };
 use chrono::{DateTime, Duration, Utc};
 
@@ -36,6 +37,44 @@ pub async fn check(
         .sum_characters_since(group_id, user_id, since, now)
         .await?;
     Ok(should_moderate(count, character_count, time_window_minutes))
+}
+
+/// Evaluates if the whole group received at least `character_count` characters in the
+/// window.
+pub fn group_should_moderate(
+    count: u32,
+    character_count: u32,
+    time_window_minutes: u32,
+) -> Option<String> {
+    if character_count > 0 && time_window_minutes > 0 && count >= character_count {
+        Some(format!(
+            "group received {count} characters in {time_window_minutes} min"
+        ))
+    } else {
+        None
+    }
+}
+
+/// The group-wide counterpart of [`check`]: every member's characters count.
+pub async fn check_group(
+    activity_repo: &dyn GroupCharacterActivityRepository,
+    group_id: &MessengerGroupId,
+    character_count: u32,
+    time_window_minutes: u32,
+    now: DateTime<Utc>,
+) -> Result<Option<String>, Err> {
+    if character_count == 0 || time_window_minutes == 0 {
+        return Ok(None);
+    }
+    let since = now - Duration::minutes(time_window_minutes as i64);
+    let count = activity_repo
+        .sum_characters_since(group_id, since, now)
+        .await?;
+    Ok(group_should_moderate(
+        count,
+        character_count,
+        time_window_minutes,
+    ))
 }
 
 #[cfg(test)]

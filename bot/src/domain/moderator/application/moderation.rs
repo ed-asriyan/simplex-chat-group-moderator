@@ -5,10 +5,11 @@ use std::time::Duration;
 
 use crate::domain::moderator::message_filter::{count_effective_lines, should_moderate};
 use crate::domain::moderator::ports::{
-    Err, GroupMemberRole, GroupMessage, GroupModerator, MemberRestoreRepository, ModerationAction,
-    ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule, OpenAi, OpenRouter,
-    UserCharacterActivityRepository, UserLineActivityRepository, UserMessageActivityRepository,
-    UserModerationActivityRepository,
+    Err, GroupCharacterActivityRepository, GroupLineActivityRepository, GroupMemberRole,
+    GroupMessage, GroupMessageActivityRepository, GroupModerator, MemberRestoreRepository,
+    ModerationAction, ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule,
+    OpenAi, OpenRouter, UserCharacterActivityRepository, UserLineActivityRepository,
+    UserMessageActivityRepository, UserModerationActivityRepository,
 };
 
 #[cfg(test)]
@@ -22,6 +23,9 @@ pub struct MessageModerationApplication {
     character_activity_repository: Arc<dyn UserCharacterActivityRepository>,
     line_activity_repository: Arc<dyn UserLineActivityRepository>,
     moderation_activity_repository: Arc<dyn UserModerationActivityRepository>,
+    group_activity_repository: Arc<dyn GroupMessageActivityRepository>,
+    group_character_activity_repository: Arc<dyn GroupCharacterActivityRepository>,
+    group_line_activity_repository: Arc<dyn GroupLineActivityRepository>,
     restores: Arc<dyn MemberRestoreRepository>,
     openai: Arc<dyn OpenAi>,
     openrouter: Arc<dyn OpenRouter>,
@@ -36,6 +40,9 @@ impl MessageModerationApplication {
         character_activity_repository: Arc<dyn UserCharacterActivityRepository>,
         line_activity_repository: Arc<dyn UserLineActivityRepository>,
         moderation_activity_repository: Arc<dyn UserModerationActivityRepository>,
+        group_activity_repository: Arc<dyn GroupMessageActivityRepository>,
+        group_character_activity_repository: Arc<dyn GroupCharacterActivityRepository>,
+        group_line_activity_repository: Arc<dyn GroupLineActivityRepository>,
         restores: Arc<dyn MemberRestoreRepository>,
         openai: Arc<dyn OpenAi>,
         openrouter: Arc<dyn OpenRouter>,
@@ -48,6 +55,9 @@ impl MessageModerationApplication {
             character_activity_repository,
             line_activity_repository,
             moderation_activity_repository,
+            group_activity_repository,
+            group_character_activity_repository,
+            group_line_activity_repository,
             restores,
             openai,
             openrouter,
@@ -160,6 +170,70 @@ impl MessageModerationApplication {
         Ok(())
     }
 
+    /// Counts the message toward the group-wide limits, each on its own
+    /// counter and only when some rule asks for that limit, the way the
+    /// author's three counters above are kept.
+    async fn track_group_activity_if_needed(
+        &self,
+        group_message: &GroupMessage,
+        rules: &[ModerationRule],
+    ) -> Result<(), Err> {
+        let group_id = &group_message.group.id;
+        let max_window = |pick: fn(&ModerationRule) -> Option<u32>| {
+            rules
+                .iter()
+                .filter_map(pick)
+                .map(|window| window.min(60))
+                .max()
+                .map(|minutes| Duration::from_secs(minutes as u64 * 60))
+        };
+
+        if let Some(ttl) = max_window(|r| r.condition.max_group_message_rate_limit_window()) {
+            self.group_activity_repository
+                .record_message(group_id, group_message.timestamp, ttl)
+                .await?;
+        }
+
+        if let Some(ttl) = max_window(|r| r.condition.max_group_character_rate_limit_window()) {
+            self.group_character_activity_repository
+                .record_characters(
+                    group_id,
+                    group_message.timestamp,
+                    group_message.text.chars().count().min(u32::MAX as usize) as u32,
+                    ttl,
+                )
+                .await?;
+        }
+
+        if let Some(ttl) = max_window(|r| r.condition.max_group_line_rate_limit_window()) {
+            let chars_per_line = rules
+                .iter()
+                .filter_map(|r| r.condition.group_line_rate_limit_wrap_width())
+                .fold(None, |widest, width| match (widest, width) {
+                    (_, 0) | (Some(0), _) => Some(0),
+                    (Some(current), width) => Some(current.max(width)),
+                    (None, width) => Some(width),
+                })
+                .unwrap_or(0);
+            self.group_line_activity_repository
+                .record_lines(
+                    group_id,
+                    group_message.timestamp,
+                    // As for the author's counter: an attachment adds no lines.
+                    if group_message.text.is_empty() {
+                        0
+                    } else {
+                        count_effective_lines(&group_message.text, chars_per_line)
+                            .min(u32::MAX as usize) as u32
+                    },
+                    ttl,
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
+
     async fn track_moderated_message_if_needed(
         &self,
         group_message: &GroupMessage,
@@ -205,6 +279,8 @@ impl ModerationEngine for MessageModerationApplication {
                 .await?;
             self.track_user_lines_if_needed(&group_message, &rules_list)
                 .await?;
+            self.track_group_activity_if_needed(&group_message, &rules_list)
+                .await?;
         }
 
         if let Some(matched) = should_moderate(
@@ -214,6 +290,9 @@ impl ModerationEngine for MessageModerationApplication {
             self.character_activity_repository.as_ref(),
             self.line_activity_repository.as_ref(),
             self.moderation_activity_repository.as_ref(),
+            self.group_activity_repository.as_ref(),
+            self.group_character_activity_repository.as_ref(),
+            self.group_line_activity_repository.as_ref(),
             self.openai.as_ref(),
             self.openrouter.as_ref(),
         )

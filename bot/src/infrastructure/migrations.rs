@@ -81,7 +81,7 @@ mod tests {
         let version: i64 = guard
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 33);
+        assert_eq!(version, 34);
     }
 
     /// 0022 rebuilds every rule as a `moderation_rules` row plus a condition
@@ -567,6 +567,19 @@ mod tests {
                         },
                         ModerationCondition::AuthorJoinedRecently {
                             time_window_minutes: 10,
+                        },
+                        ModerationCondition::GroupHitsMessageRateLimit {
+                            message_count: 50,
+                            time_window_minutes: 1,
+                        },
+                        ModerationCondition::GroupHitsCharacterRateLimit {
+                            character_count: 5000,
+                            time_window_minutes: 1,
+                        },
+                        ModerationCondition::GroupHitsLineRateLimit {
+                            line_count: 100,
+                            time_window_minutes: 1,
+                            chars_per_line: 40,
                         },
                     ],
                 },

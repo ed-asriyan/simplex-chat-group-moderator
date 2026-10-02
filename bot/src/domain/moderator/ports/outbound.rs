@@ -205,6 +205,73 @@ pub trait UserLineActivityRepository: Send + Sync {
     ) -> Result<u32, Err>;
 }
 
+/// Outbound port: how many messages a whole group received recently, from all
+/// its members together — the group-wide counterpart of
+/// [`UserMessageActivityRepository`].
+///
+/// A storage of its own rather than a sum over the members' counters: those
+/// are kept only while some rule limits authors, and for that rule's window,
+/// not this one's.
+#[async_trait]
+pub trait GroupMessageActivityRepository: Send + Sync {
+    async fn record_message(
+        &self,
+        group_id: &MessengerGroupId,
+        timestamp: DateTime<Utc>,
+        ttl: Duration,
+    ) -> Result<(), Err>;
+
+    async fn count_messages_since(
+        &self,
+        group_id: &MessengerGroupId,
+        since: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<u32, Err>;
+}
+
+/// Outbound port: how many characters a whole group's members wrote recently,
+/// all together — the group-wide counterpart of
+/// [`UserCharacterActivityRepository`].
+#[async_trait]
+pub trait GroupCharacterActivityRepository: Send + Sync {
+    async fn record_characters(
+        &self,
+        group_id: &MessengerGroupId,
+        timestamp: DateTime<Utc>,
+        character_count: u32,
+        ttl: Duration,
+    ) -> Result<(), Err>;
+
+    async fn sum_characters_since(
+        &self,
+        group_id: &MessengerGroupId,
+        since: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<u32, Err>;
+}
+
+/// Outbound port: how many lines a whole group's messages took on screen
+/// recently — the group-wide counterpart of [`UserLineActivityRepository`].
+/// Lines are counted by the caller, with the width the group-wide conditions
+/// configured when the message arrived.
+#[async_trait]
+pub trait GroupLineActivityRepository: Send + Sync {
+    async fn record_lines(
+        &self,
+        group_id: &MessengerGroupId,
+        timestamp: DateTime<Utc>,
+        line_count: u32,
+        ttl: Duration,
+    ) -> Result<(), Err>;
+
+    async fn sum_lines_since(
+        &self,
+        group_id: &MessengerGroupId,
+        since: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<u32, Err>;
+}
+
 /// Outbound port: persistence for user moderation activity (moderated messages history) and moderation rate limit state.
 #[async_trait]
 pub trait UserModerationActivityRepository: Send + Sync {

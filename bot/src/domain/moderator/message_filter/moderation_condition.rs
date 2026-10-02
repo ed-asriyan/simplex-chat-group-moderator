@@ -187,6 +187,29 @@ pub enum ModerationCondition {
         #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
         time_window_minutes: u32,
     },
+    /// The group received at least `message_count` messages in the last
+    /// `time_window_minutes`, from all its members, this one included.
+    GroupHitsMessageRateLimit {
+        message_count: u32,
+        time_window_minutes: u32,
+    },
+    /// The group's members wrote at least `character_count` characters in the
+    /// last `time_window_minutes`, all together, this message's own characters
+    /// included.
+    GroupHitsCharacterRateLimit {
+        character_count: u32,
+        time_window_minutes: u32,
+    },
+    /// The group's messages took at least `line_count` lines on screen in the
+    /// last `time_window_minutes`, from all its members, this message's own
+    /// lines included, with every line longer than `chars_per_line` characters
+    /// counted as several (0: no wrapping). Counted like
+    /// [`Self::AuthorHitsLineRateLimit`], on a counter of its own.
+    GroupHitsLineRateLimit {
+        line_count: u32,
+        time_window_minutes: u32,
+        chars_per_line: u32,
+    },
     /// The author joined the group less than `time_window_minutes` ago. Never
     /// matches members who were already in the group when the bot joined,
     /// since their join time is unknown.
@@ -351,6 +374,77 @@ impl ModerationCondition {
         max
     }
 
+    /// Longest `time_window_minutes` over every node `pick` reads one from.
+    fn max_window(&self, pick: impl Fn(&Self) -> Option<u32>) -> Option<u32> {
+        let mut max: Option<u32> = None;
+        self.walk(&mut |condition| {
+            if let Some(window) = pick(condition).filter(|window| *window > 0) {
+                max = Some(max.map_or(window, |m| m.max(window)));
+            }
+        });
+        max
+    }
+
+    /// Longest `time_window_minutes` over every
+    /// [`Self::GroupHitsMessageRateLimit`] in this tree.
+    pub fn max_group_message_rate_limit_window(&self) -> Option<u32> {
+        self.max_window(|condition| match condition {
+            Self::GroupHitsMessageRateLimit {
+                time_window_minutes,
+                ..
+            } => Some(*time_window_minutes),
+            _ => None,
+        })
+    }
+
+    /// Longest `time_window_minutes` over every
+    /// [`Self::GroupHitsCharacterRateLimit`] in this tree.
+    pub fn max_group_character_rate_limit_window(&self) -> Option<u32> {
+        self.max_window(|condition| match condition {
+            Self::GroupHitsCharacterRateLimit {
+                time_window_minutes,
+                ..
+            } => Some(*time_window_minutes),
+            _ => None,
+        })
+    }
+
+    /// Longest `time_window_minutes` over every
+    /// [`Self::GroupHitsLineRateLimit`] in this tree.
+    pub fn max_group_line_rate_limit_window(&self) -> Option<u32> {
+        self.max_window(|condition| match condition {
+            Self::GroupHitsLineRateLimit {
+                time_window_minutes,
+                ..
+            } => Some(*time_window_minutes),
+            _ => None,
+        })
+    }
+
+    /// The wrap width every [`Self::GroupHitsLineRateLimit`] in this tree is
+    /// counted with, chosen the way [`Self::line_rate_limit_wrap_width`] chooses
+    /// it for the author's counter: the widest, with 0 widest of all. The group
+    /// counter is separate, so the two widths never mix.
+    pub fn group_line_rate_limit_wrap_width(&self) -> Option<u32> {
+        let mut width: Option<u32> = None;
+        self.walk(&mut |condition| {
+            if let Self::GroupHitsLineRateLimit {
+                time_window_minutes,
+                chars_per_line,
+                ..
+            } = condition
+                && *time_window_minutes > 0
+            {
+                width = Some(match (width, *chars_per_line) {
+                    (_, 0) | (Some(0), _) => 0,
+                    (Some(current), configured) => current.max(configured),
+                    (None, configured) => configured,
+                });
+            }
+        });
+        width
+    }
+
     /// Human-readable description of *what this condition looks for*.
     ///
     /// Distinct from the reason string produced by evaluation, which says what
@@ -422,6 +516,23 @@ impl ModerationCondition {
             } => format!(
                 "author had at least {message_count} messages moderated in {time_window_minutes} min"
             ),
+            Self::GroupHitsMessageRateLimit {
+                message_count,
+                time_window_minutes,
+            } => format!(
+                "group received at least {message_count} messages in {time_window_minutes} min"
+            ),
+            Self::GroupHitsCharacterRateLimit {
+                character_count,
+                time_window_minutes,
+            } => format!(
+                "group received at least {character_count} characters in {time_window_minutes} min"
+            ),
+            Self::GroupHitsLineRateLimit {
+                line_count,
+                time_window_minutes,
+                ..
+            } => format!("group received at least {line_count} lines in {time_window_minutes} min"),
             Self::AuthorJoinedRecently {
                 time_window_minutes,
             } => format!("author joined less than {time_window_minutes} min ago"),
@@ -495,6 +606,20 @@ fn check_list(values: &[String], max_length: usize, noun: &str, entry: &str) -> 
 fn check_nonzero(value: u32, error: &str) -> Result<(), Err> {
     if value == 0 {
         return Err(error.into());
+    }
+    Ok(())
+}
+
+/// Longest time window a rate limit may count over: the activity counters keep
+/// nothing longer, so a longer window would quietly count less than it says.
+const MAX_RATE_LIMIT_WINDOW_MINUTES: u32 = 60;
+
+fn check_rate_limit_window(time_window_minutes: u32, title: &str) -> Result<(), Err> {
+    if !(1..=MAX_RATE_LIMIT_WINDOW_MINUTES).contains(&time_window_minutes) {
+        return Err(format!(
+            "'{title}' needs a time window between 1 and {MAX_RATE_LIMIT_WINDOW_MINUTES} minutes, got {time_window_minutes}"
+        )
+        .into());
     }
     Ok(())
 }
@@ -577,6 +702,39 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
             *max_lines,
             "'Message Exceeds Max Lines' needs a maximum of at least 1 line",
         ),
+        // Unlike their author counterparts, which predate this check and read 0
+        // as "disabled", these never had a disabled state to keep.
+        ModerationCondition::GroupHitsMessageRateLimit {
+            message_count,
+            time_window_minutes,
+        } => {
+            check_nonzero(
+                *message_count,
+                "'Group Hits Message Rate Limit' needs at least 1 message",
+            )?;
+            check_rate_limit_window(*time_window_minutes, "Group Hits Message Rate Limit")
+        }
+        ModerationCondition::GroupHitsCharacterRateLimit {
+            character_count,
+            time_window_minutes,
+        } => {
+            check_nonzero(
+                *character_count,
+                "'Group Hits Character Rate Limit' needs at least 1 character",
+            )?;
+            check_rate_limit_window(*time_window_minutes, "Group Hits Character Rate Limit")
+        }
+        ModerationCondition::GroupHitsLineRateLimit {
+            line_count,
+            time_window_minutes,
+            ..
+        } => {
+            check_nonzero(
+                *line_count,
+                "'Group Hits Line Rate Limit' needs at least 1 line",
+            )?;
+            check_rate_limit_window(*time_window_minutes, "Group Hits Line Rate Limit")
+        }
         ModerationCondition::AuthorJoinedRecently {
             time_window_minutes,
         } => check_nonzero(
@@ -955,6 +1113,9 @@ fn should_moderate_by_condition(message: &str, condition: &ModerationCondition) 
         | ModerationCondition::AuthorHitsCharacterRateLimit { .. }
         | ModerationCondition::AuthorHitsLineRateLimit { .. }
         | ModerationCondition::AuthorHitsModerationRateLimit { .. }
+        | ModerationCondition::GroupHitsMessageRateLimit { .. }
+        | ModerationCondition::GroupHitsCharacterRateLimit { .. }
+        | ModerationCondition::GroupHitsLineRateLimit { .. }
         | ModerationCondition::AuthorJoinedRecently { .. }
         | ModerationCondition::FlaggedByOmniModeration { .. }
         | ModerationCondition::FlaggedByOpenRouterInstruction { .. }
@@ -1089,6 +1250,46 @@ async fn evaluate(
                 ctx.line_activity_repo,
                 &ctx.group_message.group.id,
                 &ctx.group_message.author_id,
+                *line_count,
+                *time_window_minutes,
+                ctx.group_message.timestamp,
+            )
+            .await
+        }
+        ModerationCondition::GroupHitsMessageRateLimit {
+            message_count,
+            time_window_minutes,
+        } => {
+            message_rate_limit::check_group(
+                ctx.group_activity_repo,
+                &ctx.group_message.group.id,
+                *message_count,
+                *time_window_minutes,
+                ctx.group_message.timestamp,
+            )
+            .await
+        }
+        ModerationCondition::GroupHitsCharacterRateLimit {
+            character_count,
+            time_window_minutes,
+        } => {
+            character_rate_limit::check_group(
+                ctx.group_character_activity_repo,
+                &ctx.group_message.group.id,
+                *character_count,
+                *time_window_minutes,
+                ctx.group_message.timestamp,
+            )
+            .await
+        }
+        ModerationCondition::GroupHitsLineRateLimit {
+            line_count,
+            time_window_minutes,
+            ..
+        } => {
+            line_rate_limit::check_group(
+                ctx.group_line_activity_repo,
+                &ctx.group_message.group.id,
                 *line_count,
                 *time_window_minutes,
                 ctx.group_message.timestamp,

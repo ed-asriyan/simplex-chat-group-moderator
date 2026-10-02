@@ -3,7 +3,8 @@ use bot::domain::bot_dm::ports::{
     BotDmReceiver, BotMessenger, GroupOperations, Message, ModerationNotificationReceiver,
 };
 use bot::domain::moderator::ports::{
-    GroupAdministration, GroupMessage, GroupModerator, MemberRestoreRepository,
+    GroupAdministration, GroupCharacterActivityRepository, GroupLineActivityRepository,
+    GroupMessage, GroupMessageActivityRepository, GroupModerator, MemberRestoreRepository,
     MemberRestoreRunner, MessageAttachment, MessengerGroup, ModerationEngine, ModerationNotifier,
     ModerationRepository, OpenAi, OpenRouter, UserCharacterActivityRepository,
     UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
@@ -13,6 +14,9 @@ use bot::domain::moderator::{
 };
 use bot::infrastructure::adapters::ai_gateway::AiGateway;
 use bot::infrastructure::adapters::cross_domain_router::CrossDomainRouter;
+use bot::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
+use bot::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
+use bot::infrastructure::adapters::group_message_activity_repo_in_memory::InMemoryGroupMessageActivityRepository;
 use bot::infrastructure::adapters::member_restore_repo_sqlite::SqliteMemberRestoreRepository;
 use bot::infrastructure::adapters::moderation_notification_router::ModerationNotificationRouter;
 use bot::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository;
@@ -244,6 +248,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Arc::new(InMemoryUserLineActivityRepository::new());
     let user_moderation_activity_repo: Arc<dyn UserModerationActivityRepository> =
         Arc::new(InMemoryUserModerationActivityRepository::new());
+    let group_activity_repo: Arc<dyn GroupMessageActivityRepository> =
+        Arc::new(InMemoryGroupMessageActivityRepository::new());
+    let group_character_activity_repo: Arc<dyn GroupCharacterActivityRepository> =
+        Arc::new(InMemoryGroupCharacterActivityRepository::new());
+    let group_line_activity_repo: Arc<dyn GroupLineActivityRepository> =
+        Arc::new(InMemoryGroupLineActivityRepository::new());
     let member_restore_repo: Arc<dyn MemberRestoreRepository> =
         Arc::new(SqliteMemberRestoreRepository::new(conn.clone()));
 
@@ -270,6 +280,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         user_character_activity_repo,
         user_line_activity_repo,
         user_moderation_activity_repo,
+        group_activity_repo,
+        group_character_activity_repo,
+        group_line_activity_repo,
         member_restore_repo.clone(),
         openai.clone(),
         openrouter.clone(),

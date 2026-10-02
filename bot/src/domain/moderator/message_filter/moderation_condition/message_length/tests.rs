@@ -216,6 +216,9 @@ async fn test_integration_with_message_filter_rules() {
         should_moderate as top_level_moderate,
     };
     use crate::domain::moderator::ports::GroupMessage;
+    use crate::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
+    use crate::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
+    use crate::infrastructure::adapters::group_message_activity_repo_in_memory::InMemoryGroupMessageActivityRepository;
     use crate::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
     use crate::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
     use crate::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
@@ -225,6 +228,9 @@ async fn test_integration_with_message_filter_rules() {
     let char_repo = InMemoryUserCharacterActivityRepository::new();
     let line_repo = InMemoryUserLineActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
+    let group_repo = InMemoryGroupMessageActivityRepository::new();
+    let group_char_repo = InMemoryGroupCharacterActivityRepository::new();
+    let group_line_repo = InMemoryGroupLineActivityRepository::new();
     let msg = |text: &str| GroupMessage {
         text: text.to_string(),
         ..Default::default()
@@ -255,6 +261,9 @@ async fn test_integration_with_message_filter_rules() {
             &char_repo,
             &line_repo,
             &mod_repo,
+            &group_repo,
+            &group_char_repo,
+            &group_line_repo,
             &UnusedAi,
             &UnusedAi,
         )

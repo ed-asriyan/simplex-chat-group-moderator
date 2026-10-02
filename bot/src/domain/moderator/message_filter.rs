@@ -98,7 +98,8 @@ pub use moderation_rule::ModerationRule;
 pub use screen_lines::count_effective_lines;
 
 use super::ports::{
-    Err, GroupMessage, OpenAi, OpenRouter, UserCharacterActivityRepository,
+    Err, GroupCharacterActivityRepository, GroupLineActivityRepository, GroupMessage,
+    GroupMessageActivityRepository, OpenAi, OpenRouter, UserCharacterActivityRepository,
     UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
 };
 use moderation_condition::{ConditionContext, check_condition};
@@ -120,6 +121,9 @@ pub async fn should_moderate(
     character_activity_repo: &dyn UserCharacterActivityRepository,
     line_activity_repo: &dyn UserLineActivityRepository,
     moderation_activity_repo: &dyn UserModerationActivityRepository,
+    group_activity_repo: &dyn GroupMessageActivityRepository,
+    group_character_activity_repo: &dyn GroupCharacterActivityRepository,
+    group_line_activity_repo: &dyn GroupLineActivityRepository,
     openai: &dyn OpenAi,
     openrouter: &dyn OpenRouter,
 ) -> Result<Option<ModerationMatch>, Err> {
@@ -129,6 +133,9 @@ pub async fn should_moderate(
         character_activity_repo,
         line_activity_repo,
         moderation_activity_repo,
+        group_activity_repo,
+        group_character_activity_repo,
+        group_line_activity_repo,
         openai,
         openrouter,
     );

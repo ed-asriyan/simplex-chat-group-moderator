@@ -50,6 +50,9 @@ body:
         - Author Hits Line Rate Limit
         - Author Hits Moderation Rate Limit
         - Author Joined Recently
+        - Group Hits Message Rate Limit
+        - Group Hits Character Rate Limit
+        - Group Hits Line Rate Limit
         - Flagged by OpenAI Omni
         - Flagged by OpenRouter Instruction
         - All of These Conditions Match (AND)

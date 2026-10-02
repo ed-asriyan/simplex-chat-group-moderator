@@ -3,6 +3,9 @@ use crate::domain::moderator::ports::{
     GroupMessage, KeyCheck, MessageAttachment, MessengerGroup, MessengerGroupId, OpenAi,
     OpenRouter, OpenRouterInstructionVerdict, UserId, UserModerationActivityRepository,
 };
+use crate::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
+use crate::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
+use crate::infrastructure::adapters::group_message_activity_repo_in_memory::InMemoryGroupMessageActivityRepository;
 use crate::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
 use crate::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
 use crate::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
@@ -193,6 +196,9 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -247,6 +253,9 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -290,6 +299,9 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -334,6 +346,9 @@ async fn test_no_rules_match_returns_none() {
             &no_character_activity(),
             &no_line_activity(),
             &mod_repo,
+            &no_group_activity(),
+            &no_group_character_activity(),
+            &no_group_line_activity(),
             &UnusedAi,
             &UnusedAi,
         )
@@ -467,6 +482,9 @@ async fn test_should_moderate_with_line_rate_limit() {
         &no_character_activity(),
         &under,
         &mod_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -495,6 +513,9 @@ async fn test_should_moderate_with_line_rate_limit() {
         &no_character_activity(),
         &at,
         &mod_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -512,6 +533,18 @@ fn no_character_activity() -> InMemoryUserCharacterActivityRepository {
 
 fn no_line_activity() -> InMemoryUserLineActivityRepository {
     InMemoryUserLineActivityRepository::new()
+}
+
+fn no_group_activity() -> InMemoryGroupMessageActivityRepository {
+    InMemoryGroupMessageActivityRepository::new()
+}
+
+fn no_group_character_activity() -> InMemoryGroupCharacterActivityRepository {
+    InMemoryGroupCharacterActivityRepository::new()
+}
+
+fn no_group_line_activity() -> InMemoryGroupLineActivityRepository {
+    InMemoryGroupLineActivityRepository::new()
 }
 
 struct MockActivityRepoForFilter {
@@ -610,6 +643,9 @@ async fn test_should_moderate_with_character_rate_limit() {
         &under,
         &no_line_activity(),
         &mod_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -644,6 +680,9 @@ async fn test_should_moderate_with_character_rate_limit() {
         &at,
         &no_line_activity(),
         &mod_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -715,6 +754,9 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
             &characters,
             &no_line_activity(),
             &mod_repo,
+            &no_group_activity(),
+            &no_group_character_activity(),
+            &no_group_line_activity(),
             &UnusedAi,
             &UnusedAi,
         )
@@ -730,6 +772,9 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
             &characters,
             &no_line_activity(),
             &mod_repo,
+            &no_group_activity(),
+            &no_group_character_activity(),
+            &no_group_line_activity(),
             &UnusedAi,
             &UnusedAi,
         )
@@ -759,6 +804,9 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
             &characters,
             &no_line_activity(),
             &mod_repo,
+            &no_group_activity(),
+            &no_group_character_activity(),
+            &no_group_line_activity(),
             &UnusedAi,
             &UnusedAi,
         )
@@ -774,6 +822,9 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
             &characters,
             &no_line_activity(),
             &mod_repo,
+            &no_group_activity(),
+            &no_group_character_activity(),
+            &no_group_line_activity(),
             &UnusedAi,
             &UnusedAi,
         )
@@ -821,6 +872,9 @@ async fn test_should_moderate_with_message_rate_limit() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -836,6 +890,9 @@ async fn test_should_moderate_with_message_rate_limit() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -896,6 +953,9 @@ async fn test_should_moderate_with_moderation_rate_limit() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo_under,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -911,6 +971,9 @@ async fn test_should_moderate_with_moderation_rate_limit() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo_at,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -966,6 +1029,9 @@ async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_mess
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1022,6 +1088,9 @@ async fn test_independent_rules_combine_and_order_deletion_before_kick() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1102,6 +1171,9 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1165,6 +1237,9 @@ async fn test_moderation_rate_limit_is_order_independent() {
         &no_character_activity(),
         &no_line_activity(),
         &moderation_activity_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1223,6 +1298,9 @@ async fn matched(text: &str, condition: ModerationCondition) -> Option<Moderatio
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1367,6 +1445,9 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
         &no_character_activity(),
         &no_line_activity(),
         &moderation_activity_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1428,6 +1509,9 @@ async fn test_moderation_rate_limit_in_a_tree_ignores_its_own_rule() {
         &no_character_activity(),
         &no_line_activity(),
         &moderation_activity_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1559,6 +1643,9 @@ async fn moderates(rules: &[ModerationRule], text: &str) -> bool {
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1704,6 +1791,9 @@ async fn matched_from(
         &no_character_activity(),
         &no_line_activity(),
         &mod_repo,
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1838,6 +1928,9 @@ async fn test_moderates_pictures_and_leaves_them_out_of_is_blank() {
             &no_character_activity(),
             &no_line_activity(),
             &moderation_repo,
+            &no_group_activity(),
+            &no_group_character_activity(),
+            &no_group_line_activity(),
             &UnusedAi,
             &UnusedAi,
         )
@@ -2036,6 +2129,9 @@ async fn matched_with(
         &no_character_activity(),
         &no_line_activity(),
         &InMemoryUserModerationActivityRepository::new(),
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
         openai,
         openai,
     )

@@ -4,13 +4,16 @@ use crate::domain::moderator::application::tests::{
 };
 use crate::domain::moderator::message_filter::ModerationCondition;
 use crate::domain::moderator::ports::{
-    CategoryTrigger, Err, Group, GroupId, GroupMessage, KeyCheck, MessageAttachment,
-    MessengerGroup, MessengerGroupId, ModerationAction, ModerationEngine, ModerationNotifier,
-    ModerationRule, OpenAi, OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult,
-    OpenRouter, OpenRouterInstructionVerdict, OwnedModerationRule, UserCharacterActivityRepository,
-    UserId, UserLineActivityRepository, UserMessageActivityRepository,
-    UserModerationActivityRepository,
+    CategoryTrigger, Err, Group, GroupId, GroupMessage, GroupMessageActivityRepository, KeyCheck,
+    MessageAttachment, MessageId, MessengerGroup, MessengerGroupId, ModerationAction,
+    ModerationEngine, ModerationNotifier, ModerationRule, OpenAi, OpenAiCategory,
+    OpenAiCategoryTriggers, OpenAiModerationResult, OpenRouter, OpenRouterInstructionVerdict,
+    OwnedModerationRule, UserCharacterActivityRepository, UserId, UserLineActivityRepository,
+    UserMessageActivityRepository, UserModerationActivityRepository,
 };
+use crate::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
+use crate::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
+use crate::infrastructure::adapters::group_message_activity_repo_in_memory::InMemoryGroupMessageActivityRepository;
 use crate::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
 use crate::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
 use crate::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
@@ -234,6 +237,9 @@ async fn test_process_group_message_moderate_message_action() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -313,6 +319,9 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -395,6 +404,9 @@ async fn test_process_group_message_kick_author_without_deleting_messages() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -474,6 +486,9 @@ async fn test_process_group_message_kick_author_deleting_all_messages() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -556,6 +571,9 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -625,6 +643,9 @@ async fn test_process_group_message_no_match_does_nothing() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -708,6 +729,9 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -798,6 +822,9 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -892,6 +919,9 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -976,6 +1006,9 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1052,6 +1085,9 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1127,6 +1163,9 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1202,6 +1241,9 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1295,6 +1337,9 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1387,6 +1432,9 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1473,6 +1521,9 @@ async fn test_process_group_message_message_rate_limit_triggers_on_threshold() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1560,6 +1611,9 @@ async fn test_process_group_message_message_rate_limit_kick_author() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1643,6 +1697,9 @@ async fn test_process_group_message_message_rate_limit_dry_mode() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1708,6 +1765,9 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1805,6 +1865,9 @@ async fn test_track_user_message_called_when_message_rate_limit_rule_configured(
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1892,6 +1955,9 @@ async fn test_track_user_message_uses_max_window_across_multiple_message_rate_li
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1954,6 +2020,9 @@ async fn test_track_characters_called_when_character_rate_limit_rule_configured(
         characters.clone(),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2030,6 +2099,9 @@ async fn test_track_characters_not_called_without_a_character_rate_limit_rule() 
         characters.clone(),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2094,6 +2166,9 @@ async fn test_track_lines_called_when_line_rate_limit_rule_configured() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         lines.clone(),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2187,6 +2262,9 @@ async fn test_track_lines_uses_the_widest_configured_wrap() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         lines.clone(),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2253,6 +2331,9 @@ async fn test_track_lines_counts_nothing_for_a_captionless_attachment() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         lines.clone(),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2312,6 +2393,9 @@ async fn test_track_lines_not_called_without_a_line_rate_limit_rule() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         lines.clone(),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2373,6 +2457,9 @@ async fn test_track_characters_not_called_when_window_is_zero() {
         characters.clone(),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2440,6 +2527,9 @@ async fn test_track_user_message_not_called_when_no_message_rate_limit_rules() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2490,6 +2580,9 @@ async fn test_track_user_message_not_called_when_group_has_empty_rules() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2549,6 +2642,9 @@ async fn test_track_user_message_not_called_when_message_rate_limit_window_is_ze
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2608,6 +2704,9 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2698,6 +2797,9 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         moderation_activity_repo,
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2795,6 +2897,9 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         mod_recorder.clone(),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2878,6 +2983,9 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         mod_recorder.clone(),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2973,6 +3081,9 @@ async fn test_editing_one_message_does_not_hit_the_message_rate_limit() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3020,6 +3131,9 @@ async fn test_edit_is_still_moderated_by_a_content_rule() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3082,6 +3196,9 @@ async fn test_edit_feeds_none_of_the_traffic_counters() {
         characters.clone(),
         lines.clone(),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3156,6 +3273,9 @@ async fn test_moderating_an_edit_does_not_join_the_moderated_tally() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         mod_recorder.clone(),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3205,6 +3325,9 @@ fn app_with_observer_rule(
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         restores,
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3287,6 +3410,9 @@ async fn test_dry_mode_schedules_nothing() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         restores.clone(),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3330,6 +3456,9 @@ async fn test_kicking_the_author_cancels_a_scheduled_restore() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         restores.clone(),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3386,6 +3515,9 @@ async fn test_failed_restore_bookkeeping_still_moderates_and_notifies() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         restores,
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3527,6 +3659,9 @@ fn app_with_openai_rule(
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         openai.clone(),
         openai,
@@ -3641,6 +3776,9 @@ async fn test_a_message_a_model_says_matches_the_instruction_is_deleted() {
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
         Arc::new(InMemoryUserLineActivityRepository::new()),
         Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         openai.clone(),
         openai.clone(),
@@ -3654,5 +3792,235 @@ async fn test_a_message_a_model_says_matches_the_instruction_is_deleted() {
     assert_eq!(
         notifications.lock().unwrap()[0].4,
         "openai/gpt-4o-mini: Promotes a coin."
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Group-wide rate limits
+// ---------------------------------------------------------------------------
+
+/// The three group-wide counters, kept by the test so it can read them back.
+#[derive(Default)]
+struct GroupCounters {
+    messages: Arc<InMemoryGroupMessageActivityRepository>,
+    characters: Arc<InMemoryGroupCharacterActivityRepository>,
+    lines: Arc<InMemoryGroupLineActivityRepository>,
+}
+
+fn group_rate_limit_app(
+    condition: ModerationCondition,
+    counters: &GroupCounters,
+    user_messages: Arc<InMemoryUserMessageActivityRepository>,
+    deleted_messages: Arc<Mutex<Vec<(GroupId, MessageId)>>>,
+) -> MessageModerationApplication {
+    MessageModerationApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(Group {
+                id: 10,
+                owner_id: 100,
+                name: "Test Group".to_string(),
+                notifications_enabled: false,
+                dry_mode_enabled: false,
+            }),
+            rules: vec![OwnedModerationRule {
+                id: 1,
+                rule: ModerationRule {
+                    actions: vec![ModerationAction::ModerateMessage],
+                    condition,
+                },
+            }],
+        }),
+        Arc::new(MockGroupModerator {
+            deleted_messages,
+            ..Default::default()
+        }),
+        Arc::new(MockModerationNotifier::default()),
+        user_messages,
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
+        Arc::new(InMemoryUserLineActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
+        counters.messages.clone(),
+        counters.characters.clone(),
+        counters.lines.clone(),
+        Arc::new(MockMemberRestoreRepository::default()),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
+    )
+}
+
+fn group_message_from(
+    message_id: i64,
+    author_id: i64,
+    text: &str,
+    timestamp: DateTime<Utc>,
+) -> GroupMessage {
+    GroupMessage {
+        group: MessengerGroup {
+            id: 10,
+            name: "Test Group".to_string(),
+        },
+        message_id,
+        author_id,
+        text: text.to_string(),
+        attachment: None,
+        timestamp,
+        author_joined_at: None,
+        is_edit: false,
+    }
+}
+
+/// Three members posting one message each reach a group limit of three that
+/// none of them comes near alone: the message that reaches it is deleted, the
+/// ones before it are not.
+#[tokio::test]
+async fn test_group_message_rate_limit_counts_every_member() {
+    let counters = GroupCounters::default();
+    let user_messages = Arc::new(InMemoryUserMessageActivityRepository::new());
+    let deleted = Arc::new(Mutex::new(Vec::new()));
+    let app = group_rate_limit_app(
+        ModerationCondition::GroupHitsMessageRateLimit {
+            message_count: 3,
+            time_window_minutes: 1,
+        },
+        &counters,
+        user_messages.clone(),
+        deleted.clone(),
+    );
+
+    let now = Utc::now();
+    for (i, author) in [1, 2, 3].into_iter().enumerate() {
+        app.process_group_message(group_message_from(
+            i as i64 + 1,
+            author,
+            "hi",
+            now + chrono::Duration::seconds(i as i64),
+        ))
+        .await
+        .unwrap();
+    }
+
+    assert_eq!(*deleted.lock().unwrap(), vec![(10, 3)]);
+    assert_eq!(
+        user_messages
+            .count_messages_since(&10, &1, now - chrono::Duration::minutes(1), now)
+            .await
+            .unwrap(),
+        0,
+        "a group limit must not start the per-author counter"
+    );
+}
+
+/// Characters add up across members: two six-character messages from
+/// different authors reach a group limit of ten.
+#[tokio::test]
+async fn test_group_character_rate_limit_counts_every_member() {
+    let counters = GroupCounters::default();
+    let deleted = Arc::new(Mutex::new(Vec::new()));
+    let app = group_rate_limit_app(
+        ModerationCondition::GroupHitsCharacterRateLimit {
+            character_count: 10,
+            time_window_minutes: 1,
+        },
+        &counters,
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
+        deleted.clone(),
+    );
+
+    let now = Utc::now();
+    app.process_group_message(group_message_from(1, 1, "Привет", now))
+        .await
+        .unwrap();
+    assert!(deleted.lock().unwrap().is_empty());
+    app.process_group_message(group_message_from(2, 2, "Привет", now))
+        .await
+        .unwrap();
+    assert_eq!(*deleted.lock().unwrap(), vec![(10, 2)]);
+}
+
+/// Lines add up across members, wrapped at the width the condition sets: two
+/// members' 80-character lines are two lines each at 40 per line.
+#[tokio::test]
+async fn test_group_line_rate_limit_counts_every_member() {
+    let counters = GroupCounters::default();
+    let deleted = Arc::new(Mutex::new(Vec::new()));
+    let app = group_rate_limit_app(
+        ModerationCondition::GroupHitsLineRateLimit {
+            line_count: 4,
+            time_window_minutes: 1,
+            chars_per_line: 40,
+        },
+        &counters,
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
+        deleted.clone(),
+    );
+
+    let now = Utc::now();
+    let long_line = "a".repeat(80);
+    app.process_group_message(group_message_from(1, 1, &long_line, now))
+        .await
+        .unwrap();
+    assert!(deleted.lock().unwrap().is_empty());
+    app.process_group_message(group_message_from(2, 2, &long_line, now))
+        .await
+        .unwrap();
+    assert_eq!(*deleted.lock().unwrap(), vec![(10, 2)]);
+}
+
+/// An edit is the same message again, so it must not count toward the group
+/// limit any more than toward the author's.
+#[tokio::test]
+async fn test_group_message_rate_limit_ignores_edits() {
+    let counters = GroupCounters::default();
+    let deleted = Arc::new(Mutex::new(Vec::new()));
+    let app = group_rate_limit_app(
+        ModerationCondition::GroupHitsMessageRateLimit {
+            message_count: 2,
+            time_window_minutes: 1,
+        },
+        &counters,
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
+        deleted.clone(),
+    );
+
+    let now = Utc::now();
+    app.process_group_message(group_message_from(1, 1, "hi", now))
+        .await
+        .unwrap();
+    app.process_group_message(GroupMessage {
+        is_edit: true,
+        ..group_message_from(1, 1, "hi there", now)
+    })
+    .await
+    .unwrap();
+
+    assert!(deleted.lock().unwrap().is_empty());
+}
+
+/// A group limiting only its authors pays nothing for the group counters.
+#[tokio::test]
+async fn test_group_counters_not_written_without_a_group_rate_limit_rule() {
+    let counters = GroupCounters::default();
+    let app = group_rate_limit_app(
+        ModerationCondition::AuthorHitsMessageRateLimit {
+            message_count: 5,
+            time_window_minutes: 1,
+        },
+        &counters,
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(Mutex::new(Vec::new())),
+    );
+
+    let now = Utc::now();
+    app.process_group_message(group_message_from(1, 1, "hi", now))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        counters
+            .messages
+            .count_messages_since(&10, now - chrono::Duration::minutes(1), now)
+            .await
+            .unwrap(),
+        0
     );
 }

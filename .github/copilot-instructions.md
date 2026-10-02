@@ -194,6 +194,8 @@ A rule's condition is a **tree**, not a single predicate: besides the leaves the
   - 📏 the message's shape and size (e.g. `📏 Message Is Empty or Blank`, `📏 Message Exceeds Max Lines`).
   - 📎 what the message carries besides text (e.g. `📎 Message Contains an Image`, `📎 Message Contains a File`). An attachment's caption *is* the message text, so the text conditions still describe it — with one exception: `IsBlank` never matches a message that carries an attachment, because a caption-less picture is a picture, not an empty message.
   - 👤 the author (e.g. `👤 Author Hits Message Rate Limit`, `👤 Author Joined Recently`).
+  - 👥 the group as a whole, every member together (e.g. `👥 Group Hits Message Rate Limit`).
+  - 👥 the group as a whole, every member together (e.g. `👥 Group Hits Message Rate Limit`).
   - The composites are not detectors and take a shape of their own (`🧩 All of These Conditions Match (AND)`, `🔀 Any …`, `✖️ This Condition Does Not Match (NOT)`).
 
 1. **Domain:** add a variant to `ModerationCondition` (`message_filter/moderation_condition.rs`), implement its matching in `should_moderate_by_condition` (or in `evaluate`, if it needs more of the message than its text, or the repositories on `ConditionContext`), give it an arm in `normalize_and_validate_leaf` so its parameters are checked when an owner saves the rule, and a line in `describe` so a `Not` around it can explain itself. Add a submodule under `moderation_condition/` if the matching logic is non-trivial; keep it pure and unit-tested.

@@ -11,8 +11,9 @@ use std::collections::HashMap;
 
 use super::ModerationCondition;
 use crate::domain::moderator::ports::{
-    GroupMessage, OpenAi, OpenRouter, UserCharacterActivityRepository, UserLineActivityRepository,
-    UserMessageActivityRepository, UserModerationActivityRepository,
+    GroupCharacterActivityRepository, GroupLineActivityRepository, GroupMessage,
+    GroupMessageActivityRepository, OpenAi, OpenRouter, UserCharacterActivityRepository,
+    UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
 };
 
 pub(in crate::domain::moderator::message_filter) struct ConditionContext<'a> {
@@ -21,6 +22,9 @@ pub(in crate::domain::moderator::message_filter) struct ConditionContext<'a> {
     pub character_activity_repo: &'a dyn UserCharacterActivityRepository,
     pub line_activity_repo: &'a dyn UserLineActivityRepository,
     pub moderation_activity_repo: &'a dyn UserModerationActivityRepository,
+    pub group_activity_repo: &'a dyn GroupMessageActivityRepository,
+    pub group_character_activity_repo: &'a dyn GroupCharacterActivityRepository,
+    pub group_line_activity_repo: &'a dyn GroupLineActivityRepository,
     pub openai: &'a dyn OpenAi,
     pub openrouter: &'a dyn OpenRouter,
 
@@ -47,6 +51,9 @@ impl<'a> ConditionContext<'a> {
         character_activity_repo: &'a dyn UserCharacterActivityRepository,
         line_activity_repo: &'a dyn UserLineActivityRepository,
         moderation_activity_repo: &'a dyn UserModerationActivityRepository,
+        group_activity_repo: &'a dyn GroupMessageActivityRepository,
+        group_character_activity_repo: &'a dyn GroupCharacterActivityRepository,
+        group_line_activity_repo: &'a dyn GroupLineActivityRepository,
         openai: &'a dyn OpenAi,
         openrouter: &'a dyn OpenRouter,
     ) -> Self {
@@ -56,6 +63,9 @@ impl<'a> ConditionContext<'a> {
             character_activity_repo,
             line_activity_repo,
             moderation_activity_repo,
+            group_activity_repo,
+            group_character_activity_repo,
+            group_line_activity_repo,
             openai,
             openrouter,
             message_is_moderated: false,

@@ -323,6 +323,52 @@ fn test_accepts_joined_recently_with_positive_window() {
     }
 }
 
+fn group_rate_limits(count: u32, time_window_minutes: u32) -> [ModerationCondition; 3] {
+    [
+        ModerationCondition::GroupHitsMessageRateLimit {
+            message_count: count,
+            time_window_minutes,
+        },
+        ModerationCondition::GroupHitsCharacterRateLimit {
+            character_count: count,
+            time_window_minutes,
+        },
+        ModerationCondition::GroupHitsLineRateLimit {
+            line_count: count,
+            time_window_minutes,
+            chars_per_line: 40,
+        },
+    ]
+}
+
+/// The group limits never had a "0 means off" state to keep, so a zero is a
+/// rule that cannot match, and a window past the counters' retention would
+/// quietly count less than it says.
+#[test]
+fn test_rejects_group_rate_limits_with_zero_count_or_window_out_of_range() {
+    for mut condition in group_rate_limits(0, 1) {
+        assert!(err_of(&mut condition).contains("needs at least 1"));
+    }
+    for window in [0, 61] {
+        for mut condition in group_rate_limits(10, window) {
+            assert!(
+                err_of(&mut condition).contains("needs a time window between 1 and 60 minutes")
+            );
+        }
+    }
+}
+
+#[test]
+fn test_accepts_group_rate_limits_within_range() {
+    for window in [1, 60] {
+        for mut condition in group_rate_limits(1, window) {
+            let unchanged = condition.clone();
+            condition.normalize_and_validate().unwrap();
+            assert_eq!(condition, unchanged);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Composite conditions: normalization
 //

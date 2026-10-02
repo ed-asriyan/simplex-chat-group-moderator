@@ -120,6 +120,9 @@ fn insert_condition(
         ModerationCondition::AuthorHitsModerationRateLimit { .. } => {
             "AuthorHitsModerationRateLimit"
         }
+        ModerationCondition::GroupHitsMessageRateLimit { .. } => "GroupHitsMessageRateLimit",
+        ModerationCondition::GroupHitsCharacterRateLimit { .. } => "GroupHitsCharacterRateLimit",
+        ModerationCondition::GroupHitsLineRateLimit { .. } => "GroupHitsLineRateLimit",
         ModerationCondition::AuthorJoinedRecently { .. } => "AuthorJoinedRecently",
         ModerationCondition::FlaggedByOmniModeration { .. } => "FlaggedByOmniModeration",
         ModerationCondition::FlaggedByOpenRouterInstruction { .. } => {
@@ -273,6 +276,37 @@ fn insert_condition(
             tx.execute(
                 "INSERT INTO moderation_condition__author_hits_moderation_rate_limit (condition_id, message_count, time_window_minutes) VALUES (?1, ?2, ?3)",
                 params![condition_id, message_count, time_window_minutes],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
+        }
+        ModerationCondition::GroupHitsMessageRateLimit {
+            message_count,
+            time_window_minutes,
+        } => {
+            tx.execute(
+                "INSERT INTO moderation_condition__group_hits_message_rate_limit (condition_id, message_count, time_window_minutes) VALUES (?1, ?2, ?3)",
+                params![condition_id, message_count, time_window_minutes],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
+        }
+        ModerationCondition::GroupHitsCharacterRateLimit {
+            character_count,
+            time_window_minutes,
+        } => {
+            tx.execute(
+                "INSERT INTO moderation_condition__group_hits_character_rate_limit (condition_id, character_count, time_window_minutes) VALUES (?1, ?2, ?3)",
+                params![condition_id, character_count, time_window_minutes],
+            )
+            .map_err(|e| -> Err { e.to_string().into() })?;
+        }
+        ModerationCondition::GroupHitsLineRateLimit {
+            line_count,
+            time_window_minutes,
+            chars_per_line,
+        } => {
+            tx.execute(
+                "INSERT INTO moderation_condition__group_hits_line_rate_limit (condition_id, line_count, time_window_minutes, chars_per_line) VALUES (?1, ?2, ?3, ?4)",
+                params![condition_id, line_count, time_window_minutes, chars_per_line],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }

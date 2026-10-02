@@ -847,6 +847,137 @@
                 },
                 {
                     "type": "object",
+                    "title": "👥 Group Hits Message Rate Limit",
+                    "description": "Matches when the group receives at least the given number of messages within the time window, from all members together, this one included. Every member's messages count toward the same total, so it catches a raid by many accounts that each stay under **Author Hits Message Rate Limit**. Each message that reaches the limit matches, whoever sent it, until the window has room again. Edits do not count.",
+                    "required": [
+                        "type",
+                        "message_count",
+                        "time_window_minutes"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "GroupHitsMessageRateLimit",
+                            "default": "GroupHitsMessageRateLimit",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "message_count": {
+                            "type": "integer",
+                            "title": "Number of Messages",
+                            "description": "Matches when the messages all members sent in the time window, this one included, reach this number.",
+                            "minimum": 1,
+                            "default": 30
+                        },
+                        "time_window_minutes": {
+                            "type": "integer",
+                            "title": "Time Window (Minutes)",
+                            "description": "The time window in minutes over which the group's messages accumulate (maximum 60 minutes).",
+                            "minimum": 1,
+                            "maximum": 60,
+                            "default": 1
+                        }
+                    },
+                    "options": {
+                        "summary": "{message_count} msg / {time_window_minutes} min",
+                        "phrase": "group received at least {message_count} messages in {time_window_minutes} min",
+                        "short": "Group message rate limit"
+                    }
+                },
+                {
+                    "type": "object",
+                    "title": "👥 Group Hits Character Rate Limit",
+                    "description": "Matches when the group's members write at least the given number of characters within the time window, all together, counting this message. Every member's characters count toward the same total. An attachment's caption counts as the message text. This is the group-wide counterpart of **Author Hits Character Rate Limit**, for walls of text split across several accounts.",
+                    "required": [
+                        "type",
+                        "character_count",
+                        "time_window_minutes"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "GroupHitsCharacterRateLimit",
+                            "default": "GroupHitsCharacterRateLimit",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "character_count": {
+                            "type": "integer",
+                            "title": "Number of Characters",
+                            "description": "Matches when the characters all members wrote in the time window, this message included, reach this number.",
+                            "minimum": 1,
+                            "default": 10000
+                        },
+                        "time_window_minutes": {
+                            "type": "integer",
+                            "title": "Time Window (Minutes)",
+                            "description": "The time window in minutes over which the group's characters accumulate (maximum 60 minutes).",
+                            "minimum": 1,
+                            "maximum": 60,
+                            "default": 1
+                        }
+                    },
+                    "options": {
+                        "summary": "{character_count} chars / {time_window_minutes} min",
+                        "phrase": "group received at least {character_count} characters in {time_window_minutes} min",
+                        "short": "Group character rate limit"
+                    }
+                },
+                {
+                    "type": "object",
+                    "title": "👥 Group Hits Line Rate Limit",
+                    "description": "Matches when the group's messages take at least the given number of lines within the time window, from all members together, counting this message. Every member's lines count toward the same total. Each message is counted when it arrives, with the wrap width set then, so changing the width only affects messages sent after the change. An attachment adds no lines of its own — only the text counts, which for an attachment is its caption. This is the group-wide counterpart of **Author Hits Line Rate Limit**.",
+                    "required": [
+                        "type",
+                        "line_count",
+                        "time_window_minutes",
+                        "chars_per_line"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "GroupHitsLineRateLimit",
+                            "default": "GroupHitsLineRateLimit",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "line_count": {
+                            "type": "integer",
+                            "title": "Number of Lines",
+                            "description": "Matches when the lines all members' messages took in the time window, this message included, reach this number.",
+                            "minimum": 1,
+                            "default": 150
+                        },
+                        "time_window_minutes": {
+                            "type": "integer",
+                            "title": "Time Window (Minutes)",
+                            "description": "The time window in minutes over which the group's lines accumulate (maximum 60 minutes).",
+                            "minimum": 1,
+                            "maximum": 60,
+                            "default": 1
+                        },
+                        "chars_per_line": {
+                            "type": "integer",
+                            "title": "Characters per Line (Screen Wrap)",
+                            "description": "If not 0, every line longer than this number of characters counts as several lines, the way it wraps on a phone screen: with 40, a single line of 100 characters counts as 3 lines. With 0, only actual line breaks count. About 40 characters fit on one line on a mobile screen.",
+                            "minimum": 0,
+                            "default": 40
+                        }
+                    },
+                    "options": {
+                        "summary": "{line_count} lines / {time_window_minutes} min @ {chars_per_line} cpl",
+                        "phrase": "group received at least {line_count} lines in {time_window_minutes} min",
+                        "short": "Group line rate limit"
+                    }
+                },
+                {
+                    "type": "object",
                     "title": "💬 Flagged by OpenAI Omni",
                     "description": "Sends the text of each message this condition checks to OpenAI's Moderation API with **your own** API key, and matches when a category below crosses its trigger. For each category pick **Off** (ignored), **OpenAI decides** (OpenAI's own threshold — every category on it is exactly OpenAI's own verdict) or a minimum score in percent (higher is more lenient). Pictures are not sent, and a message without text is never checked. The text leaves SimpleX's end-to-end encryption and is processed by OpenAI. If OpenAI cannot be reached, the condition does not match.\n\n**The risk is the key:** it travels in every editor link, and a leaked key can call paid models. **Before pasting one:** 1) create a [separate OpenAI project](https://help.openai.com/en/articles/9186755-managing-projects-in-the-api-platform) for this bot; 2) create a **restricted** key in it that allows only Moderations; 3) keep that project on prepaid credits with auto-recharge off — a monthly budget only sends an alert, it does not stop spending.\n\nInside **All of These Conditions Match (AND)**, put this condition last: the others are checked first, and OpenAI is only asked when they all match.",
                     "required": [
