@@ -1,11 +1,12 @@
 use crate::domain::moderator::ports::{
     Err, GroupMessageActivityRepository, MessengerGroupId, UserId, UserMessageActivityRepository,
 };
-use chrono::{DateTime, Duration, Utc};
+use crate::domain::moderator::rules::common::rate_limit::{reached, window_start};
+use chrono::{DateTime, Utc};
 
 /// Evaluates if the author sent at least `message_count` messages in the window.
 pub fn should_moderate(count: u32, message_count: u32, time_window_minutes: u32) -> Option<String> {
-    if message_count > 0 && time_window_minutes > 0 && count >= message_count {
+    if reached(count, message_count, time_window_minutes) {
         Some(format!(
             "author sent {count} messages in {time_window_minutes} min"
         ))
@@ -26,8 +27,7 @@ pub async fn check(
     if message_count == 0 || time_window_minutes == 0 {
         return Ok(None);
     }
-    let chrono_minutes = Duration::minutes(time_window_minutes as i64);
-    let since = now - chrono_minutes;
+    let since = window_start(now, time_window_minutes);
     let count = activity_repo
         .count_messages_since(group_id, user_id, since, now)
         .await?;
@@ -41,7 +41,7 @@ pub fn group_should_moderate(
     message_count: u32,
     time_window_minutes: u32,
 ) -> Option<String> {
-    if message_count > 0 && time_window_minutes > 0 && count >= message_count {
+    if reached(count, message_count, time_window_minutes) {
         Some(format!(
             "group received {count} messages in {time_window_minutes} min"
         ))
@@ -61,7 +61,7 @@ pub async fn check_group(
     if message_count == 0 || time_window_minutes == 0 {
         return Ok(None);
     }
-    let since = now - Duration::minutes(time_window_minutes as i64);
+    let since = window_start(now, time_window_minutes);
     let count = activity_repo
         .count_messages_since(group_id, since, now)
         .await?;

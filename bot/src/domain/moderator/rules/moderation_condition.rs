@@ -27,7 +27,6 @@
 #[cfg(test)]
 mod tests;
 
-mod api_retry;
 mod attachment;
 mod character_rate_limit;
 mod exact_message;
@@ -47,6 +46,8 @@ mod repeated_sequence;
 use crate::domain::moderator::ports::{
     ApiRetry, CategoryTrigger, Err, OpenAiCategory, OpenAiCategoryTriggers,
 };
+use crate::domain::moderator::rules::common::api_key::normalize as normalize_api_key;
+use crate::domain::moderator::rules::common::{api_retry, checks, rate_limit};
 use futures::future::BoxFuture;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -563,9 +564,6 @@ impl ModerationCondition {
 // Saving: normalization and limits
 // ---------------------------------------------------------------------------
 
-/// Maximum number of entries in a single condition's keyword / message / domain list.
-const MAX_LIST_ENTRIES: usize = 10_000;
-
 /// Maximum length (in characters) of a single keyword or domain.
 const MAX_KEYWORD_LENGTH: usize = 100;
 
@@ -587,71 +585,19 @@ pub const MAX_CONDITION_DEPTH: usize = 8;
 /// Maximum number of condition nodes (composites included) in one rule's tree.
 pub const MAX_CONDITION_NODES: usize = 64;
 
-/// Drop blank entries and reduce the list to a sorted set. Blank entries are
-/// dropped rather than rejected because the editor's list widget produces them
-/// whenever a row is added and left untouched.
-fn normalize_list(values: &mut Vec<String>) {
-    values.retain(|value| !value.is_empty());
-    values.sort();
-    values.dedup();
-}
-
-/// `noun` names the list in the "too many" message, `entry` a single entry in
-/// the "too long" one, so both read naturally for keywords, messages and domains.
-fn check_list(values: &[String], max_length: usize, noun: &str, entry: &str) -> Result<(), Err> {
-    if values.len() > MAX_LIST_ENTRIES {
-        return Err(format!(
-            "Too many {noun}: {} provided, maximum is {MAX_LIST_ENTRIES}",
-            values.len()
-        )
-        .into());
-    }
-    if let Some(value) = values.iter().find(|v| v.chars().count() > max_length) {
-        return Err(format!(
-            "{entry} too long: {} characters, maximum is {max_length}",
-            value.chars().count()
-        )
-        .into());
-    }
-    Ok(())
-}
-
-/// Reject a zero where the condition could otherwise never match. The error
-/// names the condition as the editor titles it, so the owner can find it.
-fn check_nonzero(value: u32, error: &str) -> Result<(), Err> {
-    if value == 0 {
-        return Err(error.into());
-    }
-    Ok(())
-}
-
-/// Longest time window a rate limit may count over: the activity counters keep
-/// nothing longer, so a longer window would quietly count less than it says.
-const MAX_RATE_LIMIT_WINDOW_MINUTES: u32 = 60;
-
-fn check_rate_limit_window(time_window_minutes: u32, title: &str) -> Result<(), Err> {
-    if !(1..=MAX_RATE_LIMIT_WINDOW_MINUTES).contains(&time_window_minutes) {
-        return Err(format!(
-            "'{title}' needs a time window between 1 and {MAX_RATE_LIMIT_WINDOW_MINUTES} minutes, got {time_window_minutes}"
-        )
-        .into());
-    }
-    Ok(())
-}
-
 /// Bring a leaf condition's parameters into canonical form and check them.
 fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<(), Err> {
     match condition {
         ModerationCondition::ContainsWords { keywords } => {
-            normalize_list(keywords);
-            check_list(keywords, MAX_KEYWORD_LENGTH, "keywords", "Keyword")
+            checks::normalize_list(keywords);
+            checks::check_list(keywords, MAX_KEYWORD_LENGTH, "keywords", "Keyword")
         }
         ModerationCondition::MatchesExactMessage { messages, .. } => {
-            normalize_list(messages);
-            check_list(messages, MAX_MESSAGE_LENGTH, "messages", "Message")
+            checks::normalize_list(messages);
+            checks::check_list(messages, MAX_MESSAGE_LENGTH, "messages", "Message")
         }
         ModerationCondition::MatchesRegex { patterns } => {
-            normalize_list(patterns);
+            checks::normalize_list(patterns);
             if patterns.len() > MAX_REGEX_PATTERNS {
                 return Err(format!(
                     "Too many regex patterns: {} provided, maximum is {MAX_REGEX_PATTERNS}",
@@ -699,21 +645,21 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
         ModerationCondition::ContainsLinksInList { domains }
         | ModerationCondition::ContainsLinksOutsideList { domains }
         | ModerationCondition::ContainsLinksOutsideTop100 { domains } => {
-            normalize_list(domains);
-            check_list(domains, MAX_KEYWORD_LENGTH, "domains", "Domain")
+            checks::normalize_list(domains);
+            checks::check_list(domains, MAX_KEYWORD_LENGTH, "domains", "Domain")
         }
         // Unlike `AuthorHitsMessageRateLimit`, where 0 means "disabled", a zero
         // here would store a rule that can never match while the owner believes
         // it protects the group.
-        ModerationCondition::ExceedsMaxCharacters { max_characters } => check_nonzero(
+        ModerationCondition::ExceedsMaxCharacters { max_characters } => checks::check_nonzero(
             *max_characters,
             "'Message Exceeds Max Characters' needs a maximum of at least 1 character",
         ),
-        ModerationCondition::ExceedsMaxWords { max_words } => check_nonzero(
+        ModerationCondition::ExceedsMaxWords { max_words } => checks::check_nonzero(
             *max_words,
             "'Message Exceeds Max Words' needs a maximum of at least 1 word",
         ),
-        ModerationCondition::ExceedsMaxLines { max_lines, .. } => check_nonzero(
+        ModerationCondition::ExceedsMaxLines { max_lines, .. } => checks::check_nonzero(
             *max_lines,
             "'Message Exceeds Max Lines' needs a maximum of at least 1 line",
         ),
@@ -723,36 +669,36 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
             message_count,
             time_window_minutes,
         } => {
-            check_nonzero(
+            checks::check_nonzero(
                 *message_count,
                 "'Group Hits Message Rate Limit' needs at least 1 message",
             )?;
-            check_rate_limit_window(*time_window_minutes, "Group Hits Message Rate Limit")
+            rate_limit::check_window(*time_window_minutes, "Group Hits Message Rate Limit")
         }
         ModerationCondition::GroupHitsCharacterRateLimit {
             character_count,
             time_window_minutes,
         } => {
-            check_nonzero(
+            checks::check_nonzero(
                 *character_count,
                 "'Group Hits Character Rate Limit' needs at least 1 character",
             )?;
-            check_rate_limit_window(*time_window_minutes, "Group Hits Character Rate Limit")
+            rate_limit::check_window(*time_window_minutes, "Group Hits Character Rate Limit")
         }
         ModerationCondition::GroupHitsLineRateLimit {
             line_count,
             time_window_minutes,
             ..
         } => {
-            check_nonzero(
+            checks::check_nonzero(
                 *line_count,
                 "'Group Hits Line Rate Limit' needs at least 1 line",
             )?;
-            check_rate_limit_window(*time_window_minutes, "Group Hits Line Rate Limit")
+            rate_limit::check_window(*time_window_minutes, "Group Hits Line Rate Limit")
         }
         ModerationCondition::AuthorJoinedRecently {
             time_window_minutes,
-        } => check_nonzero(
+        } => checks::check_nonzero(
             *time_window_minutes,
             "'Author Joined Recently' needs a time window of at least 1 minute",
         ),
@@ -791,11 +737,6 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
         }
     }
 }
-
-/// Maximum length (in characters) of an API key, OpenAI's or OpenRouter's.
-/// Today's keys are under 200 characters; the cap only keeps a pasted
-/// paragraph out of the database.
-const MAX_API_KEY_LENGTH: usize = 256;
 
 fn normalize_and_validate_omni_moderation(
     api_key: &mut String,
@@ -889,30 +830,6 @@ fn normalize_and_validate_openrouter_instruction(
         .into());
     }
     *instruction = trimmed.to_string();
-    Ok(())
-}
-
-/// The key is trimmed, because it is pasted by hand; the errors never repeat
-/// it, because they land in the owner's chat and in the logs. `provider` names
-/// whose key it is, as the owner knows it.
-fn normalize_api_key(api_key: &mut String, provider: &str, title: &str) -> Result<(), Err> {
-    let trimmed = api_key.trim();
-    if trimmed.is_empty() {
-        return Err(format!("'{title}' needs an {provider} API key").into());
-    }
-    if trimmed.chars().any(char::is_whitespace) {
-        return Err(
-            format!("The {provider} API key must not contain spaces or line breaks").into(),
-        );
-    }
-    let length = trimmed.chars().count();
-    if length > MAX_API_KEY_LENGTH {
-        return Err(format!(
-            "The {provider} API key is too long: {length} characters, maximum is {MAX_API_KEY_LENGTH}"
-        )
-        .into());
-    }
-    *api_key = trimmed.to_string();
     Ok(())
 }
 
@@ -1342,8 +1259,8 @@ async fn evaluate(
             if *message_count == 0 || *time_window_minutes == 0 {
                 Ok(None)
             } else {
-                let since = ctx.group_message.timestamp
-                    - chrono::Duration::minutes(*time_window_minutes as i64);
+                let since =
+                    rate_limit::window_start(ctx.group_message.timestamp, *time_window_minutes);
                 let count = ctx
                     .moderation_activity_repo
                     .count_moderated_messages_since(

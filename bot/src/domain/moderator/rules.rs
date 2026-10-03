@@ -81,10 +81,10 @@
 //! - Every condition should be evaluated at most once per message.
 
 mod action_planner;
+mod common;
 mod moderation_action;
 mod moderation_condition;
 mod moderation_rule;
-mod screen_lines;
 
 #[cfg(test)]
 mod tests;
@@ -92,10 +92,10 @@ mod tests;
 #[cfg(test)]
 mod format_tests;
 
+pub use common::screen_lines::count_effective_lines;
 pub use moderation_action::ModerationAction;
 pub use moderation_condition::ModerationCondition;
 pub use moderation_rule::ModerationRule;
-pub use screen_lines::count_effective_lines;
 
 use super::ports::{
     Err, GroupCharacterActivityRepository, GroupLineActivityRepository, GroupMessage,

@@ -1,11 +1,9 @@
 //! How many lines a message takes on screen.
 //!
 //! Two things measure a message this way — `ExceedsMaxLines`, which looks at one
-//! message, and the line rate limit, which counts every message an author sends
-//! into a window — and the second counts from the use case, not from a
-//! condition. So the measurement sits here, beside the entities that use it,
-//! rather than inside either of them: the same reason `action_planner` is not
-//! inside `moderation_action`.
+//! message, and the line rate limits, which count every message sent into a
+//! window — and the counting happens outside any condition, when the message
+//! arrives. So the measurement belongs to none of them.
 
 // Split text by any standard Unicode newline sequence (LF, CRLF, CR, VT, FF, NEL, LS, PS).
 fn split_lines(message: &str) -> Vec<&str> {

@@ -1,12 +1,13 @@
 use crate::domain::moderator::ports::{
     Err, GroupLineActivityRepository, MessengerGroupId, UserId, UserLineActivityRepository,
 };
-use chrono::{DateTime, Duration, Utc};
+use crate::domain::moderator::rules::common::rate_limit::{reached, window_start};
+use chrono::{DateTime, Utc};
 
 /// Evaluates if the author's messages took at least `line_count` lines in the
 /// window.
 pub fn should_moderate(count: u32, line_count: u32, time_window_minutes: u32) -> Option<String> {
-    if line_count > 0 && time_window_minutes > 0 && count >= line_count {
+    if reached(count, line_count, time_window_minutes) {
         Some(format!(
             "author sent {count} lines in {time_window_minutes} min"
         ))
@@ -30,8 +31,7 @@ pub async fn check(
     if line_count == 0 || time_window_minutes == 0 {
         return Ok(None);
     }
-    let chrono_minutes = Duration::minutes(time_window_minutes as i64);
-    let since = now - chrono_minutes;
+    let since = window_start(now, time_window_minutes);
     let count = activity_repo
         .sum_lines_since(group_id, user_id, since, now)
         .await?;
@@ -45,7 +45,7 @@ pub fn group_should_moderate(
     line_count: u32,
     time_window_minutes: u32,
 ) -> Option<String> {
-    if line_count > 0 && time_window_minutes > 0 && count >= line_count {
+    if reached(count, line_count, time_window_minutes) {
         Some(format!(
             "group received {count} lines in {time_window_minutes} min"
         ))
@@ -65,7 +65,7 @@ pub async fn check_group(
     if line_count == 0 || time_window_minutes == 0 {
         return Ok(None);
     }
-    let since = now - Duration::minutes(time_window_minutes as i64);
+    let since = window_start(now, time_window_minutes);
     let count = activity_repo.sum_lines_since(group_id, since, now).await?;
     Ok(group_should_moderate(
         count,

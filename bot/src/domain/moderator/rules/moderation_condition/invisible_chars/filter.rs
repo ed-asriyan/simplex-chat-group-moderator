@@ -1,10 +1,9 @@
+use crate::domain::moderator::rules::common::invisible::is_invisible;
 use icu_properties::CodePointSetData;
 use icu_properties::CodePointSetDataBorrowed;
-use icu_properties::props::{DefaultIgnorableCodePoint, Emoji};
+use icu_properties::props::Emoji;
 use std::sync::LazyLock;
 
-static DEFAULT_IGNORABLE: LazyLock<CodePointSetDataBorrowed<'static>> =
-    LazyLock::new(|| CodePointSetData::new::<DefaultIgnorableCodePoint>());
 static EMOJI: LazyLock<CodePointSetDataBorrowed<'static>> =
     LazyLock::new(|| CodePointSetData::new::<Emoji>());
 
@@ -15,36 +14,6 @@ const TAG_SPEC_FIRST: char = '\u{E0020}';
 const TAG_TERMINATOR: char = '\u{E007F}';
 /// Longest ISO 3166-2 subdivision code an emoji tag sequence can spell.
 const MAX_TAG_SPEC_LEN: usize = 6;
-
-/// Characters that render as blank/invisible or formatting-only but are not
-/// classified as whitespace by Rust's `char::is_whitespace`. Users can pad an
-/// otherwise-empty message with these so it still contains "characters" and
-/// passes a naive emptiness check, while visually the message is blank.
-///
-/// Most such characters (zero-width spaces, joiners, bidi controls, variation
-/// selectors, soft hyphen, Hangul fillers, tag characters, ...) are covered by
-/// Unicode's `Default_Ignorable_Code_Point` property, which the Unicode
-/// Consortium maintains and extends with new Unicode versions. A small set of
-/// characters render blank but are deliberately *not* default-ignorable
-/// (e.g. Braille pattern blank, a real "no dots" Braille glyph) and are
-/// listed explicitly below.
-fn is_invisible(c: char) -> bool {
-    // Non-whitespace control characters (excludes \t, \n, \r which are covered by is_whitespace)
-    if c.is_control() && !c.is_whitespace() {
-        return true;
-    }
-
-    if DEFAULT_IGNORABLE.contains(c) {
-        return true;
-    }
-
-    matches!(
-        c,
-        '\u{2800}' // Braille pattern blank
-            | '\u{180E}' // Mongolian vowel separator (excluded from Default_Ignorable since Unicode 6.3)
-            | '\u{FFF9}'..='\u{FFFB}' // interlinear annotation chars (not Default_Ignorable)
-    )
-}
 
 fn is_blank(c: char) -> bool {
     c.is_whitespace() || is_invisible(c)

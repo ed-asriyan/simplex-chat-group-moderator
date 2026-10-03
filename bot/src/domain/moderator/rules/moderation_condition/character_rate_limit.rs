@@ -2,7 +2,8 @@ use crate::domain::moderator::ports::{
     Err, GroupCharacterActivityRepository, MessengerGroupId, UserCharacterActivityRepository,
     UserId,
 };
-use chrono::{DateTime, Duration, Utc};
+use crate::domain::moderator::rules::common::rate_limit::{reached, window_start};
+use chrono::{DateTime, Utc};
 
 /// Evaluates if the author wrote at least `character_count` characters in the window.
 pub fn should_moderate(
@@ -10,7 +11,7 @@ pub fn should_moderate(
     character_count: u32,
     time_window_minutes: u32,
 ) -> Option<String> {
-    if character_count > 0 && time_window_minutes > 0 && count >= character_count {
+    if reached(count, character_count, time_window_minutes) {
         Some(format!(
             "author sent {count} characters in {time_window_minutes} min"
         ))
@@ -31,8 +32,7 @@ pub async fn check(
     if character_count == 0 || time_window_minutes == 0 {
         return Ok(None);
     }
-    let chrono_minutes = Duration::minutes(time_window_minutes as i64);
-    let since = now - chrono_minutes;
+    let since = window_start(now, time_window_minutes);
     let count = activity_repo
         .sum_characters_since(group_id, user_id, since, now)
         .await?;
@@ -46,7 +46,7 @@ pub fn group_should_moderate(
     character_count: u32,
     time_window_minutes: u32,
 ) -> Option<String> {
-    if character_count > 0 && time_window_minutes > 0 && count >= character_count {
+    if reached(count, character_count, time_window_minutes) {
         Some(format!(
             "group received {count} characters in {time_window_minutes} min"
         ))
@@ -66,7 +66,7 @@ pub async fn check_group(
     if character_count == 0 || time_window_minutes == 0 {
         return Ok(None);
     }
-    let since = now - Duration::minutes(time_window_minutes as i64);
+    let since = window_start(now, time_window_minutes);
     let count = activity_repo
         .sum_characters_since(group_id, since, now)
         .await?;
