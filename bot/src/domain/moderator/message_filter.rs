@@ -89,6 +89,9 @@ mod screen_lines;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod format_tests;
+
 pub use moderation_action::ModerationAction;
 pub use moderation_condition::{
     ApiRetry, CategoryTrigger, ModerationCondition, OpenAiCategory, OpenAiCategoryTriggers,

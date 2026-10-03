@@ -1,0 +1,172 @@
+[
+  {
+    "actions": [
+      {
+        "type": "SetAuthorObserver",
+        "duration_minutes": 30
+      },
+      {
+        "type": "ModerateMessage"
+      },
+      {
+        "type": "KickAuthor",
+        "delete_all_messages": true
+      }
+    ],
+    "condition": {
+      "type": "All",
+      "conditions": [
+        {
+          "type": "Any",
+          "conditions": [
+            {
+              "type": "ContainsWords",
+              "keywords": [
+                "spam"
+              ]
+            },
+            {
+              "type": "MatchesExactMessage",
+              "messages": [
+                "hi"
+              ],
+              "case_sensitive": true
+            },
+            {
+              "type": "MatchesRegex",
+              "patterns": [
+                "^a+$"
+              ]
+            },
+            {
+              "type": "ContainsRepeatedSequence",
+              "min_repeats": 3,
+              "min_length": 2
+            },
+            {
+              "type": "ContainsLinksInList",
+              "domains": [
+                "bad.example"
+              ]
+            },
+            {
+              "type": "ContainsLinksOutsideList",
+              "domains": [
+                "good.example"
+              ]
+            },
+            {
+              "type": "ContainsLinksOutsideTop100",
+              "domains": [
+                "ok.example"
+              ]
+            },
+            {
+              "type": "ContainsInvisibleCharacters"
+            },
+            {
+              "type": "ContainsImage"
+            },
+            {
+              "type": "ContainsVideo"
+            },
+            {
+              "type": "ContainsVoiceMessage"
+            },
+            {
+              "type": "ContainsFile"
+            },
+            {
+              "type": "ExceedsMaxCharacters",
+              "max_characters": 500
+            },
+            {
+              "type": "ExceedsMaxWords",
+              "max_words": 100
+            },
+            {
+              "type": "ExceedsMaxLines",
+              "max_lines": 10,
+              "chars_per_line": 40
+            },
+            {
+              "type": "AuthorHitsMessageRateLimit",
+              "message_count": 5,
+              "time_window_minutes": 1
+            },
+            {
+              "type": "AuthorHitsCharacterRateLimit",
+              "character_count": 1000,
+              "time_window_minutes": 2
+            },
+            {
+              "type": "AuthorHitsLineRateLimit",
+              "line_count": 20,
+              "time_window_minutes": 3,
+              "chars_per_line": 40
+            },
+            {
+              "type": "AuthorHitsModerationRateLimit",
+              "message_count": 3,
+              "time_window_minutes": 60
+            },
+            {
+              "type": "AuthorJoinedRecently",
+              "time_window_minutes": 1440
+            },
+            {
+              "type": "GroupHitsMessageRateLimit",
+              "message_count": 50,
+              "time_window_minutes": 1
+            },
+            {
+              "type": "GroupHitsCharacterRateLimit",
+              "character_count": 9000,
+              "time_window_minutes": 2
+            },
+            {
+              "type": "GroupHitsLineRateLimit",
+              "line_count": 200,
+              "time_window_minutes": 3,
+              "chars_per_line": 0
+            },
+            {
+              "type": "FlaggedByOmniModeration",
+              "api_key": "sk-test",
+              "sexual": "off",
+              "sexual_minors": "off",
+              "harassment": "off",
+              "harassment_threatening": "off",
+              "hate": "openai",
+              "hate_threatening": "off",
+              "illicit": "off",
+              "illicit_violent": "off",
+              "self_harm": "off",
+              "self_harm_intent": "off",
+              "self_harm_instructions": "off",
+              "violence": 80,
+              "violence_graphic": "off",
+              "max_attempts": 2,
+              "retry_delay_seconds": 5
+            },
+            {
+              "type": "FlaggedByOpenRouterInstruction",
+              "api_key": "sk-or-test",
+              "model": "openai/gpt-4o-mini",
+              "instruction": "Is it an ad?",
+              "context_messages": 3,
+              "max_attempts": 2,
+              "retry_delay_seconds": 5
+            }
+          ]
+        },
+        {
+          "type": "Not",
+          "condition": {
+            "type": "IsBlank"
+          }
+        }
+      ]
+    }
+  }
+]

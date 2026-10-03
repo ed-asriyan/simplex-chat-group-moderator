@@ -182,3 +182,38 @@ fn test_indefinite_observer_restriction_covers_every_timed_one() {
 fn test_kick_still_covers_a_timed_observer_restriction() {
     assert_eq!(normalize_actions(&[OBSERVER_10M, KICK]), vec![KICK]);
 }
+
+/// Which action makes which redundant, for every pair: the whole relation the
+/// web editor mirrors in `covered_by`, pinned so that a change to how coverage
+/// is computed cannot change its outcome unnoticed.
+#[test]
+fn test_coverage_between_every_pair_of_actions() {
+    let actions = [
+        MODERATE,
+        OBSERVER_10M,
+        OBSERVER_30M,
+        OBSERVER,
+        KICK,
+        KICK_ALL,
+    ];
+    // Row: the action already planned. Column: the action it may make redundant.
+    #[rustfmt::skip]
+    let expected = [
+        // MODERATE OBS_10M OBS_30M OBSERVER KICK  KICK_ALL
+        [true,     false,  false,  false,   false, false], // MODERATE
+        [false,    true,   false,  false,   false, false], // OBSERVER_10M
+        [false,    true,   true,   false,   false, false], // OBSERVER_30M
+        [false,    true,   true,   true,    false, false], // OBSERVER
+        [false,    true,   true,   true,    true,  false], // KICK
+        [true,     true,   true,   true,    true,  true ], // KICK_ALL
+    ];
+    for (row, planned) in actions.iter().enumerate() {
+        for (column, candidate) in actions.iter().enumerate() {
+            assert_eq!(
+                plan_next_actions(&[*planned], &[*candidate]).is_none(),
+                expected[row][column],
+                "does {planned:?} cover {candidate:?}?"
+            );
+        }
+    }
+}
