@@ -1,16 +1,16 @@
 use async_trait::async_trait;
-use chrono::Duration as ChronoDuration;
 use std::sync::Arc;
 
 use crate::domain::moderator::ports::{
-    Err, GroupCharacterActivityRepository, GroupLineActivityRepository, GroupMemberRole,
-    GroupMessage, GroupMessageActivityRepository, GroupMessageHistoryRepository, GroupModerator,
-    MemberRestoreRepository, ModerationAction, ModerationEngine, ModerationNotifier,
-    ModerationRepository, ModerationRule, OpenAi, OpenRouter, UserCharacterActivityRepository,
+    Err, GroupCharacterActivityRepository, GroupLineActivityRepository, GroupMessage,
+    GroupMessageActivityRepository, GroupMessageHistoryRepository, GroupModerator,
+    MemberRestoreRepository, ModerationEngine, ModerationNotifier, ModerationRepository,
+    ModerationRule, OpenAi, OpenRouter, UserCharacterActivityRepository,
     UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
 };
 use crate::domain::moderator::rules::{
-    ConditionPorts, record_activity, record_moderated, record_outcome, should_moderate,
+    ActionPorts, ConditionPorts, execute_actions, record_activity, record_moderated,
+    record_outcome, should_moderate,
 };
 
 #[cfg(test)]
@@ -83,6 +83,14 @@ impl MessageModerationApplication {
             openrouter: self.openrouter.as_ref(),
         }
     }
+
+    /// Every port an action may act through, as one bundle.
+    fn action_ports(&self) -> ActionPorts<'_> {
+        ActionPorts {
+            group_moderator: self.group_moderator.as_ref(),
+            restores: self.restores.as_ref(),
+        }
+    }
 }
 
 #[async_trait]
@@ -112,76 +120,13 @@ impl ModerationEngine for MessageModerationApplication {
             let dry_mode = group.as_ref().is_some_and(|g| g.dry_mode_enabled);
 
             if !dry_mode {
-                deleted = matched.actions.iter().any(|action| match action {
-                    ModerationAction::ModerateMessage => true,
-                    ModerationAction::KickAuthor {
-                        delete_all_messages,
-                    } => *delete_all_messages,
-                    ModerationAction::SetAuthorObserver { .. } => false,
-                });
-                for action in &matched.actions {
-                    match action {
-                        ModerationAction::SetAuthorObserver { duration_minutes } => {
-                            self.group_moderator
-                                .set_member_role(
-                                    &group_message.group.id,
-                                    &group_message.author_id,
-                                    GroupMemberRole::Observer,
-                                )
-                                .await?;
-                            let scheduled = if *duration_minutes > 0 {
-                                self.restores
-                                    .save(
-                                        &group_message.group.id,
-                                        &group_message.author_id,
-                                        group_message.timestamp
-                                            + ChronoDuration::minutes(*duration_minutes as i64),
-                                    )
-                                    .await
-                            } else {
-                                // Indefinitely means indefinitely: a restore an
-                                // earlier timed restriction scheduled would
-                                // otherwise still lift this one.
-                                self.restores
-                                    .delete_for_member(
-                                        &group_message.group.id,
-                                        &group_message.author_id,
-                                    )
-                                    .await
-                            };
-                            // Bookkeeping the bot keeps for itself: failing it
-                            // must not call off the moderation of the message
-                            // or the owner's notification. It is reported once
-                            // everything else has run.
-                            bookkeeping = bookkeeping.or(scheduled.err());
-                        }
-                        ModerationAction::ModerateMessage => {
-                            self.group_moderator
-                                .delete_message(&group_message.group.id, &group_message.message_id)
-                                .await?;
-                        }
-                        ModerationAction::KickAuthor {
-                            delete_all_messages,
-                        } => {
-                            self.group_moderator
-                                .kick_member(
-                                    &group_message.group.id,
-                                    &group_message.author_id,
-                                    *delete_all_messages,
-                                )
-                                .await?;
-                            // Nobody to restore once they are out of the group.
-                            let cancelled = self
-                                .restores
-                                .delete_for_member(
-                                    &group_message.group.id,
-                                    &group_message.author_id,
-                                )
-                                .await;
-                            bookkeeping = bookkeeping.or(cancelled.err());
-                        }
-                    }
-                }
+                let outcome =
+                    execute_actions(&group_message, &matched.actions, &self.action_ports()).await?;
+                deleted = outcome.message_deleted;
+                // Bookkeeping the bot keeps for itself: failing it must not
+                // call off the moderation of the message or the owner's
+                // notification. It is reported once everything else has run.
+                bookkeeping = outcome.bookkeeping_error;
             }
 
             if let Some(group) = group

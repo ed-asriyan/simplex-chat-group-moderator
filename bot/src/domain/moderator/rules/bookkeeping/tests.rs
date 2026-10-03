@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::moderator::ports::actions::ModerateMessage;
 use crate::domain::moderator::ports::conditions::{
     AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit, ContainsWords,
 };
@@ -6,7 +7,7 @@ use crate::domain::moderator::ports::{ModerationAction, ModerationCondition};
 
 fn rule(condition: ModerationCondition) -> ModerationRule {
     ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage],
+        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
         condition,
     }
 }

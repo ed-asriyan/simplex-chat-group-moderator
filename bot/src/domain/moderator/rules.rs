@@ -61,13 +61,15 @@
 //!   the tree they form. Each leaf condition is a child module of its own (`contains_words`,
 //!   `exceeds_max_lines`, ...) holding its parameters, the checks applied when an owner saves
 //!   them, how it is evaluated against a message, and its tests.
-//! - `moderation_action` — [`ModerationAction`]: one thing a matched rule does. A plain file,
-//!   not a directory: unlike a condition, an action carries no per-kind logic of its own.
+//! - `moderation_action` — [`ModerationAction`]: the registry of every action. Each action is a
+//!   child module of its own (`moderate_message`, `kick_author`, ...) holding its parameters,
+//!   what it achieves (`Effect`), where it goes in the execution order, how it is carried out
+//!   ([`execute_actions`]), and its tests.
 //! - `moderation_rule` — [`ModerationRule`]: the pairing of the two.
 //!
 //! Alongside them — deliberately *not* inside `moderation_action` — sits `action_planner`,
 //! which merges the actions of several matched rules into one non-redundant plan and decides
-//! the order they run in. It reasons about a *set* of actions coming from a *set* of rules, so
+//! the order they run in, from what each action says it achieves and where it goes. It reasons about a *set* of actions coming from a *set* of rules, so
 //! it belongs at the same level as this module's own [`should_moderate`], not one level down
 //! inside the module that describes a single action. [`ModerationRule::normalize_and_validate`]
 //! reaches into it for the same reason: one rule's action list is such a set too.
@@ -76,9 +78,10 @@
 //! its result, [`ModerationMatch`].
 //!
 //! # Guidance for future changes
-//! - Put action comparison / subsumption / ordering in the `action_planner` submodule, not
-//!   here or in `moderation_action`. This module must not learn that "one rule is stronger than another"; it only asks
-//!   the planner.
+//! - What one action achieves and where it goes in the order belong to that action
+//!   (`Action::effect`, `Action::execution_rank`); how a set of them combines belongs to
+//!   `action_planner`. This module must not learn that "one rule is stronger than another"; it
+//!   only asks the planner.
 //! - Keep rule evaluation order-independent in outcome. If you need cross-rule context (like
 //!   the pre-pass flag), compute it up front rather than relying on list position.
 //! - Every condition should be evaluated at most once per message.
@@ -97,7 +100,9 @@ mod tests;
 mod format_tests;
 
 pub use bookkeeping::{record_activity, record_moderated, record_outcome};
-pub use moderation_action::ModerationAction;
+pub use moderation_action::{
+    ActionOutcome, ActionPorts, ModerationAction, actions, execute_actions,
+};
 pub use moderation_condition::{ConditionPorts, KeyUse, ModerationCondition, conditions};
 pub use moderation_rule::ModerationRule;
 

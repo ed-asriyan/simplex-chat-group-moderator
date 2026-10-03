@@ -7,6 +7,7 @@
 //! the tree is assembled in memory. The query count is therefore independent of
 //! how many rules the group has and how deeply nested they are.
 
+use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
 use crate::domain::moderator::ports::conditions::{
     AuthorHitsCharacterRateLimit, AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit,
     AuthorHitsModerationRateLimit, AuthorJoinedRecently, ContainsFile, ContainsImage,
@@ -58,13 +59,13 @@ fn load_actions(
     for row in rows {
         let (rule_id, type_tag, delete_all_messages, duration_minutes) = row?;
         let action = match type_tag.as_str() {
-            "ModerateMessage" => ModerationAction::ModerateMessage,
-            "SetAuthorObserver" => ModerationAction::SetAuthorObserver {
+            "ModerateMessage" => ModerationAction::ModerateMessage(ModerateMessage {}),
+            "SetAuthorObserver" => ModerationAction::SetAuthorObserver(SetAuthorObserver {
                 duration_minutes: duration_minutes.unwrap_or(0),
-            },
-            "KickAuthor" => ModerationAction::KickAuthor {
+            }),
+            "KickAuthor" => ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: delete_all_messages.unwrap_or(false),
-            },
+            }),
             other => {
                 log::warn!("unknown action type '{other}' on rule {rule_id}, skipping it");
                 continue;
@@ -685,7 +686,7 @@ pub(crate) fn load_rules_for_group(
         // actions were configurable, so it stays the fallback.
         let actions = actions_by_rule
             .remove(&rule_id)
-            .unwrap_or_else(|| vec![ModerationAction::ModerateMessage]);
+            .unwrap_or_else(|| vec![ModerationAction::ModerateMessage(ModerateMessage {})]);
         rules.push(OwnedModerationRule {
             id: rule_id as usize,
             rule: ModerationRule {

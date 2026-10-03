@@ -4,6 +4,7 @@ use std::sync::{Arc, OnceLock};
 use crate::domain::bot_dm::ports::{
     Group as BotDmGroup, ModerationAction as BotDmAction, ModerationNotificationReceiver,
 };
+use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
 use crate::domain::moderator::ports::{
     Err as ModErr, Group as ModGroup, ModerationAction as ModAction, ModerationNotifier,
     UserId as ModUserId,
@@ -56,15 +57,15 @@ impl ModerationNotifier for ModerationNotificationRouter {
         let bot_dm_actions: Vec<BotDmAction> = actions
             .iter()
             .map(|action| match action {
-                ModAction::ModerateMessage => BotDmAction::ModerateMessage,
-                ModAction::SetAuthorObserver { duration_minutes } => {
+                ModAction::ModerateMessage(ModerateMessage {}) => BotDmAction::ModerateMessage,
+                ModAction::SetAuthorObserver(SetAuthorObserver { duration_minutes }) => {
                     BotDmAction::SetAuthorObserver {
                         duration_minutes: *duration_minutes,
                     }
                 }
-                ModAction::KickAuthor {
+                ModAction::KickAuthor(KickAuthor {
                     delete_all_messages,
-                } => BotDmAction::KickAuthor {
+                }) => BotDmAction::KickAuthor {
                     delete_all_messages: *delete_all_messages,
                 },
             })

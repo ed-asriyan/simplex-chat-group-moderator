@@ -1,62 +1,11 @@
 use crate::domain::moderator::ports::ModerationAction;
 
-/// Where an action sits in the safe execution order: restricting the author to
-/// observer, then moderating the triggering message, then kicking the author.
-///
-/// Kicking last is what makes the order safe — once the author is out of the
-/// group, acting on them or on their message may no longer be possible. The
-/// order deliberately does *not* come from the order the owner listed the
-/// actions in (or from `ModerationAction`'s variant order, which is the
-/// owner-facing one): a rule's action list is a set, and this module is the only
-/// place that decides how a set of actions is carried out.
-fn execution_rank(action: &ModerationAction) -> u8 {
-    match action {
-        ModerationAction::SetAuthorObserver { .. } => 0,
-        ModerationAction::ModerateMessage => 1,
-        ModerationAction::KickAuthor { .. } => 2,
-    }
-}
-
 /// Returns true if performing `action` already achieves everything `other`
-/// would, making `other` redundant. This is the single place that encodes how
-/// one action subsumes another.
+/// would, making `other` redundant: when its effect is at least as strong on
+/// every count. This is the single place that decides how one action subsumes
+/// another; what each one achieves is the action's own to say.
 fn covers(action: &ModerationAction, other: &ModerationAction) -> bool {
-    use ModerationAction::*;
-    if action == other {
-        return true;
-    }
-    match (action, other) {
-        // Kicking with full message deletion covers a plain kick...
-        (
-            KickAuthor {
-                delete_all_messages: true,
-            },
-            KickAuthor {
-                delete_all_messages: false,
-            },
-        ) => true,
-        // ...and covers moderating just the triggering message.
-        (
-            KickAuthor {
-                delete_all_messages: true,
-            },
-            ModerateMessage,
-        ) => true,
-        // Kicking the author covers restricting them to observer (read-only).
-        (KickAuthor { .. }, SetAuthorObserver { .. }) => true,
-        // Between two observer restrictions the stricter one wins: holding the
-        // author indefinitely (0) covers every timed restriction, and a longer
-        // timer covers a shorter one.
-        (
-            SetAuthorObserver {
-                duration_minutes: held,
-            },
-            SetAuthorObserver {
-                duration_minutes: other_held,
-            },
-        ) => *held == 0 || (*other_held != 0 && held >= other_held),
-        _ => false,
-    }
+    action.effect().covers(&other.effect())
 }
 
 /// A normalized set of actions.
@@ -108,10 +57,10 @@ impl ActionSet {
         result
     }
 
-    /// Actions in safe execution order (see [`execution_rank`]).
+    /// Actions in safe execution order (see `Action::execution_rank`).
     fn into_ordered(self) -> Vec<ModerationAction> {
         let mut actions = self.actions;
-        actions.sort_by_key(execution_rank);
+        actions.sort_by_key(ModerationAction::execution_rank);
         actions
     }
 }

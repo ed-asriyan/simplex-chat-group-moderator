@@ -1,16 +1,17 @@
 use super::planner::*;
 use crate::domain::moderator::ports::ModerationAction;
+use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
 
-const MODERATE: ModerationAction = ModerationAction::ModerateMessage;
-const OBSERVER: ModerationAction = ModerationAction::SetAuthorObserver {
+const MODERATE: ModerationAction = ModerationAction::ModerateMessage(ModerateMessage {});
+const OBSERVER: ModerationAction = ModerationAction::SetAuthorObserver(SetAuthorObserver {
     duration_minutes: 0,
-};
-const KICK: ModerationAction = ModerationAction::KickAuthor {
+});
+const KICK: ModerationAction = ModerationAction::KickAuthor(KickAuthor {
     delete_all_messages: false,
-};
-const KICK_ALL: ModerationAction = ModerationAction::KickAuthor {
+});
+const KICK_ALL: ModerationAction = ModerationAction::KickAuthor(KickAuthor {
     delete_all_messages: true,
-};
+});
 
 #[test]
 fn test_normalize_single_action_is_unchanged() {
@@ -144,12 +145,12 @@ fn test_stronger_rule_upgrades_an_existing_plan() {
     );
 }
 
-const OBSERVER_10M: ModerationAction = ModerationAction::SetAuthorObserver {
+const OBSERVER_10M: ModerationAction = ModerationAction::SetAuthorObserver(SetAuthorObserver {
     duration_minutes: 10,
-};
-const OBSERVER_30M: ModerationAction = ModerationAction::SetAuthorObserver {
+});
+const OBSERVER_30M: ModerationAction = ModerationAction::SetAuthorObserver(SetAuthorObserver {
     duration_minutes: 30,
-};
+});
 
 #[test]
 fn test_longer_observer_restriction_covers_a_shorter_one() {

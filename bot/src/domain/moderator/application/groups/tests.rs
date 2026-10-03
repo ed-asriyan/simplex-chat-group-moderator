@@ -3,6 +3,7 @@
 
 use super::GroupAdministrationApplication;
 use crate::domain::moderator::application::tests::{MockGroupModerator, MockModerationRepository};
+use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
 use crate::domain::moderator::ports::conditions::{
     ContainsWords, FlaggedByOmniModeration, FlaggedByOpenRouterInstruction,
 };
@@ -82,7 +83,7 @@ async fn test_set_group_rules_rejects_invalid_condition() {
             100,
             10,
             vec![ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage],
+                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
                 condition: ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["a".repeat(101)],
                 }),
@@ -105,7 +106,7 @@ async fn test_set_group_rules_accepts_valid_conditions() {
         100,
         10,
         vec![ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage],
+            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
             condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["badword".to_string()],
             }),
@@ -126,7 +127,7 @@ async fn test_set_group_rules_checks_ownership_before_validating() {
             999,
             10,
             vec![ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage],
+                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
                 condition: ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["a".repeat(101)],
                 }),
@@ -150,9 +151,9 @@ async fn test_set_group_rules_rejects_too_long_observer_duration() {
             100,
             10,
             vec![ModerationRule {
-                actions: vec![ModerationAction::SetAuthorObserver {
+                actions: vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                     duration_minutes: 43_201,
-                }],
+                })],
                 condition: ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["badword".to_string()],
                 }),
@@ -176,7 +177,9 @@ async fn test_set_group_rules_accepts_observer_durations_up_to_a_month() {
             100,
             10,
             vec![ModerationRule {
-                actions: vec![ModerationAction::SetAuthorObserver { duration_minutes }],
+                actions: vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
+                    duration_minutes,
+                })],
                 condition: ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["badword".to_string()],
                 }),
@@ -340,7 +343,7 @@ fn openai_condition(api_key: &str) -> ModerationCondition {
 
 fn moderate_when(condition: ModerationCondition) -> ModerationRule {
     ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage],
+        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
         condition,
     }
 }
@@ -408,9 +411,9 @@ async fn test_every_distinct_key_is_asked_about_once_wherever_it_sits() {
             ],
         }),
         ModerationRule {
-            actions: vec![ModerationAction::KickAuthor {
+            actions: vec![ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: false,
-            }],
+            })],
             condition: openai_condition("sk-one"),
         },
     ];

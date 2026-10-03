@@ -71,6 +71,9 @@ fn apply_through(conn: &mut Connection, target: usize) -> Result<(), Err> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::moderator::ports::actions::{
+        KickAuthor, ModerateMessage, SetAuthorObserver,
+    };
     use crate::domain::moderator::ports::conditions::{
         AuthorHitsMessageRateLimit, AuthorHitsModerationRateLimit, AuthorJoinedRecently,
         ContainsInvisibleCharacters, ContainsLinksInList, ContainsLinksOutsideList,
@@ -151,22 +154,22 @@ mod tests {
             loaded,
             vec![
                 ModerationRule {
-                    actions: vec![ModerationAction::ModerateMessage],
+                    actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
                     condition: ModerationCondition::ContainsWords(ContainsWords {
                         keywords: vec!["alpha".to_string(), "beta".to_string()],
                     }),
                 },
                 ModerationRule {
-                    actions: vec![ModerationAction::KickAuthor {
+                    actions: vec![ModerationAction::KickAuthor(KickAuthor {
                         delete_all_messages: true,
-                    }],
+                    })],
                     condition: ModerationCondition::MatchesExactMessage(MatchesExactMessage {
                         messages: vec!["spam".to_string()],
                         case_sensitive: true,
                     }),
                 },
                 ModerationRule {
-                    actions: vec![ModerationAction::ModerateMessage],
+                    actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
                     condition: ModerationCondition::AuthorHitsMessageRateLimit(
                         AuthorHitsMessageRateLimit {
                             message_count: 5,
@@ -464,47 +467,46 @@ mod tests {
         let actions: Vec<Vec<ModerationAction>> =
             loaded.into_iter().map(|owned| owned.rule.actions).collect();
 
-        use ModerationAction::*;
         assert_eq!(
             actions,
             vec![
-                // ModerateMessage is unchanged.
-                vec![ModerateMessage],
+                // ModerationAction::ModerateMessage(ModerateMessage {}) is unchanged.
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
                 // KickAuthor / None: nothing happens to the messages.
-                vec![KickAuthor {
+                vec![ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: false
-                }],
+                })],
                 // KickAuthor / TriggeredMessage: the message deletion becomes its
                 // own action, running before the kick.
                 vec![
-                    ModerateMessage,
-                    KickAuthor {
+                    ModerationAction::ModerateMessage(ModerateMessage {}),
+                    ModerationAction::KickAuthor(KickAuthor {
                         delete_all_messages: false
-                    }
+                    })
                 ],
                 // KickAuthor / AllMessages: the kick keeps doing the deleting.
-                vec![KickAuthor {
+                vec![ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: true
-                }],
+                })],
                 // SetAuthorObserver / None.
-                vec![SetAuthorObserver {
+                vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                     duration_minutes: 0
-                }],
+                })],
                 // SetAuthorObserver / TriggeredMessage: observer first, then the
                 // message is moderated.
                 vec![
-                    SetAuthorObserver {
+                    ModerationAction::SetAuthorObserver(SetAuthorObserver {
                         duration_minutes: 0
-                    },
-                    ModerateMessage
+                    }),
+                    ModerationAction::ModerateMessage(ModerateMessage {})
                 ],
                 // An out-of-range setting keeps the meaning the old reader gave
                 // it, which was the same as TriggeredMessage.
                 vec![
-                    ModerateMessage,
-                    KickAuthor {
+                    ModerationAction::ModerateMessage(ModerateMessage {}),
+                    ModerationAction::KickAuthor(KickAuthor {
                         delete_all_messages: false
-                    }
+                    })
                 ],
             ]
         );
@@ -560,7 +562,7 @@ mod tests {
         repo.set_group_rules(
             &group_id,
             &[ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage],
+                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
                 condition: ModerationCondition::All {
                     conditions: vec![
                         ModerationCondition::ContainsWords(ContainsWords {
@@ -801,9 +803,9 @@ mod tests {
         let loaded = repo.get_group_rules(&12).await.unwrap();
         assert_eq!(
             loaded[0].rule.actions,
-            vec![ModerationAction::SetAuthorObserver {
+            vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                 duration_minutes: 0
-            }]
+            })]
         );
     }
 }

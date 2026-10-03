@@ -1,3 +1,4 @@
+use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
 use crate::domain::moderator::ports::conditions::{
     AuthorHitsCharacterRateLimit, AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit,
     AuthorHitsModerationRateLimit, AuthorJoinedRecently, ContainsFile, ContainsImage,
@@ -32,11 +33,7 @@ fn insert_actions(
     actions: &[ModerationAction],
 ) -> Result<(), Err> {
     for (rank, action) in actions.iter().enumerate() {
-        let type_tag = match action {
-            ModerationAction::ModerateMessage => "ModerateMessage",
-            ModerationAction::SetAuthorObserver { .. } => "SetAuthorObserver",
-            ModerationAction::KickAuthor { .. } => "KickAuthor",
-        };
+        let type_tag = action.type_name();
         tx.execute(
             "INSERT INTO moderation_actions (rule_id, rank, type) VALUES (?1, ?2, ?3)",
             params![rule_id, rank as i64, type_tag],
@@ -44,23 +41,23 @@ fn insert_actions(
         .map_err(|e| -> Err { e.to_string().into() })?;
         let action_id = tx.last_insert_rowid();
         match action {
-            ModerationAction::ModerateMessage => {
+            ModerationAction::ModerateMessage(ModerateMessage {}) => {
                 tx.execute(
                     "INSERT INTO moderation_action__moderate_message (action_id) VALUES (?1)",
                     params![action_id],
                 )
                 .map_err(|e| -> Err { e.to_string().into() })?;
             }
-            ModerationAction::SetAuthorObserver { duration_minutes } => {
+            ModerationAction::SetAuthorObserver(SetAuthorObserver { duration_minutes }) => {
                 tx.execute(
                     "INSERT INTO moderation_action__set_author_observer (action_id, duration_minutes) VALUES (?1, ?2)",
                     params![action_id, duration_minutes],
                 )
                 .map_err(|e| -> Err { e.to_string().into() })?;
             }
-            ModerationAction::KickAuthor {
+            ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages,
-            } => {
+            }) => {
                 tx.execute(
                     "INSERT INTO moderation_action__kick_author (action_id, delete_all_messages) VALUES (?1, ?2)",
                     params![action_id, delete_all_messages],
