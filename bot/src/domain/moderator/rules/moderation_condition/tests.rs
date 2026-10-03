@@ -883,7 +883,7 @@ fn test_parameterless_conditions_round_trip_through_json() {
 // FlaggedByOmniModeration
 // ---------------------------------------------------------------------------
 
-use super::{CategoryTrigger, OpenAiCategoryTriggers};
+use crate::domain::moderator::ports::{CategoryTrigger, OpenAiCategoryTriggers};
 
 fn openai(api_key: &str, triggers: OpenAiCategoryTriggers) -> ModerationCondition {
     ModerationCondition::FlaggedByOmniModeration {
@@ -1054,7 +1054,7 @@ fn test_openrouter_instruction_accepts_every_listed_model_and_nothing_else() {
 
 #[test]
 fn test_api_retry_settings_are_capped() {
-    use super::ApiRetry;
+    use crate::domain::moderator::ports::ApiRetry;
     for (max_attempts, retry_delay_seconds) in [(1, 0), (5, 10), (3, 1)] {
         let mut condition = instructed("sk-proj-abc", "openai/gpt-4o-mini", "Block ads.");
         if let ModerationCondition::FlaggedByOpenRouterInstruction { retry, .. } = &mut condition {

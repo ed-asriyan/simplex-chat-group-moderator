@@ -44,16 +44,14 @@ mod openai_moderation;
 mod regex_match;
 mod repeated_sequence;
 
-use crate::domain::moderator::ports::Err;
+use crate::domain::moderator::ports::{
+    ApiRetry, CategoryTrigger, Err, OpenAiCategory, OpenAiCategoryTriggers,
+};
 use futures::future::BoxFuture;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-pub use api_retry::ApiRetry;
 pub(super) use context::ConditionContext;
-pub use openai_moderation::{
-    CategoryTrigger, OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult,
-};
 
 mod context;
 
@@ -805,7 +803,7 @@ fn normalize_and_validate_omni_moderation(
     retry: &ApiRetry,
 ) -> Result<(), Err> {
     normalize_api_key(api_key, "OpenAI", "Flagged by OpenAI Omni")?;
-    retry.validate("Flagged by OpenAI Omni")?;
+    api_retry::validate(retry, "Flagged by OpenAI Omni")?;
 
     for category in OpenAiCategory::ALL {
         if let CategoryTrigger::MinScorePercent(percent) = triggers.get(category)
@@ -865,7 +863,7 @@ fn normalize_and_validate_openrouter_instruction(
 ) -> Result<(), Err> {
     const TITLE: &str = "Flagged by OpenRouter Instruction";
     normalize_api_key(api_key, "OpenRouter", TITLE)?;
-    retry.validate(TITLE)?;
+    api_retry::validate(retry, TITLE)?;
     if context_messages > MAX_OPENROUTER_CONTEXT_MESSAGES {
         return Err(format!(
             "'{TITLE}' can send at most {MAX_OPENROUTER_CONTEXT_MESSAGES} earlier messages, got {context_messages}"

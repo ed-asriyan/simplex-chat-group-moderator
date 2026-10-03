@@ -1,11 +1,15 @@
 //! Types the moderator context exchanges across its ports.
 
 pub use crate::domain::moderator::rules::{
-    ApiRetry, CategoryTrigger, ModerationAction, ModerationCondition, ModerationMatch,
-    ModerationRule, OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult,
+    ModerationAction, ModerationCondition, ModerationMatch, ModerationRule,
 };
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
+
+#[cfg(test)]
+mod tests;
 
 pub type MessengerGroupId = i64;
 pub type GroupId = i64;
@@ -145,4 +149,287 @@ pub struct InstructionContextMessage {
     pub author_name: String,
     pub text: String,
     pub attachment: Option<MessageAttachment>,
+}
+
+/// How hard a condition tries its provider — OpenAI or OpenRouter — before
+/// reading a failure as "no verdict": `max_attempts` calls in all (1 means no
+/// retry), `retry_delay_seconds` apart. Only a failure that can pass — the
+/// provider's trouble, a timeout, rate limiting — is tried again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ApiRetry {
+    #[serde(default = "default_max_attempts")]
+    pub max_attempts: u32,
+    #[serde(default = "default_retry_delay_seconds")]
+    pub retry_delay_seconds: u32,
+}
+
+fn default_max_attempts() -> u32 {
+    3
+}
+
+fn default_retry_delay_seconds() -> u32 {
+    1
+}
+
+impl Default for ApiRetry {
+    fn default() -> Self {
+        Self {
+            max_attempts: default_max_attempts(),
+            retry_delay_seconds: default_retry_delay_seconds(),
+        }
+    }
+}
+
+impl ApiRetry {
+    /// One call, never repeated.
+    pub const NONE: Self = Self {
+        max_attempts: 1,
+        retry_delay_seconds: 0,
+    };
+}
+
+/// One of the categories `omni-moderation-latest` scores a text in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenAiCategory {
+    Sexual,
+    SexualMinors,
+    Harassment,
+    HarassmentThreatening,
+    Hate,
+    HateThreatening,
+    Illicit,
+    IllicitViolent,
+    SelfHarm,
+    SelfHarmIntent,
+    SelfHarmInstructions,
+    Violence,
+    ViolenceGraphic,
+}
+
+impl OpenAiCategory {
+    /// Every category, in the order reasons list them.
+    pub const ALL: [Self; 13] = [
+        Self::Sexual,
+        Self::SexualMinors,
+        Self::Harassment,
+        Self::HarassmentThreatening,
+        Self::Hate,
+        Self::HateThreatening,
+        Self::Illicit,
+        Self::IllicitViolent,
+        Self::SelfHarm,
+        Self::SelfHarmIntent,
+        Self::SelfHarmInstructions,
+        Self::Violence,
+        Self::ViolenceGraphic,
+    ];
+
+    /// The name OpenAI's API uses for this category, e.g. `hate/threatening`.
+    pub fn api_name(self) -> &'static str {
+        match self {
+            Self::Sexual => "sexual",
+            Self::SexualMinors => "sexual/minors",
+            Self::Harassment => "harassment",
+            Self::HarassmentThreatening => "harassment/threatening",
+            Self::Hate => "hate",
+            Self::HateThreatening => "hate/threatening",
+            Self::Illicit => "illicit",
+            Self::IllicitViolent => "illicit/violent",
+            Self::SelfHarm => "self-harm",
+            Self::SelfHarmIntent => "self-harm/intent",
+            Self::SelfHarmInstructions => "self-harm/instructions",
+            Self::Violence => "violence",
+            Self::ViolenceGraphic => "violence/graphic",
+        }
+    }
+
+    /// The name used in the rules JSON and in the database, e.g.
+    /// `hate_threatening`: the API's names carry slashes and dashes, which make
+    /// poor field names.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Sexual => "sexual",
+            Self::SexualMinors => "sexual_minors",
+            Self::Harassment => "harassment",
+            Self::HarassmentThreatening => "harassment_threatening",
+            Self::Hate => "hate",
+            Self::HateThreatening => "hate_threatening",
+            Self::Illicit => "illicit",
+            Self::IllicitViolent => "illicit_violent",
+            Self::SelfHarm => "self_harm",
+            Self::SelfHarmIntent => "self_harm_intent",
+            Self::SelfHarmInstructions => "self_harm_instructions",
+            Self::Violence => "violence",
+            Self::ViolenceGraphic => "violence_graphic",
+        }
+    }
+
+    /// The category whose [`Self::name`] is `name`, if any.
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|category| category.name() == name)
+    }
+
+    /// The category whose [`Self::api_name`] is `api_name`, if any. Categories
+    /// OpenAI adds later are unknown here and come back as `None`.
+    pub fn from_api_name(api_name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|category| category.api_name() == api_name)
+    }
+}
+
+/// What makes one category match.
+///
+/// On the wire (the rules JSON) it is `"off"`, `"openai"` or an integer
+/// percentage, which is what the editor's select-or-number control produces.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "TriggerWire", into = "TriggerWire")]
+pub enum CategoryTrigger {
+    /// The category is ignored. The default for a field missing from the JSON:
+    /// deleting a message the owner did not ask to delete is worse than
+    /// missing one.
+    #[default]
+    Off,
+    /// Matches when OpenAI itself flags the category.
+    OpenAiDecides,
+    /// Matches when OpenAI's score for the category, as a percentage, is at
+    /// least this. Valid values are 1..=100; others are rejected on save.
+    MinScorePercent(u8),
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum TriggerWire {
+    Word(String),
+    Percent(u8),
+}
+
+impl TryFrom<TriggerWire> for CategoryTrigger {
+    type Error = String;
+
+    fn try_from(wire: TriggerWire) -> Result<Self, Self::Error> {
+        match wire {
+            TriggerWire::Word(word) => match word.as_str() {
+                "off" => Ok(Self::Off),
+                "openai" => Ok(Self::OpenAiDecides),
+                other => Err(format!(
+                    "unknown category trigger '{other}', expected \"off\", \"openai\" or a percentage"
+                )),
+            },
+            TriggerWire::Percent(percent) => Ok(Self::MinScorePercent(percent)),
+        }
+    }
+}
+
+impl From<CategoryTrigger> for TriggerWire {
+    fn from(trigger: CategoryTrigger) -> Self {
+        match trigger {
+            CategoryTrigger::Off => Self::Word("off".to_string()),
+            CategoryTrigger::OpenAiDecides => Self::Word("openai".to_string()),
+            CategoryTrigger::MinScorePercent(percent) => Self::Percent(percent),
+        }
+    }
+}
+
+/// The owner's trigger for every category. Field names are
+/// [`OpenAiCategory::name`]; a field missing from the JSON is `Off`.
+///
+/// A setting of `FlaggedByOmniModeration` rather than something a port
+/// carries: it lives here because the repository adapter reads and writes it,
+/// and a condition's own module exports nothing but the condition.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct OpenAiCategoryTriggers {
+    #[serde(default)]
+    pub sexual: CategoryTrigger,
+    #[serde(default)]
+    pub sexual_minors: CategoryTrigger,
+    #[serde(default)]
+    pub harassment: CategoryTrigger,
+    #[serde(default)]
+    pub harassment_threatening: CategoryTrigger,
+    #[serde(default)]
+    pub hate: CategoryTrigger,
+    #[serde(default)]
+    pub hate_threatening: CategoryTrigger,
+    #[serde(default)]
+    pub illicit: CategoryTrigger,
+    #[serde(default)]
+    pub illicit_violent: CategoryTrigger,
+    #[serde(default)]
+    pub self_harm: CategoryTrigger,
+    #[serde(default)]
+    pub self_harm_intent: CategoryTrigger,
+    #[serde(default)]
+    pub self_harm_instructions: CategoryTrigger,
+    #[serde(default)]
+    pub violence: CategoryTrigger,
+    #[serde(default)]
+    pub violence_graphic: CategoryTrigger,
+}
+
+impl OpenAiCategoryTriggers {
+    /// Every category set to `trigger`.
+    pub fn all(trigger: CategoryTrigger) -> Self {
+        let mut triggers = Self::default();
+        for category in OpenAiCategory::ALL {
+            triggers.set(category, trigger);
+        }
+        triggers
+    }
+
+    pub fn get(&self, category: OpenAiCategory) -> CategoryTrigger {
+        *self.field(category)
+    }
+
+    pub fn set(&mut self, category: OpenAiCategory, trigger: CategoryTrigger) {
+        *self.field_mut(category) = trigger;
+    }
+
+    fn field(&self, category: OpenAiCategory) -> &CategoryTrigger {
+        match category {
+            OpenAiCategory::Sexual => &self.sexual,
+            OpenAiCategory::SexualMinors => &self.sexual_minors,
+            OpenAiCategory::Harassment => &self.harassment,
+            OpenAiCategory::HarassmentThreatening => &self.harassment_threatening,
+            OpenAiCategory::Hate => &self.hate,
+            OpenAiCategory::HateThreatening => &self.hate_threatening,
+            OpenAiCategory::Illicit => &self.illicit,
+            OpenAiCategory::IllicitViolent => &self.illicit_violent,
+            OpenAiCategory::SelfHarm => &self.self_harm,
+            OpenAiCategory::SelfHarmIntent => &self.self_harm_intent,
+            OpenAiCategory::SelfHarmInstructions => &self.self_harm_instructions,
+            OpenAiCategory::Violence => &self.violence,
+            OpenAiCategory::ViolenceGraphic => &self.violence_graphic,
+        }
+    }
+
+    fn field_mut(&mut self, category: OpenAiCategory) -> &mut CategoryTrigger {
+        match category {
+            OpenAiCategory::Sexual => &mut self.sexual,
+            OpenAiCategory::SexualMinors => &mut self.sexual_minors,
+            OpenAiCategory::Harassment => &mut self.harassment,
+            OpenAiCategory::HarassmentThreatening => &mut self.harassment_threatening,
+            OpenAiCategory::Hate => &mut self.hate,
+            OpenAiCategory::HateThreatening => &mut self.hate_threatening,
+            OpenAiCategory::Illicit => &mut self.illicit,
+            OpenAiCategory::IllicitViolent => &mut self.illicit_violent,
+            OpenAiCategory::SelfHarm => &mut self.self_harm,
+            OpenAiCategory::SelfHarmIntent => &mut self.self_harm_intent,
+            OpenAiCategory::SelfHarmInstructions => &mut self.self_harm_instructions,
+            OpenAiCategory::Violence => &mut self.violence,
+            OpenAiCategory::ViolenceGraphic => &mut self.violence_graphic,
+        }
+    }
+}
+
+/// OpenAI's verdict on one text, in this context's own terms.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OpenAiModerationResult {
+    /// The categories OpenAI flagged by its own thresholds.
+    pub flagged: BTreeSet<OpenAiCategory>,
+    /// OpenAI's score per category, 0.0..=1.0. A category missing here scores 0.
+    pub scores: BTreeMap<OpenAiCategory, f64>,
 }

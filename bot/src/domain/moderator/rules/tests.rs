@@ -1,7 +1,8 @@
 use super::*;
 use crate::domain::moderator::ports::{
-    GroupMessage, KeyCheck, MessageAttachment, MessengerGroup, MessengerGroupId, OpenAi,
-    OpenRouter, OpenRouterInstructionVerdict, UserId, UserModerationActivityRepository,
+    CategoryTrigger, GroupMessage, KeyCheck, MessageAttachment, MessengerGroup, MessengerGroupId,
+    OpenAi, OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult, OpenRouter,
+    OpenRouterInstructionVerdict, UserId, UserModerationActivityRepository,
 };
 use crate::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
 use crate::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
