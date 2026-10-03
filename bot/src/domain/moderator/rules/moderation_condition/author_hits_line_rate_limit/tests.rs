@@ -1,10 +1,8 @@
 use super::filter::*;
-use crate::domain::moderator::ports::{
-    Err, MessengerGroupId, UserLineActivityRepository, UserId,
-};
-use chrono::{DateTime, Utc};
+use crate::domain::moderator::ports::{Err, MessengerGroupId, UserId, UserLineActivityRepository};
 use async_trait::async_trait;
 use chrono::Duration;
+use chrono::{DateTime, Utc};
 use std::sync::Mutex;
 use std::time::Duration as StdDuration;
 

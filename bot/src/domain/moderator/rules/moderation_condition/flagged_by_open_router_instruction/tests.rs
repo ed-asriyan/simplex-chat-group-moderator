@@ -95,13 +95,11 @@ fn test_openrouter_instruction_needs_an_instruction() {
 
 #[test]
 fn test_openrouter_instruction_length_is_capped() {
-    let longest =
-        "я".repeat(MAX_OPENROUTER_INSTRUCTION_LENGTH);
+    let longest = "я".repeat(MAX_OPENROUTER_INSTRUCTION_LENGTH);
     let mut condition = instructed("sk-proj-abc", "openai/gpt-4o-mini", &longest);
     condition.normalize_and_validate().unwrap();
 
-    let too_long = "я"
-        .repeat(MAX_OPENROUTER_INSTRUCTION_LENGTH + 1);
+    let too_long = "я".repeat(MAX_OPENROUTER_INSTRUCTION_LENGTH + 1);
     let err = err_of(&mut instructed(
         "sk-proj-abc",
         "openai/gpt-4o-mini",
@@ -141,16 +139,10 @@ fn test_openrouter_instruction_sends_at_most_the_maximum_of_earlier_messages() {
         condition.context_messages = n;
         condition
     };
-    for n in [
-        0,
-        1,
-        MAX_OPENROUTER_CONTEXT_MESSAGES,
-    ] {
+    for n in [0, 1, MAX_OPENROUTER_CONTEXT_MESSAGES] {
         with_context(n).normalize_and_validate().unwrap();
     }
-    let err = err_of(&mut with_context(
-        MAX_OPENROUTER_CONTEXT_MESSAGES + 1,
-    ));
+    let err = err_of(&mut with_context(MAX_OPENROUTER_CONTEXT_MESSAGES + 1));
     assert!(
         err.contains("at most 10 earlier messages"),
         "unexpected error: {err}"

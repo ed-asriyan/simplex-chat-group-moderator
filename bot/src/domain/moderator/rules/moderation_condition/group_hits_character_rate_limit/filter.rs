@@ -33,9 +33,5 @@ pub async fn check(
     let count = activity_repo
         .sum_characters_since(group_id, since, now)
         .await?;
-    Ok(should_moderate(
-        count,
-        character_count,
-        time_window_minutes,
-    ))
+    Ok(should_moderate(count, character_count, time_window_minutes))
 }

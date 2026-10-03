@@ -5,7 +5,7 @@ mod filter;
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext};
+use super::{Condition, ConditionContext, Needs};
 use crate::domain::moderator::ports::Err;
 use crate::domain::moderator::rules::common::{checks, rate_limit};
 use async_trait::async_trait;
@@ -44,12 +44,16 @@ impl Condition for GroupHitsLineRateLimit {
 
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
         filter::check(
-            ctx.group_line_activity_repo,
+            ctx.ports.group_line_activity_repo,
             &ctx.group_message.group.id,
             self.line_count,
             self.time_window_minutes,
             ctx.group_message.timestamp,
         )
         .await
+    }
+
+    fn needs(&self) -> Needs {
+        Needs::group_lines(self.time_window_minutes, self.chars_per_line)
     }
 }

@@ -2,7 +2,7 @@
 //!
 //! The repositories used to be threaded through every call as separate
 //! parameters. With conditions forming a tree those calls are recursive, so the
-//! parameters are bundled here instead. The struct also owns the per-message
+//! parameters are bundled here instead. The context also owns the per-message
 //! memo, which is what keeps the old guarantee that every distinct condition is
 //! evaluated at most once per message: with trees, identical subtrees appear
 //! across rules as soon as owners copy a rule and edit one branch.
@@ -17,8 +17,10 @@ use crate::domain::moderator::ports::{
     UserModerationActivityRepository,
 };
 
-pub(in crate::domain::moderator::rules) struct ConditionContext<'a> {
-    pub group_message: &'a GroupMessage,
+/// Every port a condition may read, and `bookkeeping` may record into. The
+/// application builds one from what it was wired with; nothing outside
+/// `rules` knows which condition reads which.
+pub struct ConditionPorts<'a> {
     pub activity_repo: &'a dyn UserMessageActivityRepository,
     pub character_activity_repo: &'a dyn UserCharacterActivityRepository,
     pub line_activity_repo: &'a dyn UserLineActivityRepository,
@@ -29,51 +31,35 @@ pub(in crate::domain::moderator::rules) struct ConditionContext<'a> {
     pub message_history: &'a dyn GroupMessageHistoryRepository,
     pub openai: &'a dyn OpenAi,
     pub openrouter: &'a dyn OpenRouter,
+}
 
-    /// Whether this message is moderated by a rule that does not itself depend
-    /// on `AuthorHitsModerationRateLimit`. Computed by the pre-pass and read by
-    /// `AuthorHitsModerationRateLimit` so it can count the current message.
-    pub message_is_moderated: bool,
+pub(in crate::domain::moderator::rules) struct ConditionContext<'a> {
+    pub group_message: &'a GroupMessage,
+    pub ports: &'a ConditionPorts<'a>,
 
-    /// While set, every `AuthorHitsModerationRateLimit` evaluates to "no
-    /// match". The pre-pass uses this to answer "is this message moderated by
-    /// anything else" without asking the condition about itself.
-    pub moderation_rate_limit_pinned: bool,
+    /// Whether this message is moderated by a rule that does not itself
+    /// depend on the other rules. Computed by the pre-pass, for the conditions
+    /// that do depend on them to read.
+    pub moderated_by_other_rules: bool,
+
+    /// While set, every condition that depends on the other rules evaluates to
+    /// "no match". The pre-pass uses this to answer "is this message moderated
+    /// by anything else" without asking such a condition about itself.
+    pub pre_pass: bool,
 
     /// Results of conditions already evaluated for this message. Only subtrees
-    /// free of `AuthorHitsModerationRateLimit` are stored, since those are the
-    /// only ones whose result does not depend on `moderation_rate_limit_pinned`.
+    /// that do not depend on the other rules are stored, since those are the
+    /// only ones whose result does not depend on `pre_pass`.
     pub memo: HashMap<ModerationCondition, Option<String>>,
 }
 
 impl<'a> ConditionContext<'a> {
-    pub fn new(
-        group_message: &'a GroupMessage,
-        activity_repo: &'a dyn UserMessageActivityRepository,
-        character_activity_repo: &'a dyn UserCharacterActivityRepository,
-        line_activity_repo: &'a dyn UserLineActivityRepository,
-        moderation_activity_repo: &'a dyn UserModerationActivityRepository,
-        group_activity_repo: &'a dyn GroupMessageActivityRepository,
-        group_character_activity_repo: &'a dyn GroupCharacterActivityRepository,
-        group_line_activity_repo: &'a dyn GroupLineActivityRepository,
-        message_history: &'a dyn GroupMessageHistoryRepository,
-        openai: &'a dyn OpenAi,
-        openrouter: &'a dyn OpenRouter,
-    ) -> Self {
+    pub fn new(group_message: &'a GroupMessage, ports: &'a ConditionPorts<'a>) -> Self {
         Self {
             group_message,
-            activity_repo,
-            character_activity_repo,
-            line_activity_repo,
-            moderation_activity_repo,
-            group_activity_repo,
-            group_character_activity_repo,
-            group_line_activity_repo,
-            message_history,
-            openai,
-            openrouter,
-            message_is_moderated: false,
-            moderation_rate_limit_pinned: false,
+            ports,
+            moderated_by_other_rules: false,
+            pre_pass: false,
             memo: HashMap::new(),
         }
     }

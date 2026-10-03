@@ -4,11 +4,7 @@ use chrono::{DateTime, Utc};
 
 /// Evaluates if the whole group received at least `message_count` messages in the
 /// window.
-pub fn should_moderate(
-    count: u32,
-    message_count: u32,
-    time_window_minutes: u32,
-) -> Option<String> {
+pub fn should_moderate(count: u32, message_count: u32, time_window_minutes: u32) -> Option<String> {
     if reached(count, message_count, time_window_minutes) {
         Some(format!(
             "group received {count} messages in {time_window_minutes} min"
@@ -33,9 +29,5 @@ pub async fn check(
     let count = activity_repo
         .count_messages_since(group_id, since, now)
         .await?;
-    Ok(should_moderate(
-        count,
-        message_count,
-        time_window_minutes,
-    ))
+    Ok(should_moderate(count, message_count, time_window_minutes))
 }

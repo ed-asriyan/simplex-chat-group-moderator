@@ -5,7 +5,7 @@ mod filter;
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext};
+use super::{Condition, ConditionContext, Needs};
 use crate::domain::moderator::ports::Err;
 use crate::domain::moderator::rules::common::rate_limit;
 use async_trait::async_trait;
@@ -46,7 +46,7 @@ impl Condition for AuthorHitsLineRateLimit {
         // The wrap width is not read here: it did its work when the message was
         // counted into the window.
         filter::check(
-            ctx.line_activity_repo,
+            ctx.ports.line_activity_repo,
             &ctx.group_message.group.id,
             &ctx.group_message.author_id,
             self.line_count,
@@ -54,5 +54,9 @@ impl Condition for AuthorHitsLineRateLimit {
             ctx.group_message.timestamp,
         )
         .await
+    }
+
+    fn needs(&self) -> Needs {
+        Needs::author_lines(self.time_window_minutes, self.chars_per_line)
     }
 }

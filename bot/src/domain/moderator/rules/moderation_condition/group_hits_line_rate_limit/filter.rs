@@ -4,11 +4,7 @@ use chrono::{DateTime, Utc};
 
 /// Evaluates if the whole group received at least `line_count` lines in the
 /// window.
-pub fn should_moderate(
-    count: u32,
-    line_count: u32,
-    time_window_minutes: u32,
-) -> Option<String> {
+pub fn should_moderate(count: u32, line_count: u32, time_window_minutes: u32) -> Option<String> {
     if reached(count, line_count, time_window_minutes) {
         Some(format!(
             "group received {count} lines in {time_window_minutes} min"
@@ -31,9 +27,5 @@ pub async fn check(
     }
     let since = window_start(now, time_window_minutes);
     let count = activity_repo.sum_lines_since(group_id, since, now).await?;
-    Ok(should_moderate(
-        count,
-        line_count,
-        time_window_minutes,
-    ))
+    Ok(should_moderate(count, line_count, time_window_minutes))
 }

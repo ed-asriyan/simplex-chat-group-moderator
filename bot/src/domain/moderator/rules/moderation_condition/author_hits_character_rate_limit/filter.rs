@@ -1,4 +1,6 @@
-use crate::domain::moderator::ports::{Err, MessengerGroupId, UserCharacterActivityRepository, UserId};
+use crate::domain::moderator::ports::{
+    Err, MessengerGroupId, UserCharacterActivityRepository, UserId,
+};
 use crate::domain::moderator::rules::common::rate_limit::{reached, window_start};
 use chrono::{DateTime, Utc};
 

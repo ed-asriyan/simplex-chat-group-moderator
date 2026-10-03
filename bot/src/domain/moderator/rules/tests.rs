@@ -8,7 +8,8 @@ use crate::domain::moderator::ports::conditions::{
 use crate::domain::moderator::ports::{
     CategoryTrigger, GroupMessage, KeyCheck, MessageAttachment, MessengerGroup, MessengerGroupId,
     OpenAi, OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult, OpenRouter,
-    OpenRouterInstructionVerdict, UserId, UserModerationActivityRepository,
+    OpenRouterInstructionVerdict, UserCharacterActivityRepository, UserId,
+    UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
 };
 use crate::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
 use crate::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
@@ -200,16 +201,18 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
     let result = should_moderate(
         &msg,
         &rules,
-        &repo,
-        &no_character_activity(),
-        &no_line_activity(),
-        &mod_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &repo,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &mod_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap();
@@ -258,16 +261,18 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
     let result = should_moderate(
         &msg,
         &rules,
-        &repo,
-        &no_character_activity(),
-        &no_line_activity(),
-        &mod_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &repo,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &mod_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap();
@@ -305,16 +310,18 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
     let reversed_result = should_moderate(
         &msg,
         &reversed_rules,
-        &repo,
-        &no_character_activity(),
-        &no_line_activity(),
-        &mod_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &repo,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &mod_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap();
@@ -353,16 +360,18 @@ async fn test_no_rules_match_returns_none() {
         should_moderate(
             &msg,
             &rules,
-            &repo,
-            &no_character_activity(),
-            &no_line_activity(),
-            &mod_repo,
-            &no_group_activity(),
-            &no_group_character_activity(),
-            &no_group_line_activity(),
-            &no_message_history(),
-            &UnusedAi,
-            &UnusedAi,
+            &ConditionPorts {
+                activity_repo: &repo,
+                character_activity_repo: &no_character_activity(),
+                line_activity_repo: &no_line_activity(),
+                moderation_activity_repo: &mod_repo,
+                group_activity_repo: &no_group_activity(),
+                group_character_activity_repo: &no_group_character_activity(),
+                group_line_activity_repo: &no_group_line_activity(),
+                message_history: &no_message_history(),
+                openai: &UnusedAi,
+                openrouter: &UnusedAi,
+            },
         )
         .await
         .unwrap()
@@ -493,16 +502,18 @@ async fn test_should_moderate_with_line_rate_limit() {
     let res = should_moderate(
         &msg,
         &rules,
-        &repo,
-        &no_character_activity(),
-        &under,
-        &mod_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &repo,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &under,
+            moderation_activity_repo: &mod_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap();
@@ -525,16 +536,18 @@ async fn test_should_moderate_with_line_rate_limit() {
     let res = should_moderate(
         &msg,
         &rules,
-        &repo,
-        &no_character_activity(),
-        &at,
-        &mod_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &repo,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &at,
+            moderation_activity_repo: &mod_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap();
@@ -663,16 +676,18 @@ async fn test_should_moderate_with_character_rate_limit() {
     let res = should_moderate(
         &msg,
         &rules,
-        &repo,
-        &under,
-        &no_line_activity(),
-        &mod_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &repo,
+            character_activity_repo: &under,
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &mod_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap();
@@ -701,16 +716,18 @@ async fn test_should_moderate_with_character_rate_limit() {
     let res = should_moderate(
         &msg,
         &rules,
-        &repo,
-        &at,
-        &no_line_activity(),
-        &mod_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &repo,
+            character_activity_repo: &at,
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &mod_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap();
@@ -779,16 +796,18 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
         should_moderate(
             &msg,
             &by_messages,
-            &messages,
-            &characters,
-            &no_line_activity(),
-            &mod_repo,
-            &no_group_activity(),
-            &no_group_character_activity(),
-            &no_group_line_activity(),
-            &no_message_history(),
-            &UnusedAi,
-            &UnusedAi,
+            &ConditionPorts {
+                activity_repo: &messages,
+                character_activity_repo: &characters,
+                line_activity_repo: &no_line_activity(),
+                moderation_activity_repo: &mod_repo,
+                group_activity_repo: &no_group_activity(),
+                group_character_activity_repo: &no_group_character_activity(),
+                group_line_activity_repo: &no_group_line_activity(),
+                message_history: &no_message_history(),
+                openai: &UnusedAi,
+                openrouter: &UnusedAi,
+            },
         )
         .await
         .unwrap()
@@ -798,16 +817,18 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
         should_moderate(
             &msg,
             &by_characters,
-            &messages,
-            &characters,
-            &no_line_activity(),
-            &mod_repo,
-            &no_group_activity(),
-            &no_group_character_activity(),
-            &no_group_line_activity(),
-            &no_message_history(),
-            &UnusedAi,
-            &UnusedAi,
+            &ConditionPorts {
+                activity_repo: &messages,
+                character_activity_repo: &characters,
+                line_activity_repo: &no_line_activity(),
+                moderation_activity_repo: &mod_repo,
+                group_activity_repo: &no_group_activity(),
+                group_character_activity_repo: &no_group_character_activity(),
+                group_line_activity_repo: &no_group_line_activity(),
+                message_history: &no_message_history(),
+                openai: &UnusedAi,
+                openrouter: &UnusedAi,
+            },
         )
         .await
         .unwrap()
@@ -831,16 +852,18 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
         should_moderate(
             &msg,
             &by_messages,
-            &messages,
-            &characters,
-            &no_line_activity(),
-            &mod_repo,
-            &no_group_activity(),
-            &no_group_character_activity(),
-            &no_group_line_activity(),
-            &no_message_history(),
-            &UnusedAi,
-            &UnusedAi,
+            &ConditionPorts {
+                activity_repo: &messages,
+                character_activity_repo: &characters,
+                line_activity_repo: &no_line_activity(),
+                moderation_activity_repo: &mod_repo,
+                group_activity_repo: &no_group_activity(),
+                group_character_activity_repo: &no_group_character_activity(),
+                group_line_activity_repo: &no_group_line_activity(),
+                message_history: &no_message_history(),
+                openai: &UnusedAi,
+                openrouter: &UnusedAi,
+            },
         )
         .await
         .unwrap()
@@ -850,16 +873,18 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
         should_moderate(
             &msg,
             &by_characters,
-            &messages,
-            &characters,
-            &no_line_activity(),
-            &mod_repo,
-            &no_group_activity(),
-            &no_group_character_activity(),
-            &no_group_line_activity(),
-            &no_message_history(),
-            &UnusedAi,
-            &UnusedAi,
+            &ConditionPorts {
+                activity_repo: &messages,
+                character_activity_repo: &characters,
+                line_activity_repo: &no_line_activity(),
+                moderation_activity_repo: &mod_repo,
+                group_activity_repo: &no_group_activity(),
+                group_character_activity_repo: &no_group_character_activity(),
+                group_line_activity_repo: &no_group_line_activity(),
+                message_history: &no_message_history(),
+                openai: &UnusedAi,
+                openrouter: &UnusedAi,
+            },
         )
         .await
         .unwrap()
@@ -902,16 +927,18 @@ async fn test_should_moderate_with_message_rate_limit() {
     let res = should_moderate(
         &msg,
         &rules,
-        &repo_under_limit,
-        &no_character_activity(),
-        &no_line_activity(),
-        &mod_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &repo_under_limit,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &mod_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap();
@@ -921,16 +948,18 @@ async fn test_should_moderate_with_message_rate_limit() {
     let res = should_moderate(
         &msg,
         &rules,
-        &repo_at_limit,
-        &no_character_activity(),
-        &no_line_activity(),
-        &mod_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &repo_at_limit,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &mod_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap();
@@ -988,16 +1017,18 @@ async fn test_should_moderate_with_moderation_rate_limit() {
     let res = should_moderate(
         &msg,
         &rules,
-        &activity_repo,
-        &no_character_activity(),
-        &no_line_activity(),
-        &mod_repo_under,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &activity_repo,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &mod_repo_under,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap();
@@ -1007,16 +1038,18 @@ async fn test_should_moderate_with_moderation_rate_limit() {
     let res = should_moderate(
         &msg,
         &rules,
-        &activity_repo,
-        &no_character_activity(),
-        &no_line_activity(),
-        &mod_repo_at,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &activity_repo,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &mod_repo_at,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap();
@@ -1066,16 +1099,18 @@ async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_mess
     let res = should_moderate(
         &msg,
         &rules,
-        &repo,
-        &no_character_activity(),
-        &no_line_activity(),
-        &mod_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &repo,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &mod_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap();
@@ -1126,16 +1161,18 @@ async fn test_independent_rules_combine_and_order_deletion_before_kick() {
     let res = should_moderate(
         &msg,
         &rules,
-        &repo,
-        &no_character_activity(),
-        &no_line_activity(),
-        &mod_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &repo,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &mod_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap();
@@ -1213,16 +1250,18 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
     let res = should_moderate(
         &msg,
         &rules,
-        &activity_repo,
-        &no_character_activity(),
-        &no_line_activity(),
-        &mod_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &activity_repo,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &mod_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap();
@@ -1282,16 +1321,18 @@ async fn test_moderation_rate_limit_is_order_independent() {
     let result = should_moderate(
         &msg,
         &rules,
-        &activity_repo,
-        &no_character_activity(),
-        &no_line_activity(),
-        &moderation_activity_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &activity_repo,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &moderation_activity_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap()
@@ -1344,16 +1385,18 @@ async fn matched(text: &str, condition: ModerationCondition) -> Option<Moderatio
     should_moderate(
         &msg,
         &rule_with(condition),
-        &repo,
-        &no_character_activity(),
-        &no_line_activity(),
-        &mod_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &repo,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &mod_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap()
@@ -1494,16 +1537,18 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
     let result = should_moderate(
         &msg,
         &rules,
-        &activity_repo,
-        &no_character_activity(),
-        &no_line_activity(),
-        &moderation_activity_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &activity_repo,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &moderation_activity_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap()
@@ -1559,16 +1604,18 @@ async fn test_moderation_rate_limit_in_a_tree_ignores_its_own_rule() {
     let result = should_moderate(
         &msg,
         &rules,
-        &activity_repo,
-        &no_character_activity(),
-        &no_line_activity(),
-        &moderation_activity_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &activity_repo,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &moderation_activity_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap();
@@ -1694,16 +1741,18 @@ async fn moderates(rules: &[ModerationRule], text: &str) -> bool {
     should_moderate(
         &msg,
         rules,
-        &repo,
-        &no_character_activity(),
-        &no_line_activity(),
-        &mod_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &repo,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &mod_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap()
@@ -1843,16 +1892,18 @@ async fn matched_from(
     should_moderate(
         &msg,
         &rule_with(condition),
-        &repo,
-        &no_character_activity(),
-        &no_line_activity(),
-        &mod_repo,
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        &UnusedAi,
-        &UnusedAi,
+        &ConditionPorts {
+            activity_repo: &repo,
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &mod_repo,
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        },
     )
     .await
     .unwrap()
@@ -1982,16 +2033,18 @@ async fn test_moderates_pictures_and_leaves_them_out_of_is_blank() {
         should_moderate(
             message,
             &rules,
-            &activity_repo,
-            &no_character_activity(),
-            &no_line_activity(),
-            &moderation_repo,
-            &no_group_activity(),
-            &no_group_character_activity(),
-            &no_group_line_activity(),
-            &no_message_history(),
-            &UnusedAi,
-            &UnusedAi,
+            &ConditionPorts {
+                activity_repo: &activity_repo,
+                character_activity_repo: &no_character_activity(),
+                line_activity_repo: &no_line_activity(),
+                moderation_activity_repo: &moderation_repo,
+                group_activity_repo: &no_group_activity(),
+                group_character_activity_repo: &no_group_character_activity(),
+                group_line_activity_repo: &no_group_line_activity(),
+                message_history: &no_message_history(),
+                openai: &UnusedAi,
+                openrouter: &UnusedAi,
+            },
         )
         .await
         .unwrap()
@@ -2206,16 +2259,18 @@ async fn matched_with(
     should_moderate(
         msg,
         rules,
-        &InMemoryUserMessageActivityRepository::new(),
-        &no_character_activity(),
-        &no_line_activity(),
-        &InMemoryUserModerationActivityRepository::new(),
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        &no_message_history(),
-        openai,
-        openai,
+        &ConditionPorts {
+            activity_repo: &InMemoryUserMessageActivityRepository::new(),
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &InMemoryUserModerationActivityRepository::new(),
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: &no_message_history(),
+            openai: openai,
+            openrouter: openai,
+        },
     )
     .await
     .expect("an OpenAI answer, or its absence, is never an evaluation error")
@@ -2720,16 +2775,18 @@ async fn judged_with_history(
     should_moderate(
         msg,
         &rule_with(condition),
-        &InMemoryUserMessageActivityRepository::new(),
-        &no_character_activity(),
-        &no_line_activity(),
-        &InMemoryUserModerationActivityRepository::new(),
-        &no_group_activity(),
-        &no_group_character_activity(),
-        &no_group_line_activity(),
-        history,
-        openai,
-        openai,
+        &ConditionPorts {
+            activity_repo: &InMemoryUserMessageActivityRepository::new(),
+            character_activity_repo: &no_character_activity(),
+            line_activity_repo: &no_line_activity(),
+            moderation_activity_repo: &InMemoryUserModerationActivityRepository::new(),
+            group_activity_repo: &no_group_activity(),
+            group_character_activity_repo: &no_group_character_activity(),
+            group_line_activity_repo: &no_group_line_activity(),
+            message_history: history,
+            openai: openai,
+            openrouter: openai,
+        },
     )
     .await
     .unwrap()
@@ -2931,16 +2988,18 @@ async fn test_length_conditions_see_the_untrimmed_message() {
         top_level_moderate(
             &msg(text),
             rules,
-            &repo,
-            &char_repo,
-            &line_repo,
-            &mod_repo,
-            &group_repo,
-            &group_char_repo,
-            &group_line_repo,
-            &history,
-            &UnusedAi,
-            &UnusedAi,
+            &ConditionPorts {
+                activity_repo: &repo,
+                character_activity_repo: &char_repo,
+                line_activity_repo: &line_repo,
+                moderation_activity_repo: &mod_repo,
+                group_activity_repo: &group_repo,
+                group_character_activity_repo: &group_char_repo,
+                group_line_activity_repo: &group_line_repo,
+                message_history: &history,
+                openai: &UnusedAi,
+                openrouter: &UnusedAi,
+            },
         )
         .await
         .unwrap()

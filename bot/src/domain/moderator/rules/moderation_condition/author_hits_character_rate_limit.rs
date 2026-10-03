@@ -5,7 +5,7 @@ mod filter;
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext};
+use super::{Condition, ConditionContext, Needs};
 use crate::domain::moderator::ports::Err;
 use crate::domain::moderator::rules::common::rate_limit;
 use async_trait::async_trait;
@@ -37,7 +37,7 @@ impl Condition for AuthorHitsCharacterRateLimit {
 
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
         filter::check(
-            ctx.character_activity_repo,
+            ctx.ports.character_activity_repo,
             &ctx.group_message.group.id,
             &ctx.group_message.author_id,
             self.character_count,
@@ -45,5 +45,9 @@ impl Condition for AuthorHitsCharacterRateLimit {
             ctx.group_message.timestamp,
         )
         .await
+    }
+
+    fn needs(&self) -> Needs {
+        Needs::author_characters(self.time_window_minutes)
     }
 }

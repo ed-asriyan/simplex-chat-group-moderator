@@ -1,5 +1,5 @@
-use super::*;
 use super::filter::should_moderate;
+use super::*;
 use crate::domain::moderator::ports::{
     CategoryTrigger, OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult,
 };

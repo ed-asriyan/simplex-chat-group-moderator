@@ -71,9 +71,9 @@ fn test_activity_windows_are_found_at_any_depth() {
             },
         ],
     };
-    assert_eq!(condition.max_message_rate_limit_window(), Some(30));
-    assert_eq!(condition.max_moderation_rate_limit_window(), None);
-    assert!(!condition.contains_moderation_rate_limit());
+    assert_eq!(condition.needs().author_messages, Some(30));
+    assert_eq!(condition.needs().author_moderations, None);
+    assert!(!condition.depends_on_other_rules());
 }
 
 #[test]
@@ -101,11 +101,11 @@ fn test_character_windows_are_found_at_any_depth() {
             },
         ],
     };
-    assert_eq!(condition.max_character_rate_limit_window(), Some(30));
+    assert_eq!(condition.needs().author_characters, Some(30));
     // The two rate limits are separate logs, so neither window answers for the
     // other: a tree full of character limits asks for no message tracking.
-    assert_eq!(condition.max_message_rate_limit_window(), None);
-    assert_eq!(condition.max_moderation_rate_limit_window(), None);
+    assert_eq!(condition.needs().author_messages, None);
+    assert_eq!(condition.needs().author_moderations, None);
 }
 
 #[test]
@@ -133,13 +133,22 @@ fn test_line_windows_and_wrap_width_are_found_at_any_depth() {
             },
         ],
     };
-    assert_eq!(condition.max_line_rate_limit_window(), Some(30));
+    assert_eq!(
+        condition
+            .needs()
+            .author_lines
+            .map(|l| l.time_window_minutes),
+        Some(30)
+    );
     // One counter serves the group, so the widest width wins.
-    assert_eq!(condition.line_rate_limit_wrap_width(), Some(80));
+    assert_eq!(
+        condition.needs().author_lines.map(|l| l.chars_per_line),
+        Some(80)
+    );
     // Lines are their own log: no other tracking is asked for.
-    assert_eq!(condition.max_message_rate_limit_window(), None);
-    assert_eq!(condition.max_character_rate_limit_window(), None);
-    assert_eq!(condition.max_moderation_rate_limit_window(), None);
+    assert_eq!(condition.needs().author_messages, None);
+    assert_eq!(condition.needs().author_characters, None);
+    assert_eq!(condition.needs().author_moderations, None);
 }
 
 /// 0 means "no wrapping", which counts fewer lines than any width does, so it
@@ -160,7 +169,10 @@ fn test_wrap_width_zero_beats_every_width() {
             }),
         ],
     };
-    assert_eq!(condition.line_rate_limit_wrap_width(), Some(0));
+    assert_eq!(
+        condition.needs().author_lines.map(|l| l.chars_per_line),
+        Some(0)
+    );
 }
 
 #[test]
@@ -174,9 +186,18 @@ fn test_zero_line_windows_are_ignored() {
             },
         )),
     };
-    assert_eq!(condition.max_line_rate_limit_window(), None);
+    assert_eq!(
+        condition
+            .needs()
+            .author_lines
+            .map(|l| l.time_window_minutes),
+        None
+    );
     // A disabled condition asks for no counting either.
-    assert_eq!(condition.line_rate_limit_wrap_width(), None);
+    assert_eq!(
+        condition.needs().author_lines.map(|l| l.chars_per_line),
+        None
+    );
 }
 
 #[test]
@@ -189,7 +210,7 @@ fn test_zero_character_windows_are_ignored() {
             },
         )),
     };
-    assert_eq!(condition.max_character_rate_limit_window(), None);
+    assert_eq!(condition.needs().author_characters, None);
 }
 
 #[test]
@@ -202,7 +223,7 @@ fn test_zero_windows_are_ignored() {
             },
         )),
     };
-    assert_eq!(condition.max_message_rate_limit_window(), None);
+    assert_eq!(condition.needs().author_messages, None);
 }
 
 // ---------------------------------------------------------------------------
@@ -346,7 +367,7 @@ fn instructed(api_key: &str, model: &str, instruction: &str) -> ModerationCondit
 }
 
 #[test]
-fn test_max_openrouter_context_messages_looks_through_the_whole_tree() {
+fn test_history_kept_for_openrouter_looks_through_the_whole_tree() {
     let with_context = |n| {
         let mut condition = instructed("sk-proj-abc", "openai/gpt-4o-mini", "Block ads.");
         if let ModerationCondition::FlaggedByOpenRouterInstruction(
@@ -367,10 +388,10 @@ fn test_max_openrouter_context_messages_looks_through_the_whole_tree() {
             },
         ],
     };
-    assert_eq!(tree.max_openrouter_context_messages(), Some(5));
-    assert_eq!(with_context(0).max_openrouter_context_messages(), None);
+    assert_eq!(tree.needs().history, Some(5));
+    assert_eq!(with_context(0).needs().history, None);
     assert_eq!(
-        ModerationCondition::IsBlank(IsBlank {}).max_openrouter_context_messages(),
+        ModerationCondition::IsBlank(IsBlank {}).needs().history,
         None
     );
 }

@@ -30,21 +30,23 @@
 //!    the planner emitted them (see `action_planner`'s ordering guarantees, e.g. moderate
 //!    before kick).
 //!
-//! # The `AuthorHitsModerationRateLimit` special case (why there is a pre-pass)
-//! `AuthorHitsModerationRateLimit` triggers based on how many of the author's *recent*
-//! messages were moderated. The current message must count toward that total **iff it is
+//! # Conditions that depend on the other rules (why there is a pre-pass)
+//! Some conditions answer a question about the *other* rules. The one there is today,
+//! `AuthorHitsModerationRateLimit`, triggers based on how many of the author's *recent*
+//! messages were moderated, and the current message must count toward that total **iff it is
 //! itself moderated by some other (independent) rule** — otherwise a single clean message
 //! could never trip the limit, and a moderated one should. Whether the message is moderated
 //! by another rule cannot depend on where that condition happens to sit (that would
 //! make behaviour order-dependent, which we explicitly avoid).
 //!
-//! Since a condition is a tree, that condition can sit at any depth inside any rule, so
+//! Since a condition is a tree, such a condition can sit at any depth inside any rule, so
 //! "every *other* rule" is no longer a well-defined set. The generalisation: **only when some
-//! rule's tree contains one**, we make a pre-pass that evaluates every rule with all
-//! `AuthorHitsModerationRateLimit` nodes pinned to "no match", and take the disjunction. When
-//! the condition sits at the root of its own rule — the only shape expressible before trees —
-//! this reduces exactly to the previous behaviour. `normalize_and_validate` forbids the
-//! condition under a `Not`, which is what keeps the pinning from feeding back into itself.
+//! rule's tree contains one** (`Condition::depends_on_other_rules`), we make a pre-pass that
+//! evaluates every rule with all such nodes pinned to "no match", and take the disjunction.
+//! When the condition sits at the root of its own rule — the only shape expressible before
+//! trees — this reduces exactly to the previous behaviour. `normalize_and_validate` forbids
+//! such a condition under a `Not`, which is what keeps the pinning from feeding back into
+//! itself. This module never names the condition: it only asks the tree.
 //!
 //! The pre-pass and the main loop share one memo (on `ConditionContext`), so each distinct
 //! condition is still evaluated at most once per message.
@@ -82,6 +84,7 @@
 //! - Every condition should be evaluated at most once per message.
 
 mod action_planner;
+mod bookkeeping;
 mod common;
 mod moderation_action;
 mod moderation_condition;
@@ -93,17 +96,12 @@ mod tests;
 #[cfg(test)]
 mod format_tests;
 
-pub use common::screen_lines::count_effective_lines;
+pub use bookkeeping::{record_activity, record_moderated, record_outcome};
 pub use moderation_action::ModerationAction;
-pub use moderation_condition::{ModerationCondition, conditions};
+pub use moderation_condition::{ConditionPorts, KeyUse, ModerationCondition, conditions};
 pub use moderation_rule::ModerationRule;
 
-use super::ports::{
-    Err, GroupCharacterActivityRepository, GroupLineActivityRepository, GroupMessage,
-    GroupMessageActivityRepository, GroupMessageHistoryRepository, OpenAi, OpenRouter,
-    UserCharacterActivityRepository, UserLineActivityRepository, UserMessageActivityRepository,
-    UserModerationActivityRepository,
-};
+use super::ports::{Err, GroupMessage};
 use moderation_condition::{ConditionContext, check_condition};
 
 /// Result of evaluating message against moderation rules.
@@ -119,47 +117,26 @@ pub struct ModerationMatch {
 pub async fn should_moderate(
     group_message: &GroupMessage,
     rules: &[ModerationRule],
-    activity_repo: &dyn UserMessageActivityRepository,
-    character_activity_repo: &dyn UserCharacterActivityRepository,
-    line_activity_repo: &dyn UserLineActivityRepository,
-    moderation_activity_repo: &dyn UserModerationActivityRepository,
-    group_activity_repo: &dyn GroupMessageActivityRepository,
-    group_character_activity_repo: &dyn GroupCharacterActivityRepository,
-    group_line_activity_repo: &dyn GroupLineActivityRepository,
-    message_history: &dyn GroupMessageHistoryRepository,
-    openai: &dyn OpenAi,
-    openrouter: &dyn OpenRouter,
+    ports: &ConditionPorts<'_>,
 ) -> Result<Option<ModerationMatch>, Err> {
-    let mut ctx = ConditionContext::new(
-        group_message,
-        activity_repo,
-        character_activity_repo,
-        line_activity_repo,
-        moderation_activity_repo,
-        group_activity_repo,
-        group_character_activity_repo,
-        group_line_activity_repo,
-        message_history,
-        openai,
-        openrouter,
-    );
+    let mut ctx = ConditionContext::new(group_message, ports);
 
-    // Only pay for the pre-pass when some rule actually asks how many of the
-    // author's messages were moderated.
+    // Only pay for the pre-pass when some rule actually depends on what the
+    // others do with this message.
     let mut moderated_by: Option<String> = None;
     if rules
         .iter()
-        .any(|rule| rule.condition.contains_moderation_rate_limit())
+        .any(|rule| rule.condition.depends_on_other_rules())
     {
-        ctx.moderation_rate_limit_pinned = true;
+        ctx.pre_pass = true;
         for rule in rules {
             if let Some(reason) = check_condition(&mut ctx, &rule.condition).await? {
                 moderated_by = Some(reason);
                 break;
             }
         }
-        ctx.moderation_rate_limit_pinned = false;
-        ctx.message_is_moderated = moderated_by.is_some();
+        ctx.pre_pass = false;
+        ctx.moderated_by_other_rules = moderated_by.is_some();
     }
 
     let mut current_actions: Vec<ModerationAction> = Vec::new();

@@ -34,8 +34,11 @@ use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
 pub(super) use context::ConditionContext;
+pub use context::ConditionPorts;
+pub(in crate::domain::moderator::rules) use needs::Needs;
 
 mod context;
+mod needs;
 mod tree;
 
 /// What every leaf condition is to the code that evaluates a rule: a set of
@@ -59,6 +62,35 @@ pub(in crate::domain::moderator::rules) trait Condition:
 
     /// The reason the message matches, or `None` when it does not.
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err>;
+
+    /// What the bot has to record about the messages it sees for this
+    /// condition to answer. Most need nothing.
+    fn needs(&self) -> Needs {
+        Needs::default()
+    }
+
+    /// Whether the answer depends on what the *other* rules do with this
+    /// message. Such a condition is answered after the others (see the
+    /// pre-pass in `rules`), and may not sit under a `Not`.
+    fn depends_on_other_rules(&self) -> bool {
+        false
+    }
+
+    /// The API keys this condition carries, and what each is for, so they
+    /// can be checked when an owner saves the rule.
+    fn key_uses(&self) -> Vec<KeyUse> {
+        Vec::new()
+    }
+}
+
+/// What a key a condition carries is for: which provider to ask about it when
+/// an owner saves the rule, and for what.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum KeyUse {
+    /// An OpenAI key, for the moderation endpoint.
+    OpenAiModeration { api_key: String },
+    /// An OpenRouter key, for a model.
+    OpenRouterModel { api_key: String, model: String },
 }
 
 /// Declares every leaf condition — one line each, `Variant => module` — and
@@ -96,6 +128,17 @@ macro_rules! conditions {
                 match self {
                     $(Self::$variant(leaf) => Some(leaf),)*
                     Self::All { .. } | Self::Any { .. } | Self::Not { .. } => None,
+                }
+            }
+
+            /// The serde tag: the variant's name, as the rules JSON, the editor
+            /// and the database spell it.
+            pub fn type_name(&self) -> &'static str {
+                match self {
+                    Self::All { .. } => "All",
+                    Self::Any { .. } => "Any",
+                    Self::Not { .. } => "Not",
+                    $(Self::$variant(_) => stringify!($variant),)*
                 }
             }
 
@@ -142,41 +185,6 @@ conditions! {
 // Tree navigation
 // ---------------------------------------------------------------------------
 
-/// Longest non-zero window over every node `pick` reads one from.
-fn max_window(
-    condition: &ModerationCondition,
-    pick: impl Fn(&ModerationCondition) -> Option<u32>,
-) -> Option<u32> {
-    let mut max: Option<u32> = None;
-    condition.walk(&mut |node| {
-        if let Some(window) = pick(node).filter(|window| *window > 0) {
-            max = Some(max.map_or(window, |m| m.max(window)));
-        }
-    });
-    max
-}
-
-/// The widest wrap width over every node `pick` reads one from, where 0 ("no
-/// wrapping") is widest of all. `pick` gives `None` for a node without a
-/// width, or with no window to count in.
-fn widest_wrap_width(
-    condition: &ModerationCondition,
-    pick: impl Fn(&ModerationCondition) -> Option<u32>,
-) -> Option<u32> {
-    let mut width: Option<u32> = None;
-    condition.walk(&mut |node| {
-        if let Some(configured) = pick(node) {
-            width = Some(match (width, configured) {
-                // 0 means "no wrapping", which is wider than any width.
-                (_, 0) | (Some(0), _) => 0,
-                (Some(current), configured) => current.max(configured),
-                (None, configured) => configured,
-            });
-        }
-    });
-    width
-}
-
 impl ModerationCondition {
     /// Visit this condition and, depth-first, every condition nested in it.
     ///
@@ -196,118 +204,42 @@ impl ModerationCondition {
         }
     }
 
-    /// Whether a `AuthorHitsModerationRateLimit` sits anywhere in this
-    /// tree. That condition is the one whose result depends on whether the
-    /// message is moderated by *other* rules, so both the evaluation pre-pass
-    /// and the memo have to treat any subtree containing it specially.
-    pub fn contains_moderation_rate_limit(&self) -> bool {
+    /// Everything the leaves of this tree need recorded, together.
+    pub fn needs(&self) -> Needs {
+        let mut needs = Needs::default();
+        self.walk(&mut |node| {
+            if let Some(leaf) = node.as_leaf() {
+                needs = needs.merge(leaf.needs());
+            }
+        });
+        needs
+    }
+
+    /// Whether a leaf anywhere in this tree depends on what the other rules
+    /// do with the message. The evaluation pre-pass and the memo both have to
+    /// treat such a subtree specially.
+    pub fn depends_on_other_rules(&self) -> bool {
         let mut found = false;
-        self.walk(&mut |condition| {
-            if matches!(condition, Self::AuthorHitsModerationRateLimit(_)) {
+        self.walk(&mut |node| {
+            if node
+                .as_leaf()
+                .is_some_and(|leaf| leaf.depends_on_other_rules())
+            {
                 found = true;
             }
         });
         found
     }
 
-    /// Longest non-zero `time_window_minutes` over every
-    /// `AuthorHitsMessageRateLimit` in this tree.
-    pub fn max_message_rate_limit_window(&self) -> Option<u32> {
-        max_window(self, |node| match node {
-            Self::AuthorHitsMessageRateLimit(c) => Some(c.time_window_minutes),
-            _ => None,
-        })
-    }
-
-    /// Longest non-zero `time_window_minutes` over every
-    /// `AuthorHitsCharacterRateLimit` in this tree.
-    pub fn max_character_rate_limit_window(&self) -> Option<u32> {
-        max_window(self, |node| match node {
-            Self::AuthorHitsCharacterRateLimit(c) => Some(c.time_window_minutes),
-            _ => None,
-        })
-    }
-
-    /// Longest non-zero `time_window_minutes` over every
-    /// `AuthorHitsLineRateLimit` in this tree.
-    pub fn max_line_rate_limit_window(&self) -> Option<u32> {
-        max_window(self, |node| match node {
-            Self::AuthorHitsLineRateLimit(c) => Some(c.time_window_minutes),
-            _ => None,
-        })
-    }
-
-    /// The wrap width every `AuthorHitsLineRateLimit` in this tree is
-    /// counted with: the widest one configured, where 0 ("no wrapping") is
-    /// widest of all.
-    ///
-    /// One counter serves the whole group, so a message has one line count even
-    /// when two conditions disagree about the width. Taking the widest makes
-    /// that count the one the mildest condition expects: deleting a message the
-    /// owner did not ask to delete is worse than missing a flood.
-    pub fn line_rate_limit_wrap_width(&self) -> Option<u32> {
-        widest_wrap_width(self, |node| match node {
-            Self::AuthorHitsLineRateLimit(c) if c.time_window_minutes > 0 => Some(c.chars_per_line),
-            _ => None,
-        })
-    }
-
-    /// Longest non-zero `time_window_minutes` over every
-    /// `AuthorHitsModerationRateLimit` in this tree.
-    pub fn max_moderation_rate_limit_window(&self) -> Option<u32> {
-        max_window(self, |node| match node {
-            Self::AuthorHitsModerationRateLimit(c) => Some(c.time_window_minutes),
-            _ => None,
-        })
-    }
-
-    /// Longest `time_window_minutes` over every
-    /// `GroupHitsMessageRateLimit` in this tree.
-    pub fn max_group_message_rate_limit_window(&self) -> Option<u32> {
-        max_window(self, |node| match node {
-            Self::GroupHitsMessageRateLimit(c) => Some(c.time_window_minutes),
-            _ => None,
-        })
-    }
-
-    /// Longest `time_window_minutes` over every
-    /// `GroupHitsCharacterRateLimit` in this tree.
-    pub fn max_group_character_rate_limit_window(&self) -> Option<u32> {
-        max_window(self, |node| match node {
-            Self::GroupHitsCharacterRateLimit(c) => Some(c.time_window_minutes),
-            _ => None,
-        })
-    }
-
-    /// Longest `time_window_minutes` over every
-    /// `GroupHitsLineRateLimit` in this tree.
-    pub fn max_group_line_rate_limit_window(&self) -> Option<u32> {
-        max_window(self, |node| match node {
-            Self::GroupHitsLineRateLimit(c) => Some(c.time_window_minutes),
-            _ => None,
-        })
-    }
-
-    /// Most `context_messages` over every
-    /// `FlaggedByOpenRouterInstruction` in this tree: how many of the
-    /// group's latest messages have to be kept for it to read. `None` when no
-    /// condition here asks for any.
-    pub fn max_openrouter_context_messages(&self) -> Option<u32> {
-        max_window(self, |node| match node {
-            Self::FlaggedByOpenRouterInstruction(c) => Some(c.context_messages),
-            _ => None,
-        })
-    }
-
-    /// The wrap width every `GroupHitsLineRateLimit` in this tree is
-    /// counted with, chosen the way [`Self::line_rate_limit_wrap_width`] chooses
-    /// it for the author's counter: the widest, with 0 widest of all. The group
-    /// counter is separate, so the two widths never mix.
-    pub fn group_line_rate_limit_wrap_width(&self) -> Option<u32> {
-        widest_wrap_width(self, |node| match node {
-            Self::GroupHitsLineRateLimit(c) if c.time_window_minutes > 0 => Some(c.chars_per_line),
-            _ => None,
-        })
+    /// Every API key in this tree, with what it is for.
+    pub fn key_uses(&self) -> Vec<KeyUse> {
+        let mut uses = Vec::new();
+        self.walk(&mut |node| {
+            if let Some(leaf) = node.as_leaf() {
+                uses.extend(leaf.key_uses());
+            }
+        });
+        uses
     }
 
     /// Human-readable description of *what this condition looks for*.
@@ -360,11 +292,11 @@ pub(super) fn check_condition<'a>(
         if let Some(cached) = ctx.memo.get(condition) {
             return Ok(cached.clone());
         }
-        // A subtree containing `AuthorHitsModerationRateLimit` evaluates
-        // differently depending on whether those nodes are pinned, so
-        // its result is not safe to carry between the two passes. Everything
-        // else is pure with respect to the pass and is memoized once.
-        let memoizable = !condition.contains_moderation_rate_limit();
+        // A subtree that depends on the other rules evaluates differently
+        // in the pre-pass, so its result is not safe to carry between the two
+        // passes. Everything else is pure with respect to the pass and is
+        // memoized once.
+        let memoizable = !condition.depends_on_other_rules();
         let result = evaluate(ctx, condition).await?;
         if memoizable {
             ctx.memo.insert(condition.clone(), result.clone());
@@ -413,6 +345,10 @@ async fn evaluate(
             }
         }
         leaf => match leaf.as_leaf() {
+            // The pre-pass asks what the other rules do with the message, so
+            // a condition that depends on them answers "no match" there
+            // rather than about itself.
+            Some(condition) if ctx.pre_pass && condition.depends_on_other_rules() => Ok(None),
             Some(condition) => condition.should_moderate(ctx).await,
             None => unreachable!("composites are matched above"),
         },

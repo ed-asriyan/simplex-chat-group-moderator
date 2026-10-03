@@ -7,7 +7,7 @@ mod filter;
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext};
+use super::{Condition, ConditionContext, Needs};
 use crate::domain::moderator::ports::Err;
 use crate::domain::moderator::rules::common::rate_limit;
 use async_trait::async_trait;
@@ -38,16 +38,16 @@ impl Condition for AuthorHitsModerationRateLimit {
     }
 
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
-        if ctx.moderation_rate_limit_pinned {
-            return Ok(None);
-        }
-        if ctx.message_is_moderated {
+        // This message counts toward the limit when another rule moderates
+        // it: otherwise one clean message could never trip the limit.
+        if ctx.moderated_by_other_rules {
             if self.message_count == 0 || self.time_window_minutes == 0 {
                 return Ok(None);
             }
             let since =
                 rate_limit::window_start(ctx.group_message.timestamp, self.time_window_minutes);
             let count = ctx
+                .ports
                 .moderation_activity_repo
                 .count_moderated_messages_since(
                     &ctx.group_message.group.id,
@@ -64,7 +64,7 @@ impl Condition for AuthorHitsModerationRateLimit {
             ));
         }
         filter::check(
-            ctx.moderation_activity_repo,
+            ctx.ports.moderation_activity_repo,
             &ctx.group_message.group.id,
             &ctx.group_message.author_id,
             self.message_count,
@@ -72,5 +72,13 @@ impl Condition for AuthorHitsModerationRateLimit {
             ctx.group_message.timestamp,
         )
         .await
+    }
+
+    fn needs(&self) -> Needs {
+        Needs::author_moderations(self.time_window_minutes)
+    }
+
+    fn depends_on_other_rules(&self) -> bool {
+        true
     }
 }

@@ -107,36 +107,49 @@ fn depth_of(condition: &ModerationCondition) -> usize {
     }
 }
 
-/// Reject an `AuthorHitsModerationRateLimit` nested under a `Not`.
+/// Reject a condition that depends on the other rules nested under a `Not`.
 ///
-/// That condition asks "is this message moderated by some other rule", and the
-/// pre-pass in `rules` answers it by evaluating every rule with these
-/// nodes pinned to "no match". Under a negation, pinning a node to "no match"
-/// can *cause* the enclosing rule to fire, so the answer would depend on itself.
-/// The check is deliberately blind to negation parity: nothing useful is
-/// expressed by a doubly negated one, so forbidding any `Not` ancestor
-/// keeps both the rule and its explanation simple.
-fn check_no_moderation_rate_limit_under_not(
+/// Such a condition (`AuthorHitsModerationRateLimit` asks "is this message
+/// moderated by some other rule") is answered by a pre-pass in `rules` that
+/// evaluates every rule with these nodes pinned to "no match". Under a
+/// negation, pinning a node to "no match" can *cause* the enclosing rule to
+/// fire, so the answer would depend on itself. The check is deliberately blind
+/// to negation parity: nothing useful is expressed by a doubly negated one, so
+/// forbidding any `Not` ancestor keeps both the rule and its explanation
+/// simple.
+fn check_no_dependent_under_not(
     condition: &ModerationCondition,
     under_not: bool,
 ) -> Result<(), Err> {
     match condition {
-        ModerationCondition::AuthorHitsModerationRateLimit(_) if under_not => Err(
-            "'Author Hits Moderation Rate Limit' cannot be placed under a 'Not' \
-             condition, because it already depends on what the other rules do with this message."
-                .into(),
-        ),
         ModerationCondition::All { conditions } | ModerationCondition::Any { conditions } => {
             for child in conditions {
-                check_no_moderation_rate_limit_under_not(child, under_not)?;
+                check_no_dependent_under_not(child, under_not)?;
             }
             Ok(())
         }
-        ModerationCondition::Not { condition } => {
-            check_no_moderation_rate_limit_under_not(condition, true)
-        }
+        ModerationCondition::Not { condition } => check_no_dependent_under_not(condition, true),
+        leaf if under_not && leaf.depends_on_other_rules() => Err(format!(
+            "'{}' cannot be placed under a 'Not' condition, because it already depends on \
+             what the other rules do with this message.",
+            title_of(leaf)
+        )
+        .into()),
         _ => Ok(()),
     }
+}
+
+/// A condition's name in words, as the editor titles it without the emoji:
+/// `AuthorHitsModerationRateLimit` reads "Author Hits Moderation Rate Limit".
+fn title_of(condition: &ModerationCondition) -> String {
+    let mut title = String::new();
+    for c in condition.type_name().chars() {
+        if c.is_uppercase() && !title.is_empty() {
+            title.push(' ');
+        }
+        title.push(c);
+    }
+    title
 }
 
 impl ModerationCondition {
@@ -183,7 +196,7 @@ impl ModerationCondition {
             )
             .into());
         }
-        check_no_moderation_rate_limit_under_not(&normalized, false)?;
+        check_no_dependent_under_not(&normalized, false)?;
 
         *self = normalized;
         Ok(())

@@ -6,7 +6,7 @@ mod instruction_context;
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext};
+use super::{Condition, ConditionContext, KeyUse, Needs};
 use crate::domain::moderator::ports::{ApiRetry, Err};
 use crate::domain::moderator::rules::common::api_key::normalize as normalize_api_key;
 use crate::domain::moderator::rules::common::api_retry;
@@ -112,6 +112,7 @@ impl Condition for FlaggedByOpenRouterInstruction {
             Vec::new()
         } else {
             match ctx
+                .ports
                 .message_history
                 .messages_before(
                     &ctx.group_message.group.id,
@@ -129,6 +130,7 @@ impl Condition for FlaggedByOpenRouterInstruction {
             }
         };
         match ctx
+            .ports
             .openrouter
             .matches_instruction(
                 &self.api_key,
@@ -147,6 +149,17 @@ impl Condition for FlaggedByOpenRouterInstruction {
             ))),
             Ok(_) | Err(_) => Ok(None),
         }
+    }
+
+    fn needs(&self) -> Needs {
+        Needs::history(self.context_messages)
+    }
+
+    fn key_uses(&self) -> Vec<KeyUse> {
+        vec![KeyUse::OpenRouterModel {
+            api_key: self.api_key.clone(),
+            model: self.model.clone(),
+        }]
     }
 }
 
