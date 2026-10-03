@@ -55,9 +55,10 @@
 //!
 //! # Where things live
 //! One module per entity, each owning the type and every submodule that only serves it:
-//! - `moderation_condition` — [`ModerationCondition`]: its parameters, the checks applied when
-//!   an owner saves them, and how one is evaluated against a message. The per-kind matching
-//!   algorithms are its children (`keywords`, `links`, `regex_match`, `message_length`, ...).
+//! - `moderation_condition` — [`ModerationCondition`]: the registry of every condition and
+//!   the tree they form. Each leaf condition is a child module of its own (`contains_words`,
+//!   `exceeds_max_lines`, ...) holding its parameters, the checks applied when an owner saves
+//!   them, how it is evaluated against a message, and its tests.
 //! - `moderation_action` — [`ModerationAction`]: one thing a matched rule does. A plain file,
 //!   not a directory: unlike a condition, an action carries no per-kind logic of its own.
 //! - `moderation_rule` — [`ModerationRule`]: the pairing of the two.

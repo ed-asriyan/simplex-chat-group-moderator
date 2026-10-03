@@ -1,6 +1,10 @@
 //! `AuthorJoinedRecently`: the author is new to the group.
 
-use super::joined_recently;
+mod filter;
+
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::Err;
 use crate::domain::moderator::rules::common::checks;
@@ -32,7 +36,7 @@ impl Condition for AuthorJoinedRecently {
     }
 
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
-        Ok(joined_recently::should_moderate(
+        Ok(filter::should_moderate(
             ctx.group_message.author_joined_at,
             ctx.group_message.timestamp,
             self.time_window_minutes,

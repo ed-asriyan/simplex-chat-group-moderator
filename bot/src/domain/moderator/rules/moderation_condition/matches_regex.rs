@@ -1,6 +1,10 @@
 //! `MatchesRegex`: the message matches any of the owner's regex patterns.
 
-use super::regex_match;
+mod filter;
+
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::Err;
 use crate::domain::moderator::rules::common::checks;
@@ -10,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 /// Maximum number of regex patterns in a single condition. Far lower than the other
 /// lists because compiled patterns are memoized in a fixed-size process-wide cache
-/// (see `regex_match`): this bounds how much of that shared cache one rule can claim,
+/// (see `filter`): this bounds how much of that shared cache one rule can claim,
 /// keeping the cache useful for every other group.
 const MAX_REGEX_PATTERNS: usize = 100;
 
@@ -59,7 +63,7 @@ impl Condition for MatchesRegex {
 
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
         Ok(
-            regex_match::should_moderate(&ctx.group_message.text, &self.patterns)
+            filter::should_moderate(&ctx.group_message.text, &self.patterns)
                 .map(|pattern| format!("matches regex pattern: '{pattern}'")),
         )
     }

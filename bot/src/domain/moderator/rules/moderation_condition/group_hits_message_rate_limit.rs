@@ -1,6 +1,10 @@
 //! `GroupHitsMessageRateLimit`: the whole group has been busier than the owner allows.
 
-use super::message_rate_limit;
+mod filter;
+
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::Err;
 use crate::domain::moderator::rules::common::{checks, rate_limit};
@@ -35,7 +39,7 @@ impl Condition for GroupHitsMessageRateLimit {
     }
 
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
-        message_rate_limit::check_group(
+        filter::check(
             ctx.group_activity_repo,
             &ctx.group_message.group.id,
             self.message_count,

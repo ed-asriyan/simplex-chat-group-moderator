@@ -1,6 +1,10 @@
 //! `AuthorHitsLineRateLimit`: the author has been busier than the owner allows.
 
-use super::line_rate_limit;
+mod filter;
+
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::Err;
 use crate::domain::moderator::rules::common::rate_limit;
@@ -41,7 +45,7 @@ impl Condition for AuthorHitsLineRateLimit {
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
         // The wrap width is not read here: it did its work when the message was
         // counted into the window.
-        line_rate_limit::check(
+        filter::check(
             ctx.line_activity_repo,
             &ctx.group_message.group.id,
             &ctx.group_message.author_id,

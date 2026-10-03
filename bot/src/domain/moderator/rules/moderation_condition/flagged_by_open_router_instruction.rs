@@ -1,7 +1,11 @@
 //! `FlaggedByOpenRouterInstruction`: a model on OpenRouter, given the owner's
 //! instruction, answers that the message is what the instruction describes.
 
-use super::instruction_context;
+mod instruction_context;
+
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::{ApiRetry, Err};
 use crate::domain::moderator::rules::common::api_key::normalize as normalize_api_key;

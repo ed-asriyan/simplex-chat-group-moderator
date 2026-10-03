@@ -1,6 +1,8 @@
 //! `ExceedsMaxWords`: the message is longer than the owner allows.
 
-use super::message_length;
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::Err;
 use crate::domain::moderator::rules::common::checks;
@@ -30,9 +32,20 @@ impl Condition for ExceedsMaxWords {
     }
 
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
-        Ok(message_length::should_moderate_words(
+        Ok(should_moderate_words(
             &ctx.group_message.text,
             self.max_words,
         ))
     }
+}
+
+/// Matches a message with more than `max_words` whitespace-separated words.
+fn should_moderate_words(message: &str, max_words: u32) -> Option<String> {
+    // Validation rejects 0 on save; a stored 0 still never matches, so a bad
+    // value is inert rather than matching every message.
+    if max_words == 0 {
+        return None;
+    }
+    let count = message.split_whitespace().count();
+    (count > max_words as usize).then(|| format!("{count} words"))
 }

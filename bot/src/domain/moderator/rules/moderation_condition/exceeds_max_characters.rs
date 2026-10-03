@@ -1,6 +1,8 @@
 //! `ExceedsMaxCharacters`: the message is longer than the owner allows.
 
-use super::message_length;
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::Err;
 use crate::domain::moderator::rules::common::checks;
@@ -30,9 +32,21 @@ impl Condition for ExceedsMaxCharacters {
     }
 
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
-        Ok(message_length::should_moderate_characters(
+        Ok(should_moderate_characters(
             &ctx.group_message.text,
             self.max_characters,
         ))
     }
+}
+
+/// Matches a message with more than `max_characters` characters. Whitespace
+/// and line breaks count.
+fn should_moderate_characters(message: &str, max_characters: u32) -> Option<String> {
+    // Validation rejects 0 on save; a stored 0 still never matches, so a bad
+    // value is inert rather than matching every message.
+    if max_characters == 0 {
+        return None;
+    }
+    let count = message.chars().count();
+    (count > max_characters as usize).then(|| format!("{count} characters"))
 }

@@ -1,10 +1,13 @@
 //! `IsBlank`: the message is empty, or made only of whitespace and invisible
 //! characters.
 
-use super::invisible_chars;
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::Err;
 use async_trait::async_trait;
+use crate::domain::moderator::rules::common::invisible::is_invisible;
 use serde::{Deserialize, Serialize};
 
 /// The message consists only of whitespace, line breaks and invisible
@@ -30,8 +33,21 @@ impl Condition for IsBlank {
         if ctx.group_message.attachment.is_some() {
             return Ok(None);
         }
-        Ok(invisible_chars::should_moderate_blank(
+        Ok(should_moderate_blank(
             &ctx.group_message.text,
         ))
     }
+}
+
+fn is_blank(c: char) -> bool {
+    c.is_whitespace() || is_invisible(c)
+}
+
+/// Matches a message that consists only of whitespace, line breaks and
+/// invisible characters — including one with no characters at all.
+fn should_moderate_blank(message: &str) -> Option<String> {
+    message
+        .chars()
+        .all(is_blank)
+        .then(|| "empty message".to_string())
 }

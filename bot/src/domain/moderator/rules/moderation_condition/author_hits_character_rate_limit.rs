@@ -1,6 +1,10 @@
 //! `AuthorHitsCharacterRateLimit`: the author has been busier than the owner allows.
 
-use super::character_rate_limit;
+mod filter;
+
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::Err;
 use crate::domain::moderator::rules::common::rate_limit;
@@ -32,7 +36,7 @@ impl Condition for AuthorHitsCharacterRateLimit {
     }
 
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
-        character_rate_limit::check(
+        filter::check(
             ctx.character_activity_repo,
             &ctx.group_message.group.id,
             &ctx.group_message.author_id,

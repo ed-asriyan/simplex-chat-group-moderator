@@ -1,6 +1,10 @@
 //! `MatchesExactMessage`: the whole message equals one of the owner's texts.
 
-use super::exact_message;
+mod filter;
+
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::Err;
 use crate::domain::moderator::rules::common::checks;
@@ -29,7 +33,7 @@ impl Condition for MatchesExactMessage {
     }
 
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
-        Ok(exact_message::should_moderate(
+        Ok(filter::should_moderate(
             ctx.group_message.text.trim(),
             &self.messages,
             self.case_sensitive,

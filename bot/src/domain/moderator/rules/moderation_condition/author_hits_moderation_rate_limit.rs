@@ -2,7 +2,11 @@
 //! than the owner allows. The one condition whose answer depends on what the
 //! other rules do with this message — see the pre-pass in `rules`.
 
-use super::moderation_rate_limit;
+mod filter;
+
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::Err;
 use crate::domain::moderator::rules::common::rate_limit;
@@ -53,13 +57,13 @@ impl Condition for AuthorHitsModerationRateLimit {
                 )
                 .await?
                 + 1;
-            return Ok(moderation_rate_limit::should_moderate(
+            return Ok(filter::should_moderate(
                 count,
                 self.message_count,
                 self.time_window_minutes,
             ));
         }
-        moderation_rate_limit::check(
+        filter::check(
             ctx.moderation_activity_repo,
             &ctx.group_message.group.id,
             &ctx.group_message.author_id,

@@ -1,7 +1,12 @@
 //! `ContainsWords`: the message contains any of the owner's words, seen
 //! through obfuscation.
 
-use super::keywords;
+mod filter;
+mod upside_down;
+
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::Err;
 use crate::domain::moderator::rules::common::checks;
@@ -30,7 +35,7 @@ impl Condition for ContainsWords {
 
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
         Ok(
-            keywords::should_moderate(ctx.group_message.text.trim(), &self.keywords)
+            filter::should_moderate(ctx.group_message.text.trim(), &self.keywords)
                 .map(|keyword| format!("contains word: '{keyword}'")),
         )
     }

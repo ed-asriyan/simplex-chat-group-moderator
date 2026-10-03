@@ -1,6 +1,8 @@
 //! `ContainsFile`: what the message carries besides its text.
 
-use super::attachment;
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::Err;
 use crate::domain::moderator::ports::MessageAttachment;
@@ -23,9 +25,11 @@ impl Condition for ContainsFile {
     }
 
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
-        Ok(attachment::should_moderate(
-            ctx.group_message.attachment,
-            MessageAttachment::File,
-        ))
+        Ok(carries(ctx.group_message.attachment))
     }
+}
+
+/// Whether the message carries a file. A message has at most one attachment.
+fn carries(attachment: Option<MessageAttachment>) -> Option<String> {
+    (attachment == Some(MessageAttachment::File)).then(|| "contains a file".to_string())
 }

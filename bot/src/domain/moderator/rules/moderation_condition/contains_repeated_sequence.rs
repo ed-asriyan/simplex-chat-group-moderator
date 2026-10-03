@@ -1,6 +1,10 @@
 //! `ContainsRepeatedSequence`: some run of characters repeats back to back.
 
-use super::repeated_sequence;
+mod filter;
+
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::Err;
 use async_trait::async_trait;
@@ -26,10 +30,10 @@ impl Condition for ContainsRepeatedSequence {
             )
             .into());
         }
-        if !(1..=repeated_sequence::MAX_SEQUENCE_LENGTH).contains(&self.min_length) {
+        if !(1..=filter::MAX_SEQUENCE_LENGTH).contains(&self.min_length) {
             return Err(format!(
                 "Minimum sequence length must be between 1 and {}, got {}",
-                repeated_sequence::MAX_SEQUENCE_LENGTH,
+                filter::MAX_SEQUENCE_LENGTH,
                 self.min_length
             )
             .into());
@@ -42,7 +46,7 @@ impl Condition for ContainsRepeatedSequence {
     }
 
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
-        Ok(repeated_sequence::should_moderate(
+        Ok(filter::should_moderate(
             &ctx.group_message.text,
             self.min_repeats,
             self.min_length,

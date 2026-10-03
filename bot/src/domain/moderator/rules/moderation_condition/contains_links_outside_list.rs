@@ -1,8 +1,11 @@
 //! `ContainsLinksOutsideList`: the message links to a domain the owner's list does not cover.
 
-use super::links;
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::Err;
+use crate::domain::moderator::rules::common::domains::{find_domains, find_outside_list};
 use crate::domain::moderator::rules::common::{checks, domains};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -31,9 +34,15 @@ impl Condition for ContainsLinksOutsideList {
     }
 
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
-        Ok(links::should_moderate_outside_list(
+        Ok(should_moderate_outside_list(
             ctx.group_message.text.trim(),
             &self.domains,
         ))
     }
+}
+
+/// Returns `Some(domain)` if `text` contains a link whose domain is **not**
+/// covered by `list`, or `None` if every link is (or there are no links at all).
+fn should_moderate_outside_list(text: &str, list: &[String]) -> Option<String> {
+    find_outside_list(&find_domains(text), list)
 }

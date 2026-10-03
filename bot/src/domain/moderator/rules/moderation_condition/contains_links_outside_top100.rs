@@ -1,8 +1,12 @@
 //! `ContainsLinksOutsideTop100`: the message links to a domain outside the built-in top 100 and the owner's list.
 
-use super::links;
+#[cfg(test)]
+mod tests;
+mod top100;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::Err;
+use crate::domain::moderator::rules::common::domains::{domain_matches, find_domains};
 use crate::domain::moderator::rules::common::{checks, domains};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -31,9 +35,26 @@ impl Condition for ContainsLinksOutsideTop100 {
     }
 
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
-        Ok(links::should_moderate_outside_top100(
+        Ok(should_moderate_outside_top100(
             ctx.group_message.text.trim(),
             &self.domains,
         ))
     }
+}
+
+/// Returns `Some(domain)` if `text` contains a link whose domain is neither in
+/// the built-in top-100 list nor in `extra`.  Messages with no links never
+/// match.
+fn should_moderate_outside_top100(text: &str, extra: &[String]) -> Option<String> {
+    let domains = find_domains(text);
+    for domain in &domains {
+        let is_listed = top100::DOMAINS
+            .iter()
+            .any(|pattern| domain_matches(domain, pattern))
+            || extra.iter().any(|pattern| domain_matches(domain, pattern));
+        if !is_listed {
+            return Some(domain.clone());
+        }
+    }
+    None
 }

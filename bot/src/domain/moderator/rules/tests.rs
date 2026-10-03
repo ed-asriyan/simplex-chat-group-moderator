@@ -2877,3 +2877,95 @@ async fn test_a_history_that_cannot_be_read_is_no_verdict_and_asks_nobody() {
     assert!(hit.is_none());
     assert!(openai.instruction_calls().is_empty());
 }
+
+#[tokio::test]
+async fn test_length_conditions_see_the_untrimmed_message() {
+    use crate::domain::moderator::ports::GroupMessage;
+    use crate::domain::moderator::ports::conditions::{
+        ExceedsMaxCharacters, ExceedsMaxLines, ExceedsMaxWords, IsBlank,
+    };
+    use crate::domain::moderator::rules::{
+        ModerationAction, ModerationCondition, ModerationRule,
+        should_moderate as top_level_moderate,
+    };
+    use crate::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
+    use crate::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
+    use crate::infrastructure::adapters::group_message_activity_repo_in_memory::InMemoryGroupMessageActivityRepository;
+    use crate::infrastructure::adapters::group_message_history_repo_in_memory::InMemoryGroupMessageHistoryRepository;
+    use crate::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
+    use crate::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
+    use crate::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
+    use crate::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
+
+    let repo = InMemoryUserMessageActivityRepository::new();
+    let char_repo = InMemoryUserCharacterActivityRepository::new();
+    let line_repo = InMemoryUserLineActivityRepository::new();
+    let mod_repo = InMemoryUserModerationActivityRepository::new();
+    let group_repo = InMemoryGroupMessageActivityRepository::new();
+    let group_char_repo = InMemoryGroupCharacterActivityRepository::new();
+    let group_line_repo = InMemoryGroupLineActivityRepository::new();
+    let history = InMemoryGroupMessageHistoryRepository::new();
+    let msg = |text: &str| GroupMessage {
+        text: text.to_string(),
+        ..Default::default()
+    };
+
+    let rules = vec![ModerationRule {
+        actions: vec![ModerationAction::ModerateMessage],
+        condition: ModerationCondition::Any {
+            conditions: vec![
+                ModerationCondition::IsBlank(IsBlank {}),
+                ModerationCondition::ExceedsMaxCharacters(ExceedsMaxCharacters {
+                    max_characters: 100,
+                }),
+                ModerationCondition::ExceedsMaxWords(ExceedsMaxWords { max_words: 10 }),
+                ModerationCondition::ExceedsMaxLines(ExceedsMaxLines {
+                    max_lines: 5,
+                    chars_per_line: 40,
+                }),
+            ],
+        },
+    }];
+
+    let matches = async |text: &str, rules: &[ModerationRule]| {
+        top_level_moderate(
+            &msg(text),
+            rules,
+            &repo,
+            &char_repo,
+            &line_repo,
+            &mod_repo,
+            &group_repo,
+            &group_char_repo,
+            &group_line_repo,
+            &history,
+            &UnusedAi,
+            &UnusedAi,
+        )
+        .await
+        .unwrap()
+        .is_some()
+    };
+
+    // Normal message passes
+    assert!(!matches("Hello world", &rules).await);
+
+    // Leading and trailing newlines are NOT stripped by a top-level trim
+    assert!(matches(&format!(".{}", "\n".repeat(500)), &rules).await);
+    assert!(matches(&format!("{}.", "\n".repeat(500)), &rules).await);
+
+    // 500 trailing spaces exceed max_characters
+    assert!(matches(&format!(".{}", " ".repeat(500)), &rules).await);
+
+    // A blank message matches through IsBlank
+    assert!(matches("   ", &rules).await);
+
+    // Without IsBlank, a short blank message matches nothing
+    let length_only = vec![ModerationRule {
+        actions: vec![ModerationAction::ModerateMessage],
+        condition: ModerationCondition::ExceedsMaxCharacters(ExceedsMaxCharacters {
+            max_characters: 100,
+        }),
+    }];
+    assert!(!matches("   ", &length_only).await);
+}

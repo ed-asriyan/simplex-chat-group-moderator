@@ -1,7 +1,11 @@
 //! `ContainsInvisibleCharacters`: the message hides at least one invisible
 //! character.
 
-use super::invisible_chars;
+mod filter;
+
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::Err;
 use async_trait::async_trait;
@@ -24,7 +28,7 @@ impl Condition for ContainsInvisibleCharacters {
     async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
         // The shape conditions see the raw message: leading and trailing
         // whitespace is exactly what they are measuring.
-        Ok(invisible_chars::should_moderate_invisible(
+        Ok(filter::should_moderate_invisible(
             &ctx.group_message.text,
         ))
     }

@@ -1,7 +1,11 @@
 //! `FlaggedByOmniModeration`: OpenAI's moderation model, asked with the
 //! owner's own key, trips one of the owner's per-category triggers.
 
-use super::openai_moderation;
+mod filter;
+
+#[cfg(test)]
+mod tests;
+
 use super::{Condition, ConditionContext};
 use crate::domain::moderator::ports::{
     ApiRetry, CategoryTrigger, Err, OpenAiCategory, OpenAiCategoryTriggers,
@@ -64,7 +68,7 @@ impl Condition for FlaggedByOmniModeration {
             return Ok(None);
         }
         match ctx.openai.classify(&self.api_key, text, &self.retry).await {
-            Ok(verdict) => Ok(openai_moderation::should_moderate(&self.triggers, &verdict)),
+            Ok(verdict) => Ok(filter::should_moderate(&self.triggers, &verdict)),
             // No verdict is no match: OpenAI being down, rate limited or
             // refusing the key must not stop the other rules. The adapter
             // has logged why.
