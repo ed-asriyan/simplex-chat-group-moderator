@@ -3,6 +3,7 @@ pub mod cross_domain_router;
 pub mod group_character_activity_repo_in_memory;
 pub mod group_line_activity_repo_in_memory;
 pub mod group_message_activity_repo_in_memory;
+pub mod group_message_history_repo_in_memory;
 pub mod member_restore_repo_sqlite;
 pub mod moderation_notification_router;
 pub mod moderator_repo_sqlite;

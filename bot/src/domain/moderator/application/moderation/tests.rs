@@ -14,6 +14,7 @@ use crate::domain::moderator::ports::{
 use crate::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
 use crate::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
 use crate::infrastructure::adapters::group_message_activity_repo_in_memory::InMemoryGroupMessageActivityRepository;
+use crate::infrastructure::adapters::group_message_history_repo_in_memory::InMemoryGroupMessageHistoryRepository;
 use crate::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
 use crate::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
 use crate::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
@@ -240,6 +241,7 @@ async fn test_process_group_message_moderate_message_action() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -252,6 +254,7 @@ async fn test_process_group_message_moderate_message_action() {
         },
         message_id: 42,
         author_id: 555,
+        author_name: String::new(),
         text: "Contains badword here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -322,6 +325,7 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -334,6 +338,7 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
         },
         message_id: 42,
         author_id: 777,
+        author_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -407,6 +412,7 @@ async fn test_process_group_message_kick_author_without_deleting_messages() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -419,6 +425,7 @@ async fn test_process_group_message_kick_author_without_deleting_messages() {
         },
         message_id: 42,
         author_id: 777,
+        author_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -489,6 +496,7 @@ async fn test_process_group_message_kick_author_deleting_all_messages() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -501,6 +509,7 @@ async fn test_process_group_message_kick_author_deleting_all_messages() {
         },
         message_id: 42,
         author_id: 777,
+        author_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -574,6 +583,7 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -586,6 +596,7 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
         },
         message_id: 42,
         author_id: 555,
+        author_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -646,6 +657,7 @@ async fn test_process_group_message_no_match_does_nothing() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -658,6 +670,7 @@ async fn test_process_group_message_no_match_does_nothing() {
         },
         message_id: 42,
         author_id: 555,
+        author_name: String::new(),
         text: "Clean friendly message".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -732,6 +745,7 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -744,6 +758,7 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
         },
         message_id: 42,
         author_id: 888,
+        author_name: String::new(),
         text: "first and second in the same message".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -825,6 +840,7 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -837,6 +853,7 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
         },
         message_id: 42,
         author_id: 777,
+        author_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -922,6 +939,7 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -934,6 +952,7 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
         },
         message_id: 42,
         author_id: 777,
+        author_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1009,6 +1028,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1021,6 +1041,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
         },
         message_id: 42,
         author_id: 777,
+        author_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1088,6 +1109,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1100,6 +1122,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
         },
         message_id: 42,
         author_id: 777,
+        author_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1166,6 +1189,7 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1178,6 +1202,7 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
         },
         message_id: 42,
         author_id: 777,
+        author_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1244,6 +1269,7 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1256,6 +1282,7 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
         },
         message_id: 42,
         author_id: 777,
+        author_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1340,6 +1367,7 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1352,6 +1380,7 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
         },
         message_id: 42,
         author_id: 888,
+        author_name: String::new(),
         text: "first and second in the same message".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1435,6 +1464,7 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1447,6 +1477,7 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
         },
         message_id: 42,
         author_id: 888,
+        author_name: String::new(),
         text: "first and second in the same message".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1524,6 +1555,7 @@ async fn test_process_group_message_message_rate_limit_triggers_on_threshold() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1536,6 +1568,7 @@ async fn test_process_group_message_message_rate_limit_triggers_on_threshold() {
         },
         message_id: msg_id,
         author_id: 42,
+        author_name: String::new(),
         text: format!("Message {msg_id}"),
         attachment: None,
         timestamp: Utc::now(),
@@ -1614,6 +1647,7 @@ async fn test_process_group_message_message_rate_limit_kick_author() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1626,6 +1660,7 @@ async fn test_process_group_message_message_rate_limit_kick_author() {
         },
         message_id: msg_id,
         author_id,
+        author_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1700,6 +1735,7 @@ async fn test_process_group_message_message_rate_limit_dry_mode() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1712,6 +1748,7 @@ async fn test_process_group_message_message_rate_limit_dry_mode() {
         },
         message_id: 1,
         author_id: 999,
+        author_name: String::new(),
         text: "hi".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1768,6 +1805,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1783,6 +1821,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         },
         message_id: 1,
         author_id: 123,
+        author_name: String::new(),
         text: "first".to_string(),
         attachment: None,
         timestamp: base_time,
@@ -1800,6 +1839,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         },
         message_id: 2,
         author_id: 123,
+        author_name: String::new(),
         text: "second".to_string(),
         attachment: None,
         timestamp: base_time + chrono::Duration::minutes(10),
@@ -1820,6 +1860,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         },
         message_id: 3,
         author_id: 123,
+        author_name: String::new(),
         text: "third".to_string(),
         attachment: None,
         timestamp: base_time + chrono::Duration::minutes(12),
@@ -1868,6 +1909,7 @@ async fn test_track_user_message_called_when_message_rate_limit_rule_configured(
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1881,6 +1923,7 @@ async fn test_track_user_message_called_when_message_rate_limit_rule_configured(
         },
         message_id: 1,
         author_id: 42,
+        author_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: msg_time,
@@ -1958,6 +2001,7 @@ async fn test_track_user_message_uses_max_window_across_multiple_message_rate_li
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -1970,6 +2014,7 @@ async fn test_track_user_message_uses_max_window_across_multiple_message_rate_li
         },
         message_id: 1,
         author_id: 55,
+        author_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2023,6 +2068,7 @@ async fn test_track_characters_called_when_character_rate_limit_rule_configured(
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2038,6 +2084,7 @@ async fn test_track_characters_called_when_character_rate_limit_rule_configured(
         },
         message_id: 1,
         author_id: 42,
+        author_name: String::new(),
         text: "Привет".to_string(),
         attachment: None,
         timestamp: msg_time,
@@ -2102,6 +2149,7 @@ async fn test_track_characters_not_called_without_a_character_rate_limit_rule() 
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2114,6 +2162,7 @@ async fn test_track_characters_not_called_without_a_character_rate_limit_rule() 
         },
         message_id: 1,
         author_id: 42,
+        author_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2169,6 +2218,7 @@ async fn test_track_lines_called_when_line_rate_limit_rule_configured() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2184,6 +2234,7 @@ async fn test_track_lines_called_when_line_rate_limit_rule_configured() {
         },
         message_id: 1,
         author_id: 42,
+        author_name: String::new(),
         text: "short\n0123456789012345678901234".to_string(),
         attachment: None,
         timestamp: msg_time,
@@ -2265,6 +2316,7 @@ async fn test_track_lines_uses_the_widest_configured_wrap() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2277,6 +2329,7 @@ async fn test_track_lines_uses_the_widest_configured_wrap() {
         },
         message_id: 1,
         author_id: 42,
+        author_name: String::new(),
         text: "0123456789012345678901234".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2334,6 +2387,7 @@ async fn test_track_lines_counts_nothing_for_a_captionless_attachment() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2346,6 +2400,7 @@ async fn test_track_lines_counts_nothing_for_a_captionless_attachment() {
         },
         message_id: 1,
         author_id: 42,
+        author_name: String::new(),
         text: String::new(),
         attachment: Some(MessageAttachment::Image),
         timestamp: Utc::now(),
@@ -2396,6 +2451,7 @@ async fn test_track_lines_not_called_without_a_line_rate_limit_rule() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2408,6 +2464,7 @@ async fn test_track_lines_not_called_without_a_line_rate_limit_rule() {
         },
         message_id: 1,
         author_id: 42,
+        author_name: String::new(),
         text: "a\nb".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2460,6 +2517,7 @@ async fn test_track_characters_not_called_when_window_is_zero() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2472,6 +2530,7 @@ async fn test_track_characters_not_called_when_window_is_zero() {
         },
         message_id: 1,
         author_id: 42,
+        author_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2530,6 +2589,7 @@ async fn test_track_user_message_not_called_when_no_message_rate_limit_rules() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2542,6 +2602,7 @@ async fn test_track_user_message_not_called_when_no_message_rate_limit_rules() {
         },
         message_id: 1,
         author_id: 55,
+        author_name: String::new(),
         text: "clean message".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2583,6 +2644,7 @@ async fn test_track_user_message_not_called_when_group_has_empty_rules() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2595,6 +2657,7 @@ async fn test_track_user_message_not_called_when_group_has_empty_rules() {
         },
         message_id: 1,
         author_id: 55,
+        author_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2645,6 +2708,7 @@ async fn test_track_user_message_not_called_when_message_rate_limit_window_is_ze
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2657,6 +2721,7 @@ async fn test_track_user_message_not_called_when_message_rate_limit_window_is_ze
         },
         message_id: 1,
         author_id: 55,
+        author_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2707,6 +2772,7 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2719,6 +2785,7 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
         },
         message_id: 1,
         author_id: 55,
+        author_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2800,6 +2867,7 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2812,6 +2880,7 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
         },
         message_id: msg_id,
         author_id: 777,
+        author_name: String::new(),
         text: text.to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2900,6 +2969,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2912,6 +2982,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         },
         message_id: 1,
         author_id: 42,
+        author_name: String::new(),
         text: "clean message".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2934,6 +3005,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         },
         message_id: 2,
         author_id: 42,
+        author_name: String::new(),
         text: "contains badword here".to_string(),
         attachment: None,
         timestamp: bad_time,
@@ -2986,6 +3058,7 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -2998,6 +3071,7 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
         },
         message_id: 1,
         author_id: 42,
+        author_name: String::new(),
         text: "contains badword here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -3045,6 +3119,7 @@ fn edit_test_message(text: &str, is_edit: bool) -> GroupMessage {
         },
         message_id: 1,
         author_id: 42,
+        author_name: String::new(),
         text: text.to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -3084,6 +3159,7 @@ async fn test_editing_one_message_does_not_hit_the_message_rate_limit() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3134,6 +3210,7 @@ async fn test_edit_is_still_moderated_by_a_content_rule() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3199,6 +3276,7 @@ async fn test_edit_feeds_none_of_the_traffic_counters() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3276,6 +3354,7 @@ async fn test_moderating_an_edit_does_not_join_the_moderated_tally() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3328,6 +3407,7 @@ fn app_with_observer_rule(
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         restores,
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3342,6 +3422,7 @@ fn triggering_message(timestamp: chrono::DateTime<Utc>) -> GroupMessage {
         },
         message_id: 42,
         author_id: 777,
+        author_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp,
@@ -3413,6 +3494,7 @@ async fn test_dry_mode_schedules_nothing() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         restores.clone(),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3459,6 +3541,7 @@ async fn test_kicking_the_author_cancels_a_scheduled_restore() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         restores.clone(),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3518,6 +3601,7 @@ async fn test_failed_restore_bookkeeping_still_moderates_and_notifies() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         restores,
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3573,7 +3657,9 @@ impl OpenRouter for UnusedAi {
         _api_key: &str,
         _model: &str,
         _instruction: &str,
+        _author_name: &str,
         _text: &str,
+        _context: &[crate::domain::moderator::ports::InstructionContextMessage],
         _retry: &crate::domain::moderator::ports::ApiRetry,
     ) -> Result<OpenRouterInstructionVerdict, Err> {
         panic!("OpenRouter was asked about a message no rule sends to it")
@@ -3614,7 +3700,9 @@ impl OpenRouter for ScriptedAi {
         _api_key: &str,
         _model: &str,
         _instruction: &str,
+        _author_name: &str,
         text: &str,
+        _context: &[crate::domain::moderator::ports::InstructionContextMessage],
         _retry: &crate::domain::moderator::ports::ApiRetry,
     ) -> Result<OpenRouterInstructionVerdict, Err> {
         self.texts.lock().unwrap().push(text.to_string());
@@ -3662,6 +3750,7 @@ fn app_with_openai_rule(
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         openai.clone(),
         openai,
@@ -3760,6 +3849,7 @@ async fn test_a_message_a_model_says_matches_the_instruction_is_deleted() {
                         api_key: "sk-owner".to_string(),
                         model: "openai/gpt-4o-mini".to_string(),
                         instruction: "Block crypto ads.".to_string(),
+                        context_messages: 0,
                     },
                 },
             }],
@@ -3779,6 +3869,7 @@ async fn test_a_message_a_model_says_matches_the_instruction_is_deleted() {
         Arc::new(InMemoryGroupMessageActivityRepository::new()),
         Arc::new(InMemoryGroupCharacterActivityRepository::new()),
         Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         openai.clone(),
         openai.clone(),
@@ -3793,6 +3884,172 @@ async fn test_a_message_a_model_says_matches_the_instruction_is_deleted() {
         notifications.lock().unwrap()[0].4,
         "openai/gpt-4o-mini: Promotes a coin."
     );
+}
+
+// ---------------------------------------------------------------------------
+// Message history for FlaggedByOpenRouterInstruction's context
+// ---------------------------------------------------------------------------
+
+/// Says a text matches when it contains "spam".
+struct SpamModel;
+
+#[async_trait]
+impl OpenAi for SpamModel {
+    async fn verify(&self, _api_key: &str) -> KeyCheck {
+        panic!("no key is checked while moderating a message")
+    }
+
+    async fn classify(
+        &self,
+        _api_key: &str,
+        _text: &str,
+        _retry: &crate::domain::moderator::ports::ApiRetry,
+    ) -> Result<OpenAiModerationResult, Err> {
+        panic!("OpenAI was asked about a message no rule sends to it")
+    }
+}
+
+#[async_trait]
+impl OpenRouter for SpamModel {
+    async fn matches_instruction(
+        &self,
+        _api_key: &str,
+        _model: &str,
+        _instruction: &str,
+        _author_name: &str,
+        text: &str,
+        _context: &[crate::domain::moderator::ports::InstructionContextMessage],
+        _retry: &crate::domain::moderator::ports::ApiRetry,
+    ) -> Result<OpenRouterInstructionVerdict, Err> {
+        Ok(OpenRouterInstructionVerdict {
+            matches: text.contains("spam"),
+            reason: "Spam.".to_string(),
+        })
+    }
+
+    async fn verify_model(&self, _api_key: &str, _model: &str) -> KeyCheck {
+        panic!("no key is checked while moderating a message")
+    }
+}
+
+fn history_app(
+    context_messages: u32,
+    dry_mode_enabled: bool,
+    history: Arc<InMemoryGroupMessageHistoryRepository>,
+) -> MessageModerationApplication {
+    let model = Arc::new(SpamModel);
+    MessageModerationApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(Group {
+                dry_mode_enabled,
+                ..edit_test_group()
+            }),
+            rules: vec![OwnedModerationRule {
+                id: 1,
+                rule: ModerationRule {
+                    actions: vec![ModerationAction::ModerateMessage],
+                    condition: ModerationCondition::FlaggedByOpenRouterInstruction {
+                        retry: Default::default(),
+                        api_key: "sk-owner".to_string(),
+                        model: "openai/gpt-4o-mini".to_string(),
+                        instruction: "Block spam.".to_string(),
+                        context_messages,
+                    },
+                },
+            }],
+        }),
+        Arc::new(MockGroupModerator::default()),
+        Arc::new(MockModerationNotifier::default()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
+        Arc::new(InMemoryUserLineActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
+        history,
+        Arc::new(MockMemberRestoreRepository::default()),
+        model.clone(),
+        model,
+    )
+}
+
+fn history_message(message_id: MessageId, text: &str, is_edit: bool) -> GroupMessage {
+    GroupMessage {
+        message_id,
+        ..edit_test_message(text, is_edit)
+    }
+}
+
+/// The texts the history keeps for group 10, oldest first.
+async fn kept_texts(history: &InMemoryGroupMessageHistoryRepository) -> Vec<String> {
+    use crate::domain::moderator::ports::GroupMessageHistoryRepository;
+    history
+        .messages_before(&10, &0, 100, Utc::now())
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|message| message.text)
+        .collect()
+}
+
+#[tokio::test]
+async fn test_messages_left_standing_are_kept_and_deleted_ones_are_not() {
+    let history = Arc::new(InMemoryGroupMessageHistoryRepository::new());
+    let app = history_app(2, false, history.clone());
+
+    for (id, text) in [(1, "hello"), (2, "spam"), (3, "how are you"), (4, "fine")] {
+        app.process_group_message(history_message(id, text, false))
+            .await
+            .unwrap();
+    }
+
+    // Only as many as the rule reads.
+    assert_eq!(kept_texts(&history).await, vec!["how are you", "fine"]);
+}
+
+#[tokio::test]
+async fn test_in_dry_mode_a_matching_message_stays_in_the_chat_and_in_the_history() {
+    let history = Arc::new(InMemoryGroupMessageHistoryRepository::new());
+    let app = history_app(5, true, history.clone());
+
+    for (id, text) in [(1, "hello"), (2, "spam")] {
+        app.process_group_message(history_message(id, text, false))
+            .await
+            .unwrap();
+    }
+
+    assert_eq!(kept_texts(&history).await, vec!["hello", "spam"]);
+}
+
+#[tokio::test]
+async fn test_an_edit_replaces_the_kept_text_and_an_edit_deleted_is_forgotten() {
+    let history = Arc::new(InMemoryGroupMessageHistoryRepository::new());
+    let app = history_app(5, false, history.clone());
+
+    for message in [
+        history_message(1, "hello", false),
+        history_message(2, "bye", false),
+        history_message(1, "hello there", true),
+        history_message(2, "bye, buy spam", true),
+    ] {
+        app.process_group_message(message).await.unwrap();
+    }
+
+    assert_eq!(kept_texts(&history).await, vec!["hello there"]);
+}
+
+#[tokio::test]
+async fn test_nothing_is_kept_while_no_rule_reads_earlier_messages() {
+    let history = Arc::new(InMemoryGroupMessageHistoryRepository::new());
+    let app = history_app(0, false, history.clone());
+
+    app.process_group_message(history_message(1, "hello", false))
+        .await
+        .unwrap();
+
+    assert!(kept_texts(&history).await.is_empty());
+    assert_eq!(history.active_group_count(), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -3842,6 +4099,7 @@ fn group_rate_limit_app(
         counters.messages.clone(),
         counters.characters.clone(),
         counters.lines.clone(),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
         Arc::new(MockMemberRestoreRepository::default()),
         Arc::new(UnusedAi),
         Arc::new(UnusedAi),
@@ -3861,6 +4119,7 @@ fn group_message_from(
         },
         message_id,
         author_id,
+        author_name: String::new(),
         text: text.to_string(),
         attachment: None,
         timestamp,

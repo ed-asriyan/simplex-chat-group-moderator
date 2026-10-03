@@ -187,7 +187,7 @@ struct ConditionData {
     joined_recently: HashMap<i64, u32>,
     openai_api_keys: HashMap<i64, (String, ApiRetry)>,
     openai_triggers: HashMap<i64, OpenAiCategoryTriggers>,
-    openrouter_instructions: HashMap<i64, (String, String, String, ApiRetry)>,
+    openrouter_instructions: HashMap<i64, (String, String, String, u32, ApiRetry)>,
 }
 
 impl ConditionData {
@@ -342,10 +342,18 @@ impl ConditionData {
             openai_triggers: load_openai_category_triggers(guard, gid)?,
             openrouter_instructions: load_condition_settings(
                 guard,
-                "s.api_key, s.model, s.instruction, s.max_attempts, s.retry_delay_seconds",
+                "s.api_key, s.model, s.instruction, s.context_messages, s.max_attempts, s.retry_delay_seconds",
                 "moderation_condition__flagged_by_openrouter_instruction",
                 gid,
-                |row| Ok((row.get(1)?, row.get(2)?, row.get(3)?, read_retry(row, 4)?)),
+                |row| {
+                    Ok((
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get::<_, i64>(4)? as u32,
+                        read_retry(row, 5)?,
+                    ))
+                },
             )?,
         })
     }
@@ -544,7 +552,7 @@ fn build_condition(
             })
         }
         "FlaggedByOpenRouterInstruction" => {
-            let (api_key, model, instruction, retry) = data
+            let (api_key, model, instruction, context_messages, retry) = data
                 .openrouter_instructions
                 .get(&id)
                 .cloned()
@@ -553,6 +561,7 @@ fn build_condition(
                 api_key,
                 model,
                 instruction,
+                context_messages,
                 retry,
             })
         }

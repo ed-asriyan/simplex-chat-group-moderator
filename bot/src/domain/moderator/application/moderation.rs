@@ -6,10 +6,11 @@ use std::time::Duration;
 use crate::domain::moderator::message_filter::{count_effective_lines, should_moderate};
 use crate::domain::moderator::ports::{
     Err, GroupCharacterActivityRepository, GroupLineActivityRepository, GroupMemberRole,
-    GroupMessage, GroupMessageActivityRepository, GroupModerator, MemberRestoreRepository,
-    ModerationAction, ModerationEngine, ModerationNotifier, ModerationRepository, ModerationRule,
-    OpenAi, OpenRouter, UserCharacterActivityRepository, UserLineActivityRepository,
-    UserMessageActivityRepository, UserModerationActivityRepository,
+    GroupMessage, GroupMessageActivityRepository, GroupMessageHistoryRepository, GroupModerator,
+    MemberRestoreRepository, ModerationAction, ModerationEngine, ModerationNotifier,
+    ModerationRepository, ModerationRule, OpenAi, OpenRouter, RecentGroupMessage,
+    UserCharacterActivityRepository, UserLineActivityRepository, UserMessageActivityRepository,
+    UserModerationActivityRepository,
 };
 
 #[cfg(test)]
@@ -26,6 +27,7 @@ pub struct MessageModerationApplication {
     group_activity_repository: Arc<dyn GroupMessageActivityRepository>,
     group_character_activity_repository: Arc<dyn GroupCharacterActivityRepository>,
     group_line_activity_repository: Arc<dyn GroupLineActivityRepository>,
+    message_history: Arc<dyn GroupMessageHistoryRepository>,
     restores: Arc<dyn MemberRestoreRepository>,
     openai: Arc<dyn OpenAi>,
     openrouter: Arc<dyn OpenRouter>,
@@ -43,6 +45,7 @@ impl MessageModerationApplication {
         group_activity_repository: Arc<dyn GroupMessageActivityRepository>,
         group_character_activity_repository: Arc<dyn GroupCharacterActivityRepository>,
         group_line_activity_repository: Arc<dyn GroupLineActivityRepository>,
+        message_history: Arc<dyn GroupMessageHistoryRepository>,
         restores: Arc<dyn MemberRestoreRepository>,
         openai: Arc<dyn OpenAi>,
         openrouter: Arc<dyn OpenRouter>,
@@ -58,6 +61,7 @@ impl MessageModerationApplication {
             group_activity_repository,
             group_character_activity_repository,
             group_line_activity_repository,
+            message_history,
             restores,
             openai,
             openrouter,
@@ -234,6 +238,49 @@ impl MessageModerationApplication {
         Ok(())
     }
 
+    /// Keeps the message among the group's latest while some
+    /// `FlaggedByOpenRouterInstruction` asks for earlier messages, as many as
+    /// the most demanding one asks for.
+    async fn keep_in_history_if_needed(
+        &self,
+        group_message: &GroupMessage,
+        rules: &[ModerationRule],
+        deleted: bool,
+    ) -> Result<(), Err> {
+        let Some(keep) = rules
+            .iter()
+            .filter_map(|r| r.condition.max_openrouter_context_messages())
+            .max()
+        else {
+            return Ok(());
+        };
+        let group_id = &group_message.group.id;
+        if deleted {
+            // A new message was never recorded; an edit may have been.
+            if group_message.is_edit {
+                self.message_history
+                    .forget_message(group_id, &group_message.message_id)
+                    .await?;
+            }
+            return Ok(());
+        }
+        let message = RecentGroupMessage {
+            message_id: group_message.message_id,
+            author_id: group_message.author_id,
+            author_name: group_message.author_name.clone(),
+            text: group_message.text.clone(),
+            attachment: group_message.attachment,
+            timestamp: group_message.timestamp,
+        };
+        if group_message.is_edit {
+            self.message_history.record_edit(group_id, message).await
+        } else {
+            self.message_history
+                .record_message(group_id, message, keep)
+                .await
+        }
+    }
+
     async fn track_moderated_message_if_needed(
         &self,
         group_message: &GroupMessage,
@@ -283,7 +330,7 @@ impl ModerationEngine for MessageModerationApplication {
                 .await?;
         }
 
-        if let Some(matched) = should_moderate(
+        let matched = should_moderate(
             &group_message,
             &rules_list,
             self.activity_repository.as_ref(),
@@ -293,11 +340,14 @@ impl ModerationEngine for MessageModerationApplication {
             self.group_activity_repository.as_ref(),
             self.group_character_activity_repository.as_ref(),
             self.group_line_activity_repository.as_ref(),
+            self.message_history.as_ref(),
             self.openai.as_ref(),
             self.openrouter.as_ref(),
         )
-        .await?
-        {
+        .await?;
+
+        let mut deleted = false;
+        if let Some(matched) = matched {
             if !group_message.is_edit {
                 self.track_moderated_message_if_needed(&group_message, &rules_list)
                     .await?;
@@ -310,6 +360,13 @@ impl ModerationEngine for MessageModerationApplication {
             let dry_mode = group.as_ref().is_some_and(|g| g.dry_mode_enabled);
 
             if !dry_mode {
+                deleted = matched.actions.iter().any(|action| match action {
+                    ModerationAction::ModerateMessage => true,
+                    ModerationAction::KickAuthor {
+                        delete_all_messages,
+                    } => *delete_all_messages,
+                    ModerationAction::SetAuthorObserver { .. } => false,
+                });
                 for action in &matched.actions {
                     match action {
                         ModerationAction::SetAuthorObserver { duration_minutes } => {
@@ -391,6 +448,14 @@ impl ModerationEngine for MessageModerationApplication {
                     .await;
             }
         }
+
+        // Kept for the next messages' context only now that this one has been
+        // moderated: it is no context for itself, and one the bot deleted is
+        // gone from the chat the members see.
+        let kept = self
+            .keep_in_history_if_needed(&group_message, &rules_list, deleted)
+            .await;
+        bookkeeping = bookkeeping.or(kept.err());
 
         self.repository
             .set_group_name(&group_message.group.id, &group_message.group.name)

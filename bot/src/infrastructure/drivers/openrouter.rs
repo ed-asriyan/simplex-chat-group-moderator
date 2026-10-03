@@ -40,6 +40,14 @@ pub struct Judgement {
     pub reason: String,
 }
 
+/// A message the model reads for context but does not judge. `author` is
+/// the display name its author chose.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PriorMessage {
+    pub author: String,
+    pub text: String,
+}
+
 /// Why OpenRouter gave no answer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OpenRouterApiError {
@@ -87,13 +95,16 @@ impl OpenRouterApiError {
 /// What the bot asks OpenRouter, with the owner's key.
 #[async_trait]
 pub trait OpenRouterApi: Send + Sync {
-    /// Whether `model`, given `instruction`, says `text` is what it describes.
+    /// Whether `model`, given `instruction`, says `text` is what it describes,
+    /// having read `context` (oldest first) before it.
     async fn judge(
         &self,
         api_key: &str,
         model: &str,
         instruction: &str,
+        author_name: &str,
         text: &str,
+        context: &[PriorMessage],
     ) -> Result<Judgement, OpenRouterApiError>;
 }
 
@@ -163,22 +174,62 @@ fn parse_retry_after(value: &str) -> Option<Duration> {
 const DELETE_DESCRIPTION: &str = "Whether the message should be deleted.";
 const REASON_DESCRIPTION: &str = "The reason why the message should or should not be deleted.";
 
+/// Appended to the instruction when earlier messages come along, so the model
+/// knows which text it judges.
+fn context_note() -> String {
+    "The user message is a JSON object. Judge only its `message`. \
+     `earlier_messages` are the messages posted in the same group just before it, \
+     oldest first, in the same shape: `author` is the display name of who wrote it, \
+     `text` is what they wrote. Read them only to understand `message`; never judge them."
+        .to_string()
+}
+
 /// The instruction goes in as the system message and the text as the user
 /// message: the model reads the text as data to judge, and the schema leaves it
 /// nothing to answer with but `true` or `false` and a sentence saying why.
 /// `temperature` 0 so the same text gets the same verdict.
+///
+/// With `context`, the user message becomes one JSON object carrying the text
+/// and the earlier messages, each in the same `{author, text}` shape, and the
+/// instruction says so: being JSON, no
+/// member can write a line that passes for another member's message, or for
+/// the one judged.
 ///
 /// `provider` is what OpenRouter routes by: `require_parameters` sends the
 /// request only to a provider of the model that honours the schema and the
 /// temperature, rather than to one that would silently ignore them, and
 /// `data_collection: deny` only to one that does not keep the group's messages
 /// to train on.
-fn judgement_request_body(model: &str, instruction: &str, text: &str) -> serde_json::Value {
+fn judgement_request_body(
+    model: &str,
+    instruction: &str,
+    author_name: &str,
+    text: &str,
+    context: &[PriorMessage],
+) -> serde_json::Value {
+    let (system, user) = if context.is_empty() {
+        (instruction.to_string(), text.to_string())
+    } else {
+        let message =
+            |author: &str, text: &str| serde_json::json!({ "author": author, "text": text });
+        let earlier: Vec<serde_json::Value> = context
+            .iter()
+            .map(|prior| message(&prior.author, &prior.text))
+            .collect();
+        (
+            format!("{instruction}\n\n{}", context_note()),
+            serde_json::json!({
+                "earlier_messages": earlier,
+                "message": message(author_name, text),
+            })
+            .to_string(),
+        )
+    };
     serde_json::json!({
         "model": model,
         "messages": [
-            { "role": "system", "content": instruction },
-            { "role": "user", "content": text }
+            { "role": "system", "content": system },
+            { "role": "user", "content": user }
         ],
         "response_format": {
             "type": "json_schema",
@@ -295,7 +346,9 @@ impl OpenRouterApi for HttpOpenRouterApi {
         api_key: &str,
         model: &str,
         instruction: &str,
+        author_name: &str,
         text: &str,
+        context: &[PriorMessage],
     ) -> Result<Judgement, OpenRouterApiError> {
         // reqwest's errors name the URL, never the headers, so the key stays
         // out of whatever gets logged.
@@ -306,7 +359,9 @@ impl OpenRouterApi for HttpOpenRouterApi {
             .bearer_auth(api_key)
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .header("X-Title", APP_TITLE)
-            .body(judgement_request_body(model, instruction, text).to_string())
+            .body(
+                judgement_request_body(model, instruction, author_name, text, context).to_string(),
+            )
             .send()
             .await
             .map_err(transport)?;

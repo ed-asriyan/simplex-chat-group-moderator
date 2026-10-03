@@ -354,15 +354,17 @@ fn insert_condition(
             api_key,
             model,
             instruction,
+            context_messages,
             retry,
         } => {
             tx.execute(
-                "INSERT INTO moderation_condition__flagged_by_openrouter_instruction (condition_id, api_key, model, instruction, max_attempts, retry_delay_seconds) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO moderation_condition__flagged_by_openrouter_instruction (condition_id, api_key, model, instruction, context_messages, max_attempts, retry_delay_seconds) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     condition_id,
                     api_key,
                     model,
                     instruction,
+                    context_messages,
                     retry.max_attempts,
                     retry.retry_delay_seconds
                 ],

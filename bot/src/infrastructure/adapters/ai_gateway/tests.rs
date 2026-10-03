@@ -1,7 +1,12 @@
 use super::{AiGateway, AiGatewayConfig};
-use crate::domain::moderator::ports::{ApiRetry, KeyCheck, OpenAi, OpenAiCategory, OpenRouter};
+use crate::domain::moderator::ports::{
+    ApiRetry, InstructionContextMessage, KeyCheck, MessageAttachment, OpenAi, OpenAiCategory,
+    OpenRouter,
+};
 use crate::infrastructure::drivers::openai::{OpenAiApi, OpenAiApiError, RawModeration};
-use crate::infrastructure::drivers::openrouter::{Judgement, OpenRouterApi, OpenRouterApiError};
+use crate::infrastructure::drivers::openrouter::{
+    Judgement, OpenRouterApi, OpenRouterApiError, PriorMessage,
+};
 use async_trait::async_trait;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -24,6 +29,7 @@ struct FakeApi {
     script: Mutex<HashMap<String, VecDeque<Answer>>>,
     verdicts: Mutex<HashMap<String, VecDeque<Result<Judgement, OpenRouterApiError>>>>,
     judged: Mutex<Vec<(String, String, String)>>,
+    contexts: Mutex<Vec<(String, Vec<PriorMessage>)>>,
     gate: Option<Arc<Semaphore>>,
     in_flight: AtomicUsize,
     peak_in_flight: AtomicUsize,
@@ -87,6 +93,11 @@ impl FakeApi {
         self.judged.lock().unwrap().clone()
     }
 
+    /// The judged message's author name and the earlier messages, per call.
+    fn contexts(&self) -> Vec<(String, Vec<PriorMessage>)> {
+        self.contexts.lock().unwrap().clone()
+    }
+
     /// Records the call and holds it at the gate: both providers count
     /// against the same in-flight limit.
     async fn enter(&self, api_key: &str, text: &str) {
@@ -123,9 +134,15 @@ impl OpenRouterApi for FakeApi {
         api_key: &str,
         model: &str,
         instruction: &str,
+        author_name: &str,
         text: &str,
+        context: &[PriorMessage],
     ) -> Result<Judgement, OpenRouterApiError> {
         self.enter(api_key, text).await;
+        self.contexts
+            .lock()
+            .unwrap()
+            .push((author_name.to_string(), context.to_vec()));
         self.judged.lock().unwrap().push((
             api_key.to_string(),
             model.to_string(),
@@ -764,7 +781,9 @@ async fn test_matches_instruction_sends_model_instruction_and_text_and_reads_the
             "sk-one",
             "openai/gpt-4o-mini",
             "Block ads.",
+            "Bob",
             "  buy  ",
+            &[],
             &ApiRetry::NONE,
         )
         .await
@@ -776,7 +795,9 @@ async fn test_matches_instruction_sends_model_instruction_and_text_and_reads_the
             "sk-one",
             "openai/gpt-4o-mini",
             "Block ads.",
+            "Bob",
             "hi",
+            &[],
             &ApiRetry::NONE,
         )
         .await
@@ -801,6 +822,50 @@ async fn test_matches_instruction_sends_model_instruction_and_text_and_reads_the
 }
 
 #[tokio::test]
+async fn test_matches_instruction_sends_earlier_messages_by_name_and_names_their_attachments() {
+    let api = FakeApi::new();
+    let gateway = start_gateway(&api, config());
+    let earlier = |author: &str, text: &str, attachment| InstructionContextMessage {
+        author_name: author.to_string(),
+        text: text.to_string(),
+        attachment,
+    };
+
+    gateway
+        .matches_instruction(
+            "sk-one",
+            "openai/gpt-4o-mini",
+            "i",
+            "Bob",
+            "t",
+            &[
+                earlier("Alice", "selling?", None),
+                earlier("Bob", "", Some(MessageAttachment::Image)),
+                earlier("Carol", "nice", Some(MessageAttachment::Video)),
+            ],
+            &ApiRetry::NONE,
+        )
+        .await
+        .unwrap();
+
+    let prior = |author: &str, text: &str| PriorMessage {
+        author: author.to_string(),
+        text: text.to_string(),
+    };
+    assert_eq!(
+        api.contexts(),
+        vec![(
+            "Bob".to_string(),
+            vec![
+                prior("Alice", "selling?"),
+                prior("Bob", "[image]"),
+                prior("Carol", "[video] nice"),
+            ]
+        )]
+    );
+}
+
+#[tokio::test]
 async fn test_matches_instruction_fails_whenever_openrouter_gives_no_verdict() {
     for failure in [
         OpenRouterApiError::Unauthorized,
@@ -817,7 +882,15 @@ async fn test_matches_instruction_fails_whenever_openrouter_gives_no_verdict() {
         let gateway = start_gateway(&api, config());
         assert!(
             gateway
-                .matches_instruction("sk-one", "openai/gpt-4o-mini", "i", "t", &ApiRetry::NONE)
+                .matches_instruction(
+                    "sk-one",
+                    "openai/gpt-4o-mini",
+                    "i",
+                    "Bob",
+                    "t",
+                    &[],
+                    &ApiRetry::NONE
+                )
                 .await
                 .is_err(),
             "{failure:?} should be an error"
@@ -838,13 +911,29 @@ async fn test_an_openrouter_key_is_paced_like_any_other() {
 
     assert!(
         gateway
-            .matches_instruction("sk-or-one", "openai/gpt-4o-mini", "i", "a", &ApiRetry::NONE)
+            .matches_instruction(
+                "sk-or-one",
+                "openai/gpt-4o-mini",
+                "i",
+                "Bob",
+                "a",
+                &[],
+                &ApiRetry::NONE
+            )
             .await
             .is_ok()
     );
     assert!(
         gateway
-            .matches_instruction("sk-or-one", "openai/gpt-4o-mini", "i", "b", &ApiRetry::NONE)
+            .matches_instruction(
+                "sk-or-one",
+                "openai/gpt-4o-mini",
+                "i",
+                "Bob",
+                "b",
+                &[],
+                &ApiRetry::NONE
+            )
             .await
             .is_err()
     );
@@ -867,7 +956,15 @@ async fn test_an_openrouter_key_without_credits_is_refused_locally_for_a_while()
     for text in ["a", "b"] {
         assert!(
             gateway
-                .matches_instruction("sk-one", "openai/gpt-4o-mini", "i", text, &ApiRetry::NONE)
+                .matches_instruction(
+                    "sk-one",
+                    "openai/gpt-4o-mini",
+                    "i",
+                    "Bob",
+                    text,
+                    &[],
+                    &ApiRetry::NONE
+                )
                 .await
                 .is_err()
         );
@@ -897,14 +994,14 @@ async fn test_a_flagged_text_is_no_verdict_but_leaves_the_key_alone() {
 
     assert!(
         gateway
-            .matches_instruction("sk-one", "openai/gpt-4o-mini", "i", "a", &retry)
+            .matches_instruction("sk-one", "openai/gpt-4o-mini", "i", "Bob", "a", &[], &retry)
             .await
             .is_err()
     );
     assert_eq!(api.call_count(), 1);
     assert!(
         gateway
-            .matches_instruction("sk-one", "openai/gpt-4o-mini", "i", "b", &retry)
+            .matches_instruction("sk-one", "openai/gpt-4o-mini", "i", "Bob", "b", &[], &retry)
             .await
             .unwrap()
             .matches

@@ -37,14 +37,14 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 use tokio::time::Instant;
 
 use crate::domain::moderator::ports::{
-    ApiRetry, Err, KeyCheck, OpenAi, OpenAiCategory, OpenAiModerationResult, OpenRouter,
-    OpenRouterInstructionVerdict,
+    ApiRetry, Err, InstructionContextMessage, KeyCheck, MessageAttachment, OpenAi, OpenAiCategory,
+    OpenAiModerationResult, OpenRouter, OpenRouterInstructionVerdict,
 };
 use crate::infrastructure::drivers::openai::{
     HttpOpenAiApi, OpenAiApi, OpenAiApiError, RawModeration,
 };
 use crate::infrastructure::drivers::openrouter::{
-    HttpOpenRouterApi, Judgement, OpenRouterApi, OpenRouterApiError,
+    HttpOpenRouterApi, Judgement, OpenRouterApi, OpenRouterApiError, PriorMessage,
 };
 
 #[cfg(test)]
@@ -137,11 +137,13 @@ enum Call {
     /// OpenAI's moderation model's scores for a text.
     Moderate { text: String },
     /// An OpenRouter model's yes/no on whether a text is what an instruction
-    /// describes.
+    /// describes, read after the messages before it.
     Judge {
         model: String,
         instruction: String,
+        author_name: String,
         text: String,
+        context: Vec<PriorMessage>,
     },
 }
 
@@ -169,10 +171,12 @@ impl Call {
             Call::Judge {
                 model,
                 instruction,
+                author_name,
                 text,
+                context,
             } => apis
                 .openrouter
-                .judge(api_key, model, instruction, text)
+                .judge(api_key, model, instruction, author_name, text, context)
                 .await
                 .map(Answer::Verdict)
                 .map_err(Failure::from),
@@ -460,13 +464,17 @@ impl OpenRouter for AiGateway {
         api_key: &str,
         model: &str,
         instruction: &str,
+        author_name: &str,
         text: &str,
+        context: &[InstructionContextMessage],
         retry: &ApiRetry,
     ) -> Result<OpenRouterInstructionVerdict, Err> {
         let call = Call::Judge {
             model: model.to_string(),
             instruction: instruction.to_string(),
+            author_name: author_name.to_string(),
             text: text.to_string(),
+            context: context.iter().map(prior_message).collect(),
         };
         match self.ask(api_key, call, retry).await? {
             Answer::Verdict(judgement) => Ok(OpenRouterInstructionVerdict {
@@ -481,9 +489,32 @@ impl OpenRouter for AiGateway {
         let call = || Call::Judge {
             model: model.to_string(),
             instruction: KEY_CHECK_INSTRUCTION.to_string(),
+            author_name: String::new(),
             text: KEY_CHECK_TEXT.to_string(),
+            context: Vec::new(),
         };
         self.check(api_key, call, true).await
+    }
+}
+
+/// An earlier message as the model reads it: its author's display name, and
+/// an attachment as a bracketed word before its caption, since the model sees
+/// only text.
+fn prior_message(message: &InstructionContextMessage) -> PriorMessage {
+    let attachment = message.attachment.map(|attachment| match attachment {
+        MessageAttachment::Image => "[image]",
+        MessageAttachment::Video => "[video]",
+        MessageAttachment::Voice => "[voice message]",
+        MessageAttachment::File => "[file]",
+    });
+    let text = match attachment {
+        Some(tag) if message.text.trim().is_empty() => tag.to_string(),
+        Some(tag) => format!("{tag} {}", message.text),
+        None => message.text.clone(),
+    };
+    PriorMessage {
+        author: message.author_name.clone(),
+        text,
     }
 }
 

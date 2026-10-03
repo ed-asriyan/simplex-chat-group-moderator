@@ -81,7 +81,7 @@ mod tests {
         let version: i64 = guard
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 34);
+        assert_eq!(version, 35);
     }
 
     /// 0022 rebuilds every rule as a `moderation_rules` row plus a condition
@@ -734,6 +734,7 @@ mod tests {
                 api_key: "sk-proj-abc".to_string(),
                 model: "openai/gpt-4.1-mini".to_string(),
                 instruction: "Match ads.".to_string(),
+                context_messages: 0,
                 retry: ApiRetry {
                     max_attempts: 2,
                     retry_delay_seconds: 4,

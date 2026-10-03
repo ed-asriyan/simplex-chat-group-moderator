@@ -51,6 +51,9 @@ pub struct GroupMessage {
     pub group: MessengerGroup,
     pub message_id: MessageId,
     pub author_id: UserId,
+    /// The name the author chose for themselves, as other members see it. Not
+    /// unique and not stable: it identifies nobody, `author_id` does.
+    pub author_name: String,
     pub text: String,
     /// What the message carries besides its text; `None` for a plain text
     /// message. An attachment's caption is the `text` above, so a picture with
@@ -122,4 +125,24 @@ pub enum KeyCheck {
 pub struct OpenRouterInstructionVerdict {
     pub matches: bool,
     pub reason: String,
+}
+
+/// One of a group's latest messages, kept for an OpenRouter instruction to
+/// read as context. `timestamp` is when it was posted, or last edited.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecentGroupMessage {
+    pub message_id: MessageId,
+    pub author_id: UserId,
+    pub author_name: String,
+    pub text: String,
+    pub attachment: Option<MessageAttachment>,
+    pub timestamp: DateTime<Utc>,
+}
+
+/// An earlier message as it is sent to a model: read for context, not judged.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstructionContextMessage {
+    pub author_name: String,
+    pub text: String,
+    pub attachment: Option<MessageAttachment>,
 }

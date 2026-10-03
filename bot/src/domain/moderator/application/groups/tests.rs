@@ -39,7 +39,9 @@ impl OpenRouter for UnusedKeyVerifier {
         _api_key: &str,
         _model: &str,
         _instruction: &str,
+        _author_name: &str,
         _text: &str,
+        _context: &[crate::domain::moderator::ports::InstructionContextMessage],
         _retry: &crate::domain::moderator::ports::ApiRetry,
     ) -> Result<OpenRouterInstructionVerdict, Err> {
         panic!("no message is moderated while saving rules")
@@ -238,7 +240,9 @@ impl OpenRouter for FakeKeyVerifier {
         _api_key: &str,
         _model: &str,
         _instruction: &str,
+        _author_name: &str,
         _text: &str,
+        _context: &[crate::domain::moderator::ports::InstructionContextMessage],
         _retry: &crate::domain::moderator::ports::ApiRetry,
     ) -> Result<OpenRouterInstructionVerdict, Err> {
         panic!("no message is moderated while saving rules")
@@ -519,6 +523,7 @@ fn instructed(api_key: &str, model: &str) -> ModerationCondition {
         api_key: api_key.to_string(),
         model: model.to_string(),
         instruction: "Block crypto ads.".to_string(),
+        context_messages: 0,
     }
 }
 

@@ -1013,6 +1013,7 @@ fn instructed(api_key: &str, model: &str, instruction: &str) -> ModerationCondit
         api_key: api_key.to_string(),
         model: model.to_string(),
         instruction: instruction.to_string(),
+        context_messages: 0,
     }
 }
 
@@ -1132,5 +1133,57 @@ fn test_openrouter_instruction_describes_itself_without_its_key() {
     assert_eq!(
         instructed("sk-proj-abc", "openai/gpt-4.1-mini", "Block ads.").describe(),
         "flagged by OpenRouter instruction (openai/gpt-4.1-mini)"
+    );
+}
+
+#[test]
+fn test_openrouter_instruction_sends_at_most_the_maximum_of_earlier_messages() {
+    let with_context = |n| {
+        let mut condition = instructed("sk-proj-abc", "openai/gpt-4o-mini", "Block ads.");
+        if let ModerationCondition::FlaggedByOpenRouterInstruction {
+            context_messages, ..
+        } = &mut condition
+        {
+            *context_messages = n;
+        }
+        condition
+    };
+    for n in [0, 1, super::MAX_OPENROUTER_CONTEXT_MESSAGES] {
+        with_context(n).normalize_and_validate().unwrap();
+    }
+    let err = err_of(&mut with_context(
+        super::MAX_OPENROUTER_CONTEXT_MESSAGES + 1,
+    ));
+    assert!(
+        err.contains("at most 10 earlier messages"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn test_max_openrouter_context_messages_looks_through_the_whole_tree() {
+    let with_context = |n| {
+        let mut condition = instructed("sk-proj-abc", "openai/gpt-4o-mini", "Block ads.");
+        if let ModerationCondition::FlaggedByOpenRouterInstruction {
+            context_messages, ..
+        } = &mut condition
+        {
+            *context_messages = n;
+        }
+        condition
+    };
+    let tree = ModerationCondition::Any {
+        conditions: vec![
+            with_context(2),
+            ModerationCondition::Not {
+                condition: Box::new(with_context(5)),
+            },
+        ],
+    };
+    assert_eq!(tree.max_openrouter_context_messages(), Some(5));
+    assert_eq!(with_context(0).max_openrouter_context_messages(), None);
+    assert_eq!(
+        ModerationCondition::IsBlank.max_openrouter_context_messages(),
+        None
     );
 }

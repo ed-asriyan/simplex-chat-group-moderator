@@ -55,6 +55,8 @@ pub enum SimplexEvent {
         group_id: GroupId,
         group_name: String,
         author_id: UserId,
+        /// The name the author chose for themselves, as other members see it.
+        author_name: String,
         message_id: MessageId,
         timestamp: DateTime<Utc>,
         text: String,
@@ -484,6 +486,10 @@ async fn handle_event(
                                     SimplexEvent::GroupMessage {
                                         group_id: group_info.group_id,
                                         author_id: group_member.group_member_id,
+                                        author_name: group_member
+                                            .member_profile
+                                            .display_name
+                                            .clone(),
                                         group_name: group_info.group_profile.display_name.clone(),
                                         message_id: chat_item.chat_item.meta.item_id,
                                         text: content.text,
@@ -519,6 +525,7 @@ async fn handle_event(
                     .map(|content| SimplexEvent::GroupMessage {
                         group_id: group_info.group_id,
                         author_id: group_member.group_member_id,
+                        author_name: group_member.member_profile.display_name.clone(),
                         group_name: group_info.group_profile.display_name.clone(),
                         message_id: chat_item.chat_item.chat_item.meta.item_id,
                         text: content.text,

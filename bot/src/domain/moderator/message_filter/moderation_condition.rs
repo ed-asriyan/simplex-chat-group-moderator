@@ -31,6 +31,7 @@ mod api_retry;
 mod attachment;
 mod character_rate_limit;
 mod exact_message;
+mod instruction_context;
 mod invisible_chars;
 mod joined_recently;
 mod keywords;
@@ -229,12 +230,15 @@ pub enum ModerationCondition {
     /// A `model` on OpenRouter, asked with the owner's own OpenRouter
     /// `api_key` and given the owner's `instruction`, answers that the message
     /// is what the instruction describes. Sends the message text to OpenRouter
-    /// and the provider it routes to; a message with no text is never sent and
-    /// never matches.
+    /// and the provider it routes to, together with up to `context_messages`
+    /// of the group's messages that came before it, for the model to read but
+    /// not judge; a message with no text is never sent and never matches.
     FlaggedByOpenRouterInstruction {
         api_key: String,
         model: String,
         instruction: String,
+        #[serde(default)]
+        context_messages: u32,
         #[serde(flatten)]
         retry: ApiRetry,
     },
@@ -417,6 +421,19 @@ impl ModerationCondition {
                 time_window_minutes,
                 ..
             } => Some(*time_window_minutes),
+            _ => None,
+        })
+    }
+
+    /// Most `context_messages` over every
+    /// [`Self::FlaggedByOpenRouterInstruction`] in this tree: how many of the
+    /// group's latest messages have to be kept for it to read. `None` when no
+    /// condition here asks for any.
+    pub fn max_openrouter_context_messages(&self) -> Option<u32> {
+        self.max_window(|condition| match condition {
+            Self::FlaggedByOpenRouterInstruction {
+                context_messages, ..
+            } => Some(*context_messages),
             _ => None,
         })
     }
@@ -750,8 +767,15 @@ fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<()
             api_key,
             model,
             instruction,
+            context_messages,
             retry,
-        } => normalize_and_validate_openrouter_instruction(api_key, model, instruction, retry),
+        } => normalize_and_validate_openrouter_instruction(
+            api_key,
+            model,
+            instruction,
+            *context_messages,
+            retry,
+        ),
         ModerationCondition::IsBlank
         | ModerationCondition::ContainsInvisibleCharacters
         | ModerationCondition::ContainsImage
@@ -827,15 +851,27 @@ pub const OPENROUTER_INSTRUCTION_MODELS: [&str; 10] = [
 /// link and in every request, so it is billed on every message it checks.
 pub const MAX_OPENROUTER_INSTRUCTION_LENGTH: usize = 4000;
 
+/// Maximum number of earlier messages sent along with the one judged. Each
+/// is billed on every message checked, and is one more member's text handed
+/// to a third party. Mirrored by the field's `maximum` in `rules-schema.json`.
+pub const MAX_OPENROUTER_CONTEXT_MESSAGES: u32 = 10;
+
 fn normalize_and_validate_openrouter_instruction(
     api_key: &mut String,
     model: &str,
     instruction: &mut String,
+    context_messages: u32,
     retry: &ApiRetry,
 ) -> Result<(), Err> {
     const TITLE: &str = "Flagged by OpenRouter Instruction";
     normalize_api_key(api_key, "OpenRouter", TITLE)?;
     retry.validate(TITLE)?;
+    if context_messages > MAX_OPENROUTER_CONTEXT_MESSAGES {
+        return Err(format!(
+            "'{TITLE}' can send at most {MAX_OPENROUTER_CONTEXT_MESSAGES} earlier messages, got {context_messages}"
+        )
+        .into());
+    }
     if !OPENROUTER_INSTRUCTION_MODELS.contains(&model) {
         return Err(format!(
             "'{TITLE}' cannot use the model '{model}'. Pick one of: {}",
@@ -1383,15 +1419,44 @@ async fn evaluate(
             api_key,
             model,
             instruction,
+            context_messages,
             retry,
         } => {
             let text = &ctx.group_message.text;
             if text.trim().is_empty() {
                 return Ok(None);
             }
+            let context = if *context_messages == 0 {
+                Vec::new()
+            } else {
+                match ctx
+                    .message_history
+                    .messages_before(
+                        &ctx.group_message.group.id,
+                        &ctx.group_message.message_id,
+                        *context_messages,
+                        ctx.group_message.timestamp,
+                    )
+                    .await
+                {
+                    Ok(earlier) => instruction_context::for_model(&earlier),
+                    // Asked without the context the owner configured, the
+                    // model could give a different answer; no verdict is safer
+                    // than a different one.
+                    Err(_) => return Ok(None),
+                }
+            };
             match ctx
                 .openrouter
-                .matches_instruction(api_key, model, instruction, text, retry)
+                .matches_instruction(
+                    api_key,
+                    model,
+                    instruction,
+                    &ctx.group_message.author_name,
+                    text,
+                    &context,
+                    retry,
+                )
                 .await
             {
                 Ok(verdict) if verdict.matches => {

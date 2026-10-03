@@ -19,7 +19,7 @@ There are two independent surfaces — DM conversation handling and group messag
 ### The web editor is schema-driven
 `webeditor/` is four static files published to GitHub Pages: `index.html` (a shell), `editor.css`, `editor.js` (the renderer) and `ai.js` (the AI handoff; see below). Their only dependency is lz-string. **`editor.js` knows no condition or action type by name.** It builds its registry from `rules-schema.json` at load: the entry's `title` gives the row label, its leading emoji gives the icon *and* the group in the type picker; `description` becomes the text behind the row's `ⓘ`; `properties` become the controls (`integer` → number field, `boolean` → checkbox, `array` of strings → chips, or a textarea in bulk mode past `BIG_LIST` (20) entries, `$ref` to a condition → nested rows, `string` with `format: password` → a masked field with a show button (a JSON Schema annotation; the value itself travels in the link like any other, but never into the AI prompt — see below), `string` → a text field, `string` with `format: textarea` → several lines, shown in the Apply diff by length rather than in full, `oneOf` of `const`s plus at most one integer branch → a select with a number field for the integer branch, whose `options.unit` follows the number); `default`, `minimum`/`maximum`, `maxItems`/`maxLength` and each field's own `description` are used as they are. So **a new rule type needs no frontend code** — only the `oneOf` entry described in the steps below. The one exception is a type whose title opens with a *new* subject emoji: the picker's group label for an emoji lives in `GROUPS` in `editor.js`, and an emoji missing from it falls into "Other". A type the schema does not know (a rule stored by a newer bot) renders as a read-only unknown row and is sent back untouched.
 
-What the schema cannot express lives in optional `options` keys on the same entry, each with a fallback when absent: `summary` (the one-line value summary in the row), `phrase` (the human wording in the rules list, mirroring `ModerationCondition::describe`), `execution_rank` and `covered_by` (action order and coverage — that knowledge belongs to `action_planner`; an entry is either a type name or `{type, when}` when the coverage depends on a setting, as `KickAuthor` covers `ModerateMessage` only with `delete_all_messages` on), `label` (a short field label when the schema `title` is a whole sentence), `short` (the row label when the title is too long for a nested row on a phone — the full title stays under `ⓘ` and in the AI prompt), `never_under_not` (mirrors `check_no_moderation_rate_limit_under_not`). `definitions.condition.options.max_depth` / `max_nodes` mirror `MAX_CONDITION_DEPTH` / `MAX_CONDITION_NODES`, the `model` field of `FlaggedByOpenRouterInstruction` lists exactly `OPENROUTER_INSTRUCTION_MODELS` (OpenRouter slugs of models that take `temperature` 0 and a strict JSON schema — OpenRouter's `structured_outputs` — and answer without reasoning first; check a new one against `https://openrouter.ai/api/v1/models?supported_parameters=structured_outputs`), and the schema root's `options.message_max_bytes` mirrors `MESSAGE_MAX_LENGTH_IN_BYTES` from `drivers/simplex/consts.rs`. The templates take `{field}`, `{field|n}`, `{field|list}`, `{field|phrase(s)}` and `{field?yes:no}` (with `$` for the value).
+What the schema cannot express lives in optional `options` keys on the same entry, each with a fallback when absent: `summary` (the one-line value summary in the row), `phrase` (the human wording in the rules list, mirroring `ModerationCondition::describe`), `execution_rank` and `covered_by` (action order and coverage — that knowledge belongs to `action_planner`; an entry is either a type name or `{type, when}` when the coverage depends on a setting, as `KickAuthor` covers `ModerateMessage` only with `delete_all_messages` on), `label` (a short field label when the schema `title` is a whole sentence), `short` (the row label when the title is too long for a nested row on a phone — the full title stays under `ⓘ` and in the AI prompt), `never_under_not` (mirrors `check_no_moderation_rate_limit_under_not`). `definitions.condition.options.max_depth` / `max_nodes` mirror `MAX_CONDITION_DEPTH` / `MAX_CONDITION_NODES`, the `model` field of `FlaggedByOpenRouterInstruction` lists exactly `OPENROUTER_INSTRUCTION_MODELS` (OpenRouter slugs of models that take `temperature` 0 and a strict JSON schema — OpenRouter's `structured_outputs` — and answer without reasoning first; check a new one against `https://openrouter.ai/api/v1/models?supported_parameters=structured_outputs`), the `maximum` of its `context_messages` mirrors `MAX_OPENROUTER_CONTEXT_MESSAGES` (and the column's `CHECK` in migration 0035), and the schema root's `options.message_max_bytes` mirrors `MESSAGE_MAX_LENGTH_IN_BYTES` from `drivers/simplex/consts.rs`. The templates take `{field}`, `{field|n}`, `{field|list}`, `{field|phrase(s)}` and `{field?yes:no}` (with `$` for the value).
 
 Those three keys are what the editor enforces *before* the bot does: it warns on a tree past the limits, and refuses a pasted ruleset that breaks them. Keeping them in step with the Rust constants is part of changing those constants.
 
@@ -97,6 +97,21 @@ Each bounded context follows the same internal shape:
     held against the key. A job that cannot be taken fails at once rather than blocking,
     and a provider failure reads as "no match". The ports are request/response,
     so the queue can later move out of the process without the domain noticing.
+    The earlier messages `FlaggedByOpenRouterInstruction` sends as context reach
+    it already anonymized by the domain (`ContextAuthor`: the judged message's
+    author, or "member N"); the gateway only turns them into the driver's
+    `PriorMessage`s, an attachment into a bracketed word before its caption.
+  - `group_message_history_repo_in_memory.rs` — implements
+    `GroupMessageHistoryRepository`: per group, the latest messages that stayed
+    in the chat, for `FlaggedByOpenRouterInstruction` to send as context. The bot
+    keeps them itself rather than asking SimpleX for its history. The
+    application records a message only once it has been moderated — so a
+    message is never its own context — and only while some rule reads earlier
+    messages, as many as the most demanding one asks for; an edit replaces the
+    kept text in place, and an edit the bot deleted is forgotten. Memory only:
+    the adapter caps retention at 24 hours and 50 messages per group, and
+    `bin/bot.rs` purges quiet groups hourly. A history that cannot be read is no
+    verdict, never a verdict without context.
   - `moderation_notification_router.rs` — lets `moderator` notify `bot_dm` by
     implementing `moderator::ModerationNotifier` on top of
     `bot_dm::ModerationNotificationReceiver`. The receiver is injected *after*
@@ -112,7 +127,10 @@ Each bounded context follows the same internal shape:
   (category names like `hate/threatening`, statuses, `insufficient_quota`) —
   it knows nothing about members, messages or groups. `drivers/openrouter.rs`
   is the same for OpenRouter (`OpenRouterApi` / `HttpOpenRouterApi`): the chat
-  completions call with a strict JSON schema, routed only to providers that
+  completions call with a strict JSON schema — with earlier messages, the user
+  message becomes one JSON object (`earlier_messages` beside the judged
+  `message`) and the instruction gains a note saying so, so no member can write
+  a line that passes for another's message — routed only to providers that
   honour it (`require_parameters`) and do not train on the text
   (`data_collection: deny`), and OpenRouter's errors (402 for credits, 403 for
   a key or for a flagged text). What makes something a driver is

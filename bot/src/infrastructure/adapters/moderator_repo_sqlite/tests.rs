@@ -811,6 +811,7 @@ fn instructed(api_key: &str, model: &str) -> ModerationCondition {
         api_key: api_key.to_string(),
         model: model.to_string(),
         instruction: "Block crypto ads.\nAllow \"quotes\" and ünïcode — всё.".to_string(),
+        context_messages: 3,
     }
 }
 

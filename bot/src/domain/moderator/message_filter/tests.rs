@@ -6,6 +6,7 @@ use crate::domain::moderator::ports::{
 use crate::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
 use crate::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
 use crate::infrastructure::adapters::group_message_activity_repo_in_memory::InMemoryGroupMessageActivityRepository;
+use crate::infrastructure::adapters::group_message_history_repo_in_memory::InMemoryGroupMessageHistoryRepository;
 use crate::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
 use crate::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
 use crate::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
@@ -199,6 +200,7 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -256,6 +258,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -302,6 +305,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -349,6 +353,7 @@ async fn test_no_rules_match_returns_none() {
             &no_group_activity(),
             &no_group_character_activity(),
             &no_group_line_activity(),
+            &no_message_history(),
             &UnusedAi,
             &UnusedAi,
         )
@@ -453,6 +458,7 @@ async fn test_should_moderate_with_line_rate_limit() {
         },
         message_id: 10,
         author_id: 2,
+        author_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -485,6 +491,7 @@ async fn test_should_moderate_with_line_rate_limit() {
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -516,6 +523,7 @@ async fn test_should_moderate_with_line_rate_limit() {
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -545,6 +553,10 @@ fn no_group_character_activity() -> InMemoryGroupCharacterActivityRepository {
 
 fn no_group_line_activity() -> InMemoryGroupLineActivityRepository {
     InMemoryGroupLineActivityRepository::new()
+}
+
+fn no_message_history() -> InMemoryGroupMessageHistoryRepository {
+    InMemoryGroupMessageHistoryRepository::new()
 }
 
 struct MockActivityRepoForFilter {
@@ -614,6 +626,7 @@ async fn test_should_moderate_with_character_rate_limit() {
         },
         message_id: 10,
         author_id: 2,
+        author_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -646,6 +659,7 @@ async fn test_should_moderate_with_character_rate_limit() {
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -683,6 +697,7 @@ async fn test_should_moderate_with_character_rate_limit() {
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -706,6 +721,7 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
         },
         message_id: 10,
         author_id: 2,
+        author_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -757,6 +773,7 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
             &no_group_activity(),
             &no_group_character_activity(),
             &no_group_line_activity(),
+            &no_message_history(),
             &UnusedAi,
             &UnusedAi,
         )
@@ -775,6 +792,7 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
             &no_group_activity(),
             &no_group_character_activity(),
             &no_group_line_activity(),
+            &no_message_history(),
             &UnusedAi,
             &UnusedAi,
         )
@@ -807,6 +825,7 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
             &no_group_activity(),
             &no_group_character_activity(),
             &no_group_line_activity(),
+            &no_message_history(),
             &UnusedAi,
             &UnusedAi,
         )
@@ -825,6 +844,7 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
             &no_group_activity(),
             &no_group_character_activity(),
             &no_group_line_activity(),
+            &no_message_history(),
             &UnusedAi,
             &UnusedAi,
         )
@@ -856,6 +876,7 @@ async fn test_should_moderate_with_message_rate_limit() {
         },
         message_id: 10,
         author_id: 2,
+        author_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -875,6 +896,7 @@ async fn test_should_moderate_with_message_rate_limit() {
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -893,6 +915,7 @@ async fn test_should_moderate_with_message_rate_limit() {
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -937,6 +960,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
         },
         message_id: 10,
         author_id: 2,
+        author_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -956,6 +980,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -974,6 +999,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1032,6 +1058,7 @@ async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_mess
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1091,6 +1118,7 @@ async fn test_independent_rules_combine_and_order_deletion_before_kick() {
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1153,6 +1181,7 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
         },
         message_id: 10,
         author_id: 2,
+        author_name: String::new(),
         text: "this has badword".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1174,6 +1203,7 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1240,6 +1270,7 @@ async fn test_moderation_rate_limit_is_order_independent() {
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1301,6 +1332,7 @@ async fn matched(text: &str, condition: ModerationCondition) -> Option<Moderatio
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1448,6 +1480,7 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1512,6 +1545,7 @@ async fn test_moderation_rate_limit_in_a_tree_ignores_its_own_rule() {
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1646,6 +1680,7 @@ async fn moderates(rules: &[ModerationRule], text: &str) -> bool {
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1794,6 +1829,7 @@ async fn matched_from(
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         &UnusedAi,
         &UnusedAi,
     )
@@ -1911,6 +1947,7 @@ async fn test_moderates_pictures_and_leaves_them_out_of_is_blank() {
         },
         message_id: 10,
         author_id: 2,
+        author_name: String::new(),
         text: text.to_string(),
         attachment,
         timestamp: Utc::now(),
@@ -1931,6 +1968,7 @@ async fn test_moderates_pictures_and_leaves_them_out_of_is_blank() {
             &no_group_activity(),
             &no_group_character_activity(),
             &no_group_line_activity(),
+            &no_message_history(),
             &UnusedAi,
             &UnusedAi,
         )
@@ -2004,7 +2042,9 @@ impl OpenRouter for UnusedAi {
         _api_key: &str,
         _model: &str,
         _instruction: &str,
+        _author_name: &str,
         _text: &str,
+        _context: &[crate::domain::moderator::ports::InstructionContextMessage],
         _retry: &crate::domain::moderator::ports::ApiRetry,
     ) -> Result<OpenRouterInstructionVerdict, Err> {
         panic!("OpenRouter was asked about a message no rule sends to it")
@@ -2017,6 +2057,9 @@ pub struct ScriptedAi {
     verdict: Result<OpenRouterInstructionVerdict, String>,
     calls: std::sync::Mutex<Vec<(String, String)>>,
     instruction_calls: std::sync::Mutex<Vec<(String, String, String, String)>>,
+    contexts:
+        std::sync::Mutex<Vec<Vec<crate::domain::moderator::ports::InstructionContextMessage>>>,
+    judged_authors: std::sync::Mutex<Vec<String>>,
 }
 
 impl ScriptedAi {
@@ -2026,6 +2069,8 @@ impl ScriptedAi {
             verdict: Err("no verdict scripted".to_string()),
             calls: std::sync::Mutex::new(Vec::new()),
             instruction_calls: std::sync::Mutex::new(Vec::new()),
+            contexts: std::sync::Mutex::new(Vec::new()),
+            judged_authors: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -2042,6 +2087,14 @@ impl ScriptedAi {
             }),
             ..Self::answering(Err("no moderation scripted".to_string()))
         }
+    }
+
+    pub fn judged_authors(&self) -> Vec<String> {
+        self.judged_authors.lock().unwrap().clone()
+    }
+
+    pub fn contexts(&self) -> Vec<Vec<crate::domain::moderator::ports::InstructionContextMessage>> {
+        self.contexts.lock().unwrap().clone()
     }
 
     pub fn calls(&self) -> Vec<(String, String)> {
@@ -2085,9 +2138,16 @@ impl OpenRouter for ScriptedAi {
         api_key: &str,
         model: &str,
         instruction: &str,
+        author_name: &str,
         text: &str,
+        context: &[crate::domain::moderator::ports::InstructionContextMessage],
         _retry: &crate::domain::moderator::ports::ApiRetry,
     ) -> Result<OpenRouterInstructionVerdict, Err> {
+        self.contexts.lock().unwrap().push(context.to_vec());
+        self.judged_authors
+            .lock()
+            .unwrap()
+            .push(author_name.to_string());
         self.instruction_calls.lock().unwrap().push((
             api_key.to_string(),
             model.to_string(),
@@ -2132,6 +2192,7 @@ async fn matched_with(
         &no_group_activity(),
         &no_group_character_activity(),
         &no_group_line_activity(),
+        &no_message_history(),
         openai,
         openai,
     )
@@ -2390,6 +2451,7 @@ fn openrouter_instruction(api_key: &str) -> ModerationCondition {
         api_key: api_key.to_string(),
         model: "openai/gpt-4o-mini".to_string(),
         instruction: "Block crypto ads.".to_string(),
+        context_messages: 0,
     }
 }
 
@@ -2412,6 +2474,7 @@ fn test_openrouter_instruction_wire_format_matches_the_editor_schema() {
             "api_key": "sk-or-v1-abc",
             "model": "openai/gpt-4o-mini",
             "instruction": "Block crypto ads.",
+            "context_messages": 0,
             "max_attempts": 3,
             "retry_delay_seconds": 1
         })
@@ -2604,6 +2667,189 @@ async fn test_all_does_not_ask_the_model_once_an_earlier_condition_fails() {
     };
 
     let hit = matched_with(&openai, &text_message("hello"), &rule_with(condition)).await;
+
+    assert!(hit.is_none());
+    assert!(openai.instruction_calls().is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// FlaggedByOpenRouterInstruction: earlier messages as context
+// ---------------------------------------------------------------------------
+
+fn instruction_with_context(context_messages: u32) -> ModerationCondition {
+    let mut condition = openrouter_instruction("sk-one");
+    if let ModerationCondition::FlaggedByOpenRouterInstruction {
+        context_messages: n,
+        ..
+    } = &mut condition
+    {
+        *n = context_messages;
+    }
+    condition
+}
+
+async fn judged_with_history(
+    openai: &ScriptedAi,
+    history: &dyn crate::domain::moderator::ports::GroupMessageHistoryRepository,
+    msg: &GroupMessage,
+    condition: ModerationCondition,
+) -> Option<ModerationMatch> {
+    should_moderate(
+        msg,
+        &rule_with(condition),
+        &InMemoryUserMessageActivityRepository::new(),
+        &no_character_activity(),
+        &no_line_activity(),
+        &InMemoryUserModerationActivityRepository::new(),
+        &no_group_activity(),
+        &no_group_character_activity(),
+        &no_group_line_activity(),
+        history,
+        openai,
+        openai,
+    )
+    .await
+    .unwrap()
+}
+
+async fn history_of(messages: &[(i64, UserId, &str)]) -> InMemoryGroupMessageHistoryRepository {
+    use crate::domain::moderator::ports::{GroupMessageHistoryRepository, RecentGroupMessage};
+    let history = no_message_history();
+    for (message_id, author_id, text) in messages {
+        history
+            .record_message(
+                &1,
+                RecentGroupMessage {
+                    message_id: *message_id,
+                    author_id: *author_id,
+                    author_name: format!("name {author_id}"),
+                    text: text.to_string(),
+                    attachment: None,
+                    timestamp: Utc::now(),
+                },
+                10,
+            )
+            .await
+            .unwrap();
+    }
+    history
+}
+
+fn message_in_group_1(message_id: i64, author_id: UserId, text: &str) -> GroupMessage {
+    let mut msg = text_message(text);
+    msg.group.id = 1;
+    msg.message_id = message_id;
+    msg.author_id = author_id;
+    msg.author_name = format!("name {author_id}");
+    msg.timestamp = Utc::now();
+    msg
+}
+
+#[tokio::test]
+async fn test_the_latest_earlier_messages_go_along_with_their_authors_names() {
+    use crate::domain::moderator::ports::InstructionContextMessage;
+    let openai = ScriptedAi::judging(Ok(false));
+    let history = history_of(&[
+        (1, 50, "too old"),
+        (2, 60, "anyone selling?"),
+        (3, 70, "yes"),
+    ])
+    .await;
+
+    judged_with_history(
+        &openai,
+        &history,
+        &message_in_group_1(4, 60, "me, dm"),
+        instruction_with_context(2),
+    )
+    .await;
+
+    assert_eq!(
+        openai.contexts(),
+        vec![vec![
+            InstructionContextMessage {
+                author_name: "name 60".to_string(),
+                text: "anyone selling?".to_string(),
+                attachment: None,
+            },
+            InstructionContextMessage {
+                author_name: "name 70".to_string(),
+                text: "yes".to_string(),
+                attachment: None,
+            },
+        ]]
+    );
+    assert_eq!(openai.judged_authors(), vec!["name 60".to_string()]);
+}
+
+#[tokio::test]
+async fn test_no_earlier_message_goes_along_unless_asked() {
+    let openai = ScriptedAi::judging(Ok(false));
+    let history = history_of(&[(1, 50, "hello")]).await;
+
+    judged_with_history(
+        &openai,
+        &history,
+        &message_in_group_1(2, 60, "hi"),
+        instruction_with_context(0),
+    )
+    .await;
+
+    assert_eq!(openai.contexts(), vec![Vec::new()]);
+}
+
+/// The history cannot be read.
+struct BrokenHistory;
+
+#[async_trait::async_trait]
+impl crate::domain::moderator::ports::GroupMessageHistoryRepository for BrokenHistory {
+    async fn record_message(
+        &self,
+        _group_id: &MessengerGroupId,
+        _message: crate::domain::moderator::ports::RecentGroupMessage,
+        _keep: u32,
+    ) -> Result<(), Err> {
+        Err("broken".into())
+    }
+
+    async fn record_edit(
+        &self,
+        _group_id: &MessengerGroupId,
+        _message: crate::domain::moderator::ports::RecentGroupMessage,
+    ) -> Result<(), Err> {
+        Err("broken".into())
+    }
+
+    async fn forget_message(
+        &self,
+        _group_id: &MessengerGroupId,
+        _message_id: &crate::domain::moderator::ports::MessageId,
+    ) -> Result<(), Err> {
+        Err("broken".into())
+    }
+
+    async fn messages_before(
+        &self,
+        _group_id: &MessengerGroupId,
+        _message_id: &crate::domain::moderator::ports::MessageId,
+        _count: u32,
+        _now: DateTime<Utc>,
+    ) -> Result<Vec<crate::domain::moderator::ports::RecentGroupMessage>, Err> {
+        Err("broken".into())
+    }
+}
+
+#[tokio::test]
+async fn test_a_history_that_cannot_be_read_is_no_verdict_and_asks_nobody() {
+    let openai = ScriptedAi::judging(Ok(true));
+
+    let hit = judged_with_history(
+        &openai,
+        &BrokenHistory,
+        &message_in_group_1(2, 60, "buy my coin"),
+        instruction_with_context(3),
+    )
+    .await;
 
     assert!(hit.is_none());
     assert!(openai.instruction_calls().is_empty());

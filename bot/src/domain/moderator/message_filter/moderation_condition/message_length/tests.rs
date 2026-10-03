@@ -219,6 +219,7 @@ async fn test_integration_with_message_filter_rules() {
     use crate::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
     use crate::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
     use crate::infrastructure::adapters::group_message_activity_repo_in_memory::InMemoryGroupMessageActivityRepository;
+    use crate::infrastructure::adapters::group_message_history_repo_in_memory::InMemoryGroupMessageHistoryRepository;
     use crate::infrastructure::adapters::user_character_activity_repo_in_memory::InMemoryUserCharacterActivityRepository;
     use crate::infrastructure::adapters::user_line_activity_repo_in_memory::InMemoryUserLineActivityRepository;
     use crate::infrastructure::adapters::user_message_activity_repo_in_memory::InMemoryUserMessageActivityRepository;
@@ -231,6 +232,7 @@ async fn test_integration_with_message_filter_rules() {
     let group_repo = InMemoryGroupMessageActivityRepository::new();
     let group_char_repo = InMemoryGroupCharacterActivityRepository::new();
     let group_line_repo = InMemoryGroupLineActivityRepository::new();
+    let history = InMemoryGroupMessageHistoryRepository::new();
     let msg = |text: &str| GroupMessage {
         text: text.to_string(),
         ..Default::default()
@@ -264,6 +266,7 @@ async fn test_integration_with_message_filter_rules() {
             &group_repo,
             &group_char_repo,
             &group_line_repo,
+            &history,
             &UnusedAi,
             &UnusedAi,
         )

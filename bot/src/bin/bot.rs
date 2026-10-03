@@ -4,10 +4,11 @@ use bot::domain::bot_dm::ports::{
 };
 use bot::domain::moderator::ports::{
     GroupAdministration, GroupCharacterActivityRepository, GroupLineActivityRepository,
-    GroupMessage, GroupMessageActivityRepository, GroupModerator, MemberRestoreRepository,
-    MemberRestoreRunner, MessageAttachment, MessengerGroup, ModerationEngine, ModerationNotifier,
-    ModerationRepository, OpenAi, OpenRouter, UserCharacterActivityRepository,
-    UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
+    GroupMessage, GroupMessageActivityRepository, GroupMessageHistoryRepository, GroupModerator,
+    MemberRestoreRepository, MemberRestoreRunner, MessageAttachment, MessengerGroup,
+    ModerationEngine, ModerationNotifier, ModerationRepository, OpenAi, OpenRouter,
+    UserCharacterActivityRepository, UserLineActivityRepository, UserMessageActivityRepository,
+    UserModerationActivityRepository,
 };
 use bot::domain::moderator::{
     GroupAdministrationApplication, MemberRestoreApplication, MessageModerationApplication,
@@ -17,6 +18,7 @@ use bot::infrastructure::adapters::cross_domain_router::CrossDomainRouter;
 use bot::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
 use bot::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
 use bot::infrastructure::adapters::group_message_activity_repo_in_memory::InMemoryGroupMessageActivityRepository;
+use bot::infrastructure::adapters::group_message_history_repo_in_memory::InMemoryGroupMessageHistoryRepository;
 use bot::infrastructure::adapters::member_restore_repo_sqlite::SqliteMemberRestoreRepository;
 use bot::infrastructure::adapters::moderation_notification_router::ModerationNotificationRouter;
 use bot::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository;
@@ -45,6 +47,10 @@ use tokio::time::interval;
 /// coarse by nature — a minute of slack is not worth a tighter loop.
 const MEMBER_RESTORE_TICK: Duration = Duration::from_secs(60);
 
+/// How often kept messages past their retention are dropped from groups that
+/// have gone quiet; a group still talking drops its own on every message.
+const MESSAGE_HISTORY_PURGE_TICK: Duration = Duration::from_secs(60 * 60);
+
 async fn handle_event(
     event: SimplexEvent,
     dm_receiver: Arc<dyn BotDmReceiver>,
@@ -72,6 +78,7 @@ async fn handle_event(
             group_id,
             group_name,
             author_id,
+            author_name,
             message_id,
             timestamp,
             text,
@@ -86,6 +93,7 @@ async fn handle_event(
                 },
                 message_id,
                 author_id,
+                author_name,
                 text,
                 attachment: attachment.map(|attachment| match attachment {
                     DriverAttachment::Image => MessageAttachment::Image,
@@ -254,6 +262,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Arc::new(InMemoryGroupCharacterActivityRepository::new());
     let group_line_activity_repo: Arc<dyn GroupLineActivityRepository> =
         Arc::new(InMemoryGroupLineActivityRepository::new());
+    let message_history = Arc::new(InMemoryGroupMessageHistoryRepository::new());
     let member_restore_repo: Arc<dyn MemberRestoreRepository> =
         Arc::new(SqliteMemberRestoreRepository::new(conn.clone()));
 
@@ -283,6 +292,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         group_activity_repo,
         group_character_activity_repo,
         group_line_activity_repo,
+        message_history.clone() as Arc<dyn GroupMessageHistoryRepository>,
         member_restore_repo.clone(),
         openai.clone(),
         openrouter.clone(),
@@ -345,11 +355,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
+    // ---- kept messages past their retention ----
+    let history_purge_task = tokio::spawn(async move {
+        let mut ticks = interval(MESSAGE_HISTORY_PURGE_TICK);
+        loop {
+            ticks.tick().await;
+            if let Err(err) = message_history.purge_expired(Utc::now()) {
+                eprintln!("Error purging message history: {:#?}", err);
+            }
+        }
+    });
+
     info!("Bot initialized.");
 
     tokio::signal::ctrl_c().await?;
     polling_task.abort();
     restore_task.abort();
+    history_purge_task.abort();
     info!("Shutdown signal received.");
 
     Ok(())

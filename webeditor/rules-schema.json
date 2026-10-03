@@ -1354,7 +1354,7 @@
                 {
                     "type": "object",
                     "title": "💬 Flagged by OpenRouter Instruction",
-                    "description": "Sends the text of each message this condition checks, together with **your instruction**, to a model of your choice through [OpenRouter](https://openrouter.ai) with **your own** OpenRouter API key, and matches when the model answers that the message is what the instruction describes. The model also says why in one sentence, and that sentence is what the moderation notification shows. Pictures are not sent, and a message without text is never checked. The text leaves SimpleX's end-to-end encryption and is processed by OpenRouter and the provider it routes the model to; the bot only lets OpenRouter pick providers that do not keep the text to train on. If OpenRouter cannot be reached or gives no clear answer, the condition does not match.\n\n**Setting it up:** 1) sign up at [openrouter.ai](https://openrouter.ai); 2) buy credits on the [Credits page](https://openrouter.ai/settings/credits) — they are prepaid, so leave auto top-up off and load only what you are ready to spend; 3) on the [API Keys page](https://openrouter.ai/settings/keys) create a key for this bot alone and give it a **credit limit**: OpenRouter stops the key once it has spent that much; 4) paste the key below and pick a model. Every checked message is billed to your credits at that model's price — compare them in [OpenRouter's model list, cheapest first](https://openrouter.ai/models?supported_parameters=structured_outputs&order=pricing-low-to-high). When the credits or the key's limit run out, the condition simply stops matching.\n\nThe OpenAI and Anthropic models sit behind OpenRouter's own moderation: a message it flags as abusive never reaches the model, and this condition does not match it. If your instruction is about abuse, pick a Google, Mistral or Meta model, or use **Flagged by OpenAI Omni** instead.\n\nInside **All of These Conditions Match (AND)**, put this condition last: the others are checked first, and OpenRouter is only asked when they all match.",
+                    "description": "Sends the text of each message this condition checks, together with **your instruction** and, if you ask for them, the messages posted just before it, to a model of your choice through [OpenRouter](https://openrouter.ai) with **your own** OpenRouter API key, and matches when the model answers that the message is what the instruction describes. The model also says why in one sentence, and that sentence is what the moderation notification shows. Pictures are not sent, and a message without text is never checked. The text leaves SimpleX's end-to-end encryption and is processed by OpenRouter and the provider it routes the model to; the bot only lets OpenRouter pick providers that do not keep the text to train on. If OpenRouter cannot be reached or gives no clear answer, the condition does not match.\n\n**Setting it up:** 1) sign up at [openrouter.ai](https://openrouter.ai); 2) buy credits on the [Credits page](https://openrouter.ai/settings/credits) — they are prepaid, so leave auto top-up off and load only what you are ready to spend; 3) on the [API Keys page](https://openrouter.ai/settings/keys) create a key for this bot alone and give it a **credit limit**: OpenRouter stops the key once it has spent that much; 4) paste the key below and pick a model. Every checked message is billed to your credits at that model's price — compare them in [OpenRouter's model list, cheapest first](https://openrouter.ai/models?supported_parameters=structured_outputs&order=pricing-low-to-high). When the credits or the key's limit run out, the condition simply stops matching.\n\nThe OpenAI and Anthropic models sit behind OpenRouter's own moderation: a message it flags as abusive never reaches the model, and this condition does not match it. If your instruction is about abuse, pick a Google, Mistral or Meta model, or use **Flagged by OpenAI Omni** instead.\n\nInside **All of These Conditions Match (AND)**, put this condition last: the others are checked first, and OpenRouter is only asked when they all match.",
                     "required": [
                         "type",
                         "api_key",
@@ -1434,6 +1434,17 @@
                             "default": "",
                             "description": "What to catch, written to the model: describe what should match and what should not, e.g. \"Match advertising: crypto promotions, casinos, unsolicited offers. Do not match normal conversation or technical questions.\" The model answers yes or no for each message, plus a one-sentence reason. The instruction is sent with every message."
                         },
+                        "context_messages": {
+                            "type": "integer",
+                            "title": "Earlier Messages Sent as Context",
+                            "description": "How many of the group's messages posted just before the checked one are sent along with it, so the model can tell a reply from a message on its own — \"yes, DM me\" reads differently after \"who sells?\". The model reads them but judges only the checked message. Each goes with its author's display name, and the checked message then goes with its author's name too. Messages the bot deleted are left out. The bot keeps earlier messages in memory only, for up to 24 hours, and only while this condition is saved, so right after you save it or after the bot restarts there are fewer or none. 0 sends the message alone. Each earlier message is billed with every checked message, and is one more member's text sent to OpenRouter.",
+                            "minimum": 0,
+                            "maximum": 10,
+                            "default": 0,
+                            "options": {
+                                "label": "Context"
+                            }
+                        },
                         "max_attempts": {
                             "type": "integer",
                             "title": "Attempts",
@@ -1455,7 +1466,7 @@
                         }
                     },
                     "options": {
-                        "summary": "{model}",
+                        "summary": "{model}{context_messages? · $ earlier:}",
                         "phrase": "flagged by OpenRouter instruction ({model})"
                     }
                 },

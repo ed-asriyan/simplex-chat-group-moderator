@@ -12,8 +12,9 @@ use std::collections::HashMap;
 use super::ModerationCondition;
 use crate::domain::moderator::ports::{
     GroupCharacterActivityRepository, GroupLineActivityRepository, GroupMessage,
-    GroupMessageActivityRepository, OpenAi, OpenRouter, UserCharacterActivityRepository,
-    UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
+    GroupMessageActivityRepository, GroupMessageHistoryRepository, OpenAi, OpenRouter,
+    UserCharacterActivityRepository, UserLineActivityRepository, UserMessageActivityRepository,
+    UserModerationActivityRepository,
 };
 
 pub(in crate::domain::moderator::message_filter) struct ConditionContext<'a> {
@@ -25,6 +26,7 @@ pub(in crate::domain::moderator::message_filter) struct ConditionContext<'a> {
     pub group_activity_repo: &'a dyn GroupMessageActivityRepository,
     pub group_character_activity_repo: &'a dyn GroupCharacterActivityRepository,
     pub group_line_activity_repo: &'a dyn GroupLineActivityRepository,
+    pub message_history: &'a dyn GroupMessageHistoryRepository,
     pub openai: &'a dyn OpenAi,
     pub openrouter: &'a dyn OpenRouter,
 
@@ -54,6 +56,7 @@ impl<'a> ConditionContext<'a> {
         group_activity_repo: &'a dyn GroupMessageActivityRepository,
         group_character_activity_repo: &'a dyn GroupCharacterActivityRepository,
         group_line_activity_repo: &'a dyn GroupLineActivityRepository,
+        message_history: &'a dyn GroupMessageHistoryRepository,
         openai: &'a dyn OpenAi,
         openrouter: &'a dyn OpenRouter,
     ) -> Self {
@@ -66,6 +69,7 @@ impl<'a> ConditionContext<'a> {
             group_activity_repo,
             group_character_activity_repo,
             group_line_activity_repo,
+            message_history,
             openai,
             openrouter,
             message_is_moderated: false,

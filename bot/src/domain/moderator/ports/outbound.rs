@@ -7,9 +7,10 @@ use chrono::{DateTime, Utc};
 use std::time::Duration;
 
 use super::types::{
-    ApiRetry, Err, Group, GroupId, GroupMemberRole, KeyCheck, MessageId, MessengerGroupId,
-    ModerationAction, ModerationRule, OpenAiModerationResult, OpenRouterInstructionVerdict,
-    OwnedModerationRule, ScheduledMemberRestore, UserId,
+    ApiRetry, Err, Group, GroupId, GroupMemberRole, InstructionContextMessage, KeyCheck, MessageId,
+    MessengerGroupId, ModerationAction, ModerationRule, OpenAiModerationResult,
+    OpenRouterInstructionVerdict, OwnedModerationRule, RecentGroupMessage, ScheduledMemberRestore,
+    UserId,
 };
 
 /// Outbound port: notify a group owner that moderation actions were performed.
@@ -292,6 +293,51 @@ pub trait UserModerationActivityRepository: Send + Sync {
     ) -> Result<u32, Err>;
 }
 
+/// Outbound port: a group's latest messages, kept for
+/// `FlaggedByOpenRouterInstruction` to send along as context — the messenger
+/// is not asked for its history.
+///
+/// Only messages still standing in the chat are kept: the caller records a
+/// message once it has been moderated and was not deleted, and forgets an
+/// edited one the bot deleted. `keep` is how many of a group's latest
+/// messages the rules need right now; the adapter caps how long it keeps any.
+#[async_trait]
+pub trait GroupMessageHistoryRepository: Send + Sync {
+    /// Keep `message` as the group's latest, dropping the oldest beyond `keep`.
+    async fn record_message(
+        &self,
+        group_id: &MessengerGroupId,
+        message: RecentGroupMessage,
+        keep: u32,
+    ) -> Result<(), Err>;
+
+    /// Replace a kept message with its edit, in place. A message no longer
+    /// kept stays forgotten.
+    async fn record_edit(
+        &self,
+        group_id: &MessengerGroupId,
+        message: RecentGroupMessage,
+    ) -> Result<(), Err>;
+
+    /// Forget a kept message: the bot deleted it from the chat.
+    async fn forget_message(
+        &self,
+        group_id: &MessengerGroupId,
+        message_id: &MessageId,
+    ) -> Result<(), Err>;
+
+    /// Up to `count` kept messages that came before `message_id`, oldest
+    /// first — the latest `count` when `message_id` is not kept, which is the
+    /// case for a new message, since it is recorded only once moderated.
+    async fn messages_before(
+        &self,
+        group_id: &MessengerGroupId,
+        message_id: &MessageId,
+        count: u32,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<RecentGroupMessage>, Err>;
+}
+
 /// Outbound port: what the moderator asks OpenAI, always with the owner's own
 /// key: verdicts from the moderation model.
 ///
@@ -323,14 +369,18 @@ pub trait OpenAi: Send + Sync {
 /// `verify_model` is asked when an owner saves rules.
 #[async_trait]
 pub trait OpenRouter: Send + Sync {
-    /// Whether `model`, given the owner's `instruction`, says `text` is what
-    /// the instruction describes, and why.
+    /// Whether `model`, given the owner's `instruction`, says `text`, written
+    /// by `author_name`, is what the instruction describes, and why. `context`
+    /// is the group's earlier messages, oldest first, for the model to read but
+    /// not judge.
     async fn matches_instruction(
         &self,
         api_key: &str,
         model: &str,
         instruction: &str,
+        author_name: &str,
         text: &str,
+        context: &[InstructionContextMessage],
         retry: &ApiRetry,
     ) -> Result<OpenRouterInstructionVerdict, Err>;
 
