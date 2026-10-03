@@ -26,9 +26,9 @@
 //!      conditions saves a query).
 //!    - `Some(next)` → only now do we evaluate the condition. If it matches, the plan
 //!      becomes `next` and the human-readable reason is recorded.
-//! 2. After the loop, the planned actions are executed by the application layer in the order
-//!    the planner emitted them (see `action_planner`'s ordering guarantees, e.g. moderate
-//!    before kick).
+//! 2. After the loop, the application hands the planned actions to [`execute_actions`], which
+//!    carries them out in the order the planner emitted them (see `action_planner`'s ordering
+//!    guarantees, e.g. moderate before kick).
 //!
 //! # Conditions that depend on the other rules (why there is a pre-pass)
 //! Some conditions answer a question about the *other* rules. The one there is today,
@@ -66,13 +66,18 @@
 //!   what it achieves (`Effect`), where it goes in the execution order, how it is carried out
 //!   ([`execute_actions`]), and its tests.
 //! - `moderation_rule` — [`ModerationRule`]: the pairing of the two.
+//! - `bookkeeping` — what the bot records about every message so the conditions can answer
+//!   later, from what each condition says it needs.
+//! - `common` — what two conditions or actions share. It knows none of them, and nothing of
+//!   the engine around them.
 //!
 //! Alongside them — deliberately *not* inside `moderation_action` — sits `action_planner`,
 //! which merges the actions of several matched rules into one non-redundant plan and decides
-//! the order they run in, from what each action says it achieves and where it goes. It reasons about a *set* of actions coming from a *set* of rules, so
-//! it belongs at the same level as this module's own [`should_moderate`], not one level down
-//! inside the module that describes a single action. [`ModerationRule::normalize_and_validate`]
-//! reaches into it for the same reason: one rule's action list is such a set too.
+//! the order they run in, from what each action says it achieves and where it goes. It
+//! reasons about a *set* of actions coming from a *set* of rules, so it belongs at the same
+//! level as this module's own [`should_moderate`], not one level down inside the module that
+//! describes a single action. [`ModerationRule::normalize_and_validate`] reaches into it for
+//! the same reason: one rule's action list is such a set too.
 //!
 //! This module is left with the orchestration across a set of rules ([`should_moderate`]) and
 //! its result, [`ModerationMatch`].
@@ -85,6 +90,10 @@
 //! - Keep rule evaluation order-independent in outcome. If you need cross-rule context (like
 //!   the pre-pass flag), compute it up front rather than relying on list position.
 //! - Every condition should be evaluated at most once per message.
+//! - A condition or an action is named only by its own module and its registry line. The
+//!   engine asks it through its trait (`Condition`, `Action`); one leaf never imports another,
+//!   and what two of them share goes in `common`. `architecture_tests` checks this on the
+//!   source.
 
 mod action_planner;
 mod bookkeeping;
@@ -96,6 +105,8 @@ mod moderation_rule;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod architecture_tests;
 #[cfg(test)]
 mod format_tests;
 

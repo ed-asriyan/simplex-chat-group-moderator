@@ -72,6 +72,16 @@ Each bounded context follows the same internal shape:
 - `application/moderation.rs` — `MessageModerationApplication`, implementing `ModerationEngine` (moderate one incoming group message); `application/groups.rs` — `GroupAdministrationApplication`, implementing `GroupAdministration` (join/remove/list groups, read and save rules, notification and dry-mode toggles); `application/member_restore.rs` — `MemberRestoreApplication`, implementing `MemberRestoreRunner` (restore the members whose timed observer restriction has expired). `application.rs` only declares and re-exports them, and its own `application/tests.rs` holds the port fakes shared by the use-case test modules below it (a fake used by one of them lives in that module's `tests.rs` instead).
 - The restore runner is driven by a clock, not by a messenger event: `bin/bot.rs` ticks it once a minute and passes `Utc::now()` in, so the domain never reads a clock of its own — the same way `GroupMessage.timestamp` is the "now" of the moderation path.
 
+### Inside `moderator/rules/`: an engine that knows no condition or action
+`rules/` is an engine and its leaves. The leaves are the conditions (`rules/moderation_condition/<name>.rs`) and the actions (`rules/moderation_action/<name>.rs`), each a module of its own: the type with its settings, its `Condition` or `Action` impl, its tests, and any algorithm only it uses. The registries (`conditions!`, `actions!`) list them one line each and build the two serde enums from them. The engine is everything else, and it asks a leaf through its trait instead of naming it:
+- `rules.rs` — `should_moderate`: the loop over the rules, with the pre-pass for the conditions that `depends_on_other_rules()`;
+- `moderation_condition/tree.rs` — the composites `All`, `Any` and `Not`: normalization and the tree's limits;
+- `bookkeeping.rs` — records about each message what the conditions' merged `needs()` ask for;
+- `action_planner/` — merges the matched rules' actions by what each `effect()` achieves and orders them by `execution_rank()`;
+- `moderation_action.rs` — `execute_actions`, which carries out the plan.
+
+`rules/common/` holds what two leaves share (rate-limit windows, domain matching, screen lines, API key checks); it knows no leaf and nothing of the engine. The application builds `ConditionPorts` and `ActionPorts` from what it was wired with and calls the engine, so it never names a condition or an action: in the domain, adding one touches its own module and its registry line, nothing else.
+
 ### Infrastructure (`infrastructure/`)
 - `adapters/` — implementations of **outbound ports** (driven adapters) and the **cross-context routers**:
   - `moderator_repo_sqlite.rs` + `moderator_repo_sqlite_rules.rs` — SQLite
@@ -151,6 +161,9 @@ Each bounded context follows the same internal shape:
 | A low-level storage mechanism several adapters share | `infrastructure/drivers/` (generic, no domain types; the adapters keep the policy) |
 | Letting one bounded context call another | a router in `infrastructure/adapters/` |
 | Schema change | a new file in `infrastructure/migrations/` |
+| A new moderation condition or action | its own module under `domain/moderator/rules/moderation_condition/` or `domain/moderator/rules/moderation_action/` + one registry line (see the steps below) |
+| Code two conditions or actions share | `domain/moderator/rules/common/` |
+| Something the conditions need recorded about every message | a field of `Needs` + `domain/moderator/rules/bookkeeping.rs` |
 | Constructing/wiring concrete types | `bin/bot.rs` only |
 
 ### Hard rules
@@ -158,6 +171,8 @@ Each bounded context follows the same internal shape:
 - The two bounded contexts must not import each other's types directly in domain code. They exchange data only through the cross-domain **routers**, which translate between the two contexts' own types.
 - Application services depend on **ports (traits)**, not concrete adapters.
 - Each context defines its own error alias `type Err = Box<dyn Error + Send + Sync>` and its own copies of shared value types (`Group`, `GroupInvitation`, etc.). Routers convert between them explicitly — do not "share" a type across contexts.
+- Inside `domain/moderator/rules/`, a condition or action is named only by its own module and its registry line — never by another leaf, the engine, `rules/common/`, the application or the ports. A leaf reaches only its registry (as `super`), the ports and `rules/common/`; code two leaves share moves to `common` rather than being imported from one into the other. Infrastructure may name them: the repositories store them and the notification router translates them.
+- These rules are checked on the source: `domain/architecture_tests.rs` (no infrastructure, no other context, only the listed crates, no I/O and no clock) and `domain/moderator/rules/architecture_tests.rs` (the isolation above). Do not loosen them to make a change pass — a failure means the code is in the wrong place.
 
 ## Database principles
 Persistence is **infrastructure**. It lives in two places only:
