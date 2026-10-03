@@ -1,6 +1,6 @@
 //! Types the moderator context exchanges across its ports.
 
-pub use crate::domain::moderator::message_filter::{
+pub use crate::domain::moderator::rules::{
     ApiRetry, CategoryTrigger, ModerationAction, ModerationCondition, ModerationMatch,
     ModerationRule, OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult,
 };

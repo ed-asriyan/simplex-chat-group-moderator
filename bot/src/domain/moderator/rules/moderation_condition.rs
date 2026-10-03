@@ -1011,7 +1011,7 @@ fn depth_of(condition: &ModerationCondition) -> usize {
 /// Reject an `AuthorHitsModerationRateLimit` nested under a `Not`.
 ///
 /// That condition asks "is this message moderated by some other rule", and the
-/// pre-pass in `message_filter` answers it by evaluating every rule with these
+/// pre-pass in `rules` answers it by evaluating every rule with these
 /// nodes pinned to "no match". Under a negation, pinning a node to "no match"
 /// can *cause* the enclosing rule to fire, so the answer would depend on itself.
 /// The check is deliberately blind to negation parity: nothing useful is

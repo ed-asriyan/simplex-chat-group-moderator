@@ -4,7 +4,7 @@
 //! can never match; each check still treats 0 as "never matches" so a bad
 //! stored value is inert rather than matching every message.
 
-use crate::domain::moderator::message_filter::screen_lines::count_effective_lines;
+use crate::domain::moderator::rules::screen_lines::count_effective_lines;
 
 /// Matches a message with more than `max_characters` characters. Whitespace
 /// and line breaks count.

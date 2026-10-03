@@ -3,12 +3,12 @@
 
 use super::GroupAdministrationApplication;
 use crate::domain::moderator::application::tests::{MockGroupModerator, MockModerationRepository};
-use crate::domain::moderator::message_filter::ModerationCondition;
 use crate::domain::moderator::ports::{
     CategoryTrigger, Err, Group, GroupAdministration, GroupId, KeyCheck, MessengerGroupId,
     ModerationAction, ModerationRepository, ModerationRule, OpenAi, OpenAiCategoryTriggers,
     OpenAiModerationResult, OpenRouter, OpenRouterInstructionVerdict, OwnedModerationRule, UserId,
 };
+use crate::domain::moderator::rules::ModerationCondition;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

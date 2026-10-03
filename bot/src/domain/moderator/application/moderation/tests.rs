@@ -2,7 +2,6 @@ use super::MessageModerationApplication;
 use crate::domain::moderator::application::tests::{
     MockGroupModerator, MockMemberRestoreRepository, MockModerationRepository, PortCall,
 };
-use crate::domain::moderator::message_filter::ModerationCondition;
 use crate::domain::moderator::ports::{
     CategoryTrigger, Err, Group, GroupId, GroupMessage, GroupMessageActivityRepository, KeyCheck,
     MessageAttachment, MessageId, MessengerGroup, MessengerGroupId, ModerationAction,
@@ -11,6 +10,7 @@ use crate::domain::moderator::ports::{
     OwnedModerationRule, UserCharacterActivityRepository, UserId, UserLineActivityRepository,
     UserMessageActivityRepository, UserModerationActivityRepository,
 };
+use crate::domain::moderator::rules::ModerationCondition;
 use crate::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
 use crate::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
 use crate::infrastructure::adapters::group_message_activity_repo_in_memory::InMemoryGroupMessageActivityRepository;

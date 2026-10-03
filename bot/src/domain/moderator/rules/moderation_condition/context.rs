@@ -17,7 +17,7 @@ use crate::domain::moderator::ports::{
     UserModerationActivityRepository,
 };
 
-pub(in crate::domain::moderator::message_filter) struct ConditionContext<'a> {
+pub(in crate::domain::moderator::rules) struct ConditionContext<'a> {
     pub group_message: &'a GroupMessage,
     pub activity_repo: &'a dyn UserMessageActivityRepository,
     pub character_activity_repo: &'a dyn UserCharacterActivityRepository,

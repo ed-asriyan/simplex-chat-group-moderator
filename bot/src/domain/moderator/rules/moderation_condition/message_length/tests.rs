@@ -209,13 +209,13 @@ fn test_zero_maximum_never_matches() {
 }
 
 #[tokio::test]
-async fn test_integration_with_message_filter_rules() {
-    use crate::domain::moderator::message_filter::tests::UnusedAi;
-    use crate::domain::moderator::message_filter::{
+async fn test_integration_with_rule_evaluation() {
+    use crate::domain::moderator::ports::GroupMessage;
+    use crate::domain::moderator::rules::tests::UnusedAi;
+    use crate::domain::moderator::rules::{
         ModerationAction, ModerationCondition, ModerationRule,
         should_moderate as top_level_moderate,
     };
-    use crate::domain::moderator::ports::GroupMessage;
     use crate::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
     use crate::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
     use crate::infrastructure::adapters::group_message_activity_repo_in_memory::InMemoryGroupMessageActivityRepository;

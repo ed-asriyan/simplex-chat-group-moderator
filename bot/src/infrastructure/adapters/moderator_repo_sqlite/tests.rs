@@ -278,7 +278,7 @@ async fn test_round_trips_group_rate_limit_settings() {
 // Persistence round-trips
 //
 // Condition limits and normalization are the domain's job (see
-// `message_filter::rule_condition`); what matters here is that a condition survives
+// `rules::moderation_condition`); what matters here is that a condition survives
 // a save/load cycle unchanged, including its child-table entries.
 // ---------------------------------------------------------------------------
 

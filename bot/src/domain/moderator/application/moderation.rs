@@ -3,7 +3,6 @@ use chrono::Duration as ChronoDuration;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::domain::moderator::message_filter::{count_effective_lines, should_moderate};
 use crate::domain::moderator::ports::{
     Err, GroupCharacterActivityRepository, GroupLineActivityRepository, GroupMemberRole,
     GroupMessage, GroupMessageActivityRepository, GroupMessageHistoryRepository, GroupModerator,
@@ -12,6 +11,7 @@ use crate::domain::moderator::ports::{
     UserCharacterActivityRepository, UserLineActivityRepository, UserMessageActivityRepository,
     UserModerationActivityRepository,
 };
+use crate::domain::moderator::rules::{count_effective_lines, should_moderate};
 
 #[cfg(test)]
 mod tests;
