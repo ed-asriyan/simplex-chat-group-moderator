@@ -7,6 +7,15 @@
 //! the tree is assembled in memory. The query count is therefore independent of
 //! how many rules the group has and how deeply nested they are.
 
+use crate::domain::moderator::ports::conditions::{
+    AuthorHitsCharacterRateLimit, AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit,
+    AuthorHitsModerationRateLimit, AuthorJoinedRecently, ContainsFile, ContainsImage,
+    ContainsInvisibleCharacters, ContainsLinksInList, ContainsLinksOutsideList,
+    ContainsLinksOutsideTop100, ContainsRepeatedSequence, ContainsVideo, ContainsVoiceMessage,
+    ContainsWords, ExceedsMaxCharacters, ExceedsMaxLines, ExceedsMaxWords, FlaggedByOmniModeration,
+    FlaggedByOpenRouterInstruction, GroupHitsCharacterRateLimit, GroupHitsLineRateLimit,
+    GroupHitsMessageRateLimit, IsBlank, MatchesExactMessage, MatchesRegex,
+};
 use std::collections::HashMap;
 
 use crate::domain::moderator::ports::{
@@ -409,71 +418,89 @@ fn build_condition(
                 condition: Box::new(built.remove(0)),
             })
         }
-        "ContainsWords" => Ok(ModerationCondition::ContainsWords {
+        "ContainsWords" => Ok(ModerationCondition::ContainsWords(ContainsWords {
             keywords: data.words.get(&id).cloned().unwrap_or_default(),
-        }),
-        "MatchesExactMessage" => Ok(ModerationCondition::MatchesExactMessage {
-            messages: data.exact_messages.get(&id).cloned().unwrap_or_default(),
-            case_sensitive: data
-                .exact_message_settings
-                .get(&id)
-                .copied()
-                .unwrap_or(false),
-        }),
-        "MatchesRegex" => Ok(ModerationCondition::MatchesRegex {
+        })),
+        "MatchesExactMessage" => Ok(ModerationCondition::MatchesExactMessage(
+            MatchesExactMessage {
+                messages: data.exact_messages.get(&id).cloned().unwrap_or_default(),
+                case_sensitive: data
+                    .exact_message_settings
+                    .get(&id)
+                    .copied()
+                    .unwrap_or(false),
+            },
+        )),
+        "MatchesRegex" => Ok(ModerationCondition::MatchesRegex(MatchesRegex {
             patterns: data.regex_patterns.get(&id).cloned().unwrap_or_default(),
-        }),
+        })),
         "ContainsRepeatedSequence" => {
             let (min_repeats, min_length) =
                 data.repeated_sequence.get(&id).copied().unwrap_or((0, 0));
-            Ok(ModerationCondition::ContainsRepeatedSequence {
-                min_repeats,
-                min_length,
-            })
+            Ok(ModerationCondition::ContainsRepeatedSequence(
+                ContainsRepeatedSequence {
+                    min_repeats,
+                    min_length,
+                },
+            ))
         }
-        "ContainsLinksInList" => Ok(ModerationCondition::ContainsLinksInList {
-            domains: data.links_in_list.get(&id).cloned().unwrap_or_default(),
-        }),
-        "ContainsLinksOutsideList" => Ok(ModerationCondition::ContainsLinksOutsideList {
-            domains: data
-                .links_outside_list
-                .get(&id)
-                .cloned()
-                .unwrap_or_default(),
-        }),
-        "ContainsLinksOutsideTop100" => Ok(ModerationCondition::ContainsLinksOutsideTop100 {
-            domains: data
-                .links_outside_top100
-                .get(&id)
-                .cloned()
-                .unwrap_or_default(),
-        }),
-        "IsBlank" => Ok(ModerationCondition::IsBlank),
-        "ContainsInvisibleCharacters" => Ok(ModerationCondition::ContainsInvisibleCharacters),
-        "ContainsImage" => Ok(ModerationCondition::ContainsImage),
-        "ContainsVideo" => Ok(ModerationCondition::ContainsVideo),
-        "ContainsVoiceMessage" => Ok(ModerationCondition::ContainsVoiceMessage),
-        "ContainsFile" => Ok(ModerationCondition::ContainsFile),
-        "ExceedsMaxCharacters" => Ok(ModerationCondition::ExceedsMaxCharacters {
-            max_characters: data.max_characters.get(&id).copied().unwrap_or(0),
-        }),
-        "ExceedsMaxWords" => Ok(ModerationCondition::ExceedsMaxWords {
+        "ContainsLinksInList" => Ok(ModerationCondition::ContainsLinksInList(
+            ContainsLinksInList {
+                domains: data.links_in_list.get(&id).cloned().unwrap_or_default(),
+            },
+        )),
+        "ContainsLinksOutsideList" => Ok(ModerationCondition::ContainsLinksOutsideList(
+            ContainsLinksOutsideList {
+                domains: data
+                    .links_outside_list
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_default(),
+            },
+        )),
+        "ContainsLinksOutsideTop100" => Ok(ModerationCondition::ContainsLinksOutsideTop100(
+            ContainsLinksOutsideTop100 {
+                domains: data
+                    .links_outside_top100
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_default(),
+            },
+        )),
+        "IsBlank" => Ok(ModerationCondition::IsBlank(IsBlank {})),
+        "ContainsInvisibleCharacters" => Ok(ModerationCondition::ContainsInvisibleCharacters(
+            ContainsInvisibleCharacters {},
+        )),
+        "ContainsImage" => Ok(ModerationCondition::ContainsImage(ContainsImage {})),
+        "ContainsVideo" => Ok(ModerationCondition::ContainsVideo(ContainsVideo {})),
+        "ContainsVoiceMessage" => Ok(ModerationCondition::ContainsVoiceMessage(
+            ContainsVoiceMessage {},
+        )),
+        "ContainsFile" => Ok(ModerationCondition::ContainsFile(ContainsFile {})),
+        "ExceedsMaxCharacters" => Ok(ModerationCondition::ExceedsMaxCharacters(
+            ExceedsMaxCharacters {
+                max_characters: data.max_characters.get(&id).copied().unwrap_or(0),
+            },
+        )),
+        "ExceedsMaxWords" => Ok(ModerationCondition::ExceedsMaxWords(ExceedsMaxWords {
             max_words: data.max_words.get(&id).copied().unwrap_or(0),
-        }),
+        })),
         "ExceedsMaxLines" => {
             let (max_lines, chars_per_line) = data.max_lines.get(&id).copied().unwrap_or((0, 40));
-            Ok(ModerationCondition::ExceedsMaxLines {
+            Ok(ModerationCondition::ExceedsMaxLines(ExceedsMaxLines {
                 max_lines,
                 chars_per_line,
-            })
+            }))
         }
         "AuthorHitsMessageRateLimit" => {
             let (message_count, time_window_minutes) =
                 data.message_rate_limit.get(&id).copied().unwrap_or((0, 0));
-            Ok(ModerationCondition::AuthorHitsMessageRateLimit {
-                message_count,
-                time_window_minutes,
-            })
+            Ok(ModerationCondition::AuthorHitsMessageRateLimit(
+                AuthorHitsMessageRateLimit {
+                    message_count,
+                    time_window_minutes,
+                },
+            ))
         }
         "AuthorHitsCharacterRateLimit" => {
             let (character_count, time_window_minutes) = data
@@ -481,19 +508,23 @@ fn build_condition(
                 .get(&id)
                 .copied()
                 .unwrap_or((0, 0));
-            Ok(ModerationCondition::AuthorHitsCharacterRateLimit {
-                character_count,
-                time_window_minutes,
-            })
+            Ok(ModerationCondition::AuthorHitsCharacterRateLimit(
+                AuthorHitsCharacterRateLimit {
+                    character_count,
+                    time_window_minutes,
+                },
+            ))
         }
         "AuthorHitsLineRateLimit" => {
             let (line_count, time_window_minutes, chars_per_line) =
                 data.line_rate_limit.get(&id).copied().unwrap_or((0, 0, 0));
-            Ok(ModerationCondition::AuthorHitsLineRateLimit {
-                line_count,
-                time_window_minutes,
-                chars_per_line,
-            })
+            Ok(ModerationCondition::AuthorHitsLineRateLimit(
+                AuthorHitsLineRateLimit {
+                    line_count,
+                    time_window_minutes,
+                    chars_per_line,
+                },
+            ))
         }
         "AuthorHitsModerationRateLimit" => {
             let (message_count, time_window_minutes) = data
@@ -501,10 +532,12 @@ fn build_condition(
                 .get(&id)
                 .copied()
                 .unwrap_or((0, 0));
-            Ok(ModerationCondition::AuthorHitsModerationRateLimit {
-                message_count,
-                time_window_minutes,
-            })
+            Ok(ModerationCondition::AuthorHitsModerationRateLimit(
+                AuthorHitsModerationRateLimit {
+                    message_count,
+                    time_window_minutes,
+                },
+            ))
         }
         "GroupHitsMessageRateLimit" => {
             let (message_count, time_window_minutes) = data
@@ -512,10 +545,12 @@ fn build_condition(
                 .get(&id)
                 .copied()
                 .unwrap_or((0, 0));
-            Ok(ModerationCondition::GroupHitsMessageRateLimit {
-                message_count,
-                time_window_minutes,
-            })
+            Ok(ModerationCondition::GroupHitsMessageRateLimit(
+                GroupHitsMessageRateLimit {
+                    message_count,
+                    time_window_minutes,
+                },
+            ))
         }
         "GroupHitsCharacterRateLimit" => {
             let (character_count, time_window_minutes) = data
@@ -523,10 +558,12 @@ fn build_condition(
                 .get(&id)
                 .copied()
                 .unwrap_or((0, 0));
-            Ok(ModerationCondition::GroupHitsCharacterRateLimit {
-                character_count,
-                time_window_minutes,
-            })
+            Ok(ModerationCondition::GroupHitsCharacterRateLimit(
+                GroupHitsCharacterRateLimit {
+                    character_count,
+                    time_window_minutes,
+                },
+            ))
         }
         "GroupHitsLineRateLimit" => {
             let (line_count, time_window_minutes, chars_per_line) = data
@@ -534,22 +571,28 @@ fn build_condition(
                 .get(&id)
                 .copied()
                 .unwrap_or((0, 0, 0));
-            Ok(ModerationCondition::GroupHitsLineRateLimit {
-                line_count,
-                time_window_minutes,
-                chars_per_line,
-            })
+            Ok(ModerationCondition::GroupHitsLineRateLimit(
+                GroupHitsLineRateLimit {
+                    line_count,
+                    time_window_minutes,
+                    chars_per_line,
+                },
+            ))
         }
-        "AuthorJoinedRecently" => Ok(ModerationCondition::AuthorJoinedRecently {
-            time_window_minutes: data.joined_recently.get(&id).copied().unwrap_or(0),
-        }),
+        "AuthorJoinedRecently" => Ok(ModerationCondition::AuthorJoinedRecently(
+            AuthorJoinedRecently {
+                time_window_minutes: data.joined_recently.get(&id).copied().unwrap_or(0),
+            },
+        )),
         "FlaggedByOmniModeration" => {
             let (api_key, retry) = data.openai_api_keys.get(&id).cloned().unwrap_or_default();
-            Ok(ModerationCondition::FlaggedByOmniModeration {
-                api_key,
-                triggers: data.openai_triggers.get(&id).copied().unwrap_or_default(),
-                retry,
-            })
+            Ok(ModerationCondition::FlaggedByOmniModeration(
+                FlaggedByOmniModeration {
+                    api_key,
+                    triggers: data.openai_triggers.get(&id).copied().unwrap_or_default(),
+                    retry,
+                },
+            ))
         }
         "FlaggedByOpenRouterInstruction" => {
             let (api_key, model, instruction, context_messages, retry) = data
@@ -557,13 +600,15 @@ fn build_condition(
                 .get(&id)
                 .cloned()
                 .unwrap_or_default();
-            Ok(ModerationCondition::FlaggedByOpenRouterInstruction {
-                api_key,
-                model,
-                instruction,
-                context_messages,
-                retry,
-            })
+            Ok(ModerationCondition::FlaggedByOpenRouterInstruction(
+                FlaggedByOpenRouterInstruction {
+                    api_key,
+                    model,
+                    instruction,
+                    context_messages,
+                    retry,
+                },
+            ))
         }
         other => Err(format!("unknown condition type '{other}' on condition {id}").into()),
     }

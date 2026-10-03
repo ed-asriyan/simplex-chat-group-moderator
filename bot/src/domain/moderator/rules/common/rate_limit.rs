@@ -4,6 +4,7 @@
 
 use crate::domain::moderator::ports::Err;
 use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Deserializer};
 
 /// Longest time window a rate limit may count over: the activity counters keep
 /// nothing longer, so a longer window would quietly count less than it says.
@@ -29,4 +30,15 @@ pub fn window_start(now: DateTime<Utc>, time_window_minutes: u32) -> DateTime<Ut
 /// author's limits read 0 as "disabled".
 pub fn reached(count: u32, limit: u32, time_window_minutes: u32) -> bool {
     limit > 0 && time_window_minutes > 0 && count >= limit
+}
+
+/// Reads a missing or `null` count or window as 0, which the author's rate
+/// limits take as "disabled": rules saved before those fields existed carry
+/// them as `null`.
+pub fn zero_if_null<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let opt = Option::<u32>::deserialize(deserializer)?;
+    Ok(opt.unwrap_or(0))
 }

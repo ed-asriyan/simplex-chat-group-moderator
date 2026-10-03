@@ -1,3 +1,6 @@
+use crate::domain::moderator::ports::conditions::{
+    FlaggedByOmniModeration, FlaggedByOpenRouterInstruction,
+};
 use async_trait::async_trait;
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -54,10 +57,15 @@ impl GroupAdministrationApplication {
         let mut checks = BTreeSet::new();
         for rule in rules {
             rule.condition.walk(&mut |condition| match condition {
-                ModerationCondition::FlaggedByOmniModeration { api_key, .. } => {
+                ModerationCondition::FlaggedByOmniModeration(FlaggedByOmniModeration {
+                    api_key,
+                    ..
+                }) => {
                     checks.insert(KeyUse::Moderation(api_key.clone()));
                 }
-                ModerationCondition::FlaggedByOpenRouterInstruction { api_key, model, .. } => {
+                ModerationCondition::FlaggedByOpenRouterInstruction(
+                    FlaggedByOpenRouterInstruction { api_key, model, .. },
+                ) => {
                     checks.insert(KeyUse::Model(api_key.clone(), model.clone()));
                 }
                 _ => {}

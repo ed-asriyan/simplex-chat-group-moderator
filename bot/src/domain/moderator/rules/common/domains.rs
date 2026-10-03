@@ -18,6 +18,9 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
+/// Maximum length (in characters) of a single domain on an owner's list.
+pub const MAX_DOMAIN_LENGTH: usize = 100;
+
 // ---------------------------------------------------------------------------
 // Compiled regexes
 // ---------------------------------------------------------------------------

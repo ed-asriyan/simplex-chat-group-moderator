@@ -1,3 +1,12 @@
+use crate::domain::moderator::ports::conditions::{
+    AuthorHitsCharacterRateLimit, AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit,
+    AuthorHitsModerationRateLimit, AuthorJoinedRecently, ContainsFile, ContainsImage,
+    ContainsInvisibleCharacters, ContainsLinksInList, ContainsLinksOutsideList,
+    ContainsLinksOutsideTop100, ContainsRepeatedSequence, ContainsVideo, ContainsVoiceMessage,
+    ContainsWords, ExceedsMaxCharacters, ExceedsMaxLines, ExceedsMaxWords, FlaggedByOmniModeration,
+    FlaggedByOpenRouterInstruction, GroupHitsCharacterRateLimit, GroupHitsLineRateLimit,
+    GroupHitsMessageRateLimit, IsBlank, MatchesExactMessage, MatchesRegex,
+};
 use async_trait::async_trait;
 use rand::RngExt;
 use rusqlite::{Connection, params};
@@ -98,36 +107,44 @@ fn insert_condition(
         ModerationCondition::All { .. } => "All",
         ModerationCondition::Any { .. } => "Any",
         ModerationCondition::Not { .. } => "Not",
-        ModerationCondition::ContainsWords { .. } => "ContainsWords",
-        ModerationCondition::MatchesExactMessage { .. } => "MatchesExactMessage",
-        ModerationCondition::MatchesRegex { .. } => "MatchesRegex",
-        ModerationCondition::ContainsRepeatedSequence { .. } => "ContainsRepeatedSequence",
-        ModerationCondition::ContainsLinksInList { .. } => "ContainsLinksInList",
-        ModerationCondition::ContainsLinksOutsideList { .. } => "ContainsLinksOutsideList",
-        ModerationCondition::ContainsLinksOutsideTop100 { .. } => "ContainsLinksOutsideTop100",
-        ModerationCondition::IsBlank => "IsBlank",
-        ModerationCondition::ContainsInvisibleCharacters => "ContainsInvisibleCharacters",
-        ModerationCondition::ContainsImage => "ContainsImage",
-        ModerationCondition::ContainsVideo => "ContainsVideo",
-        ModerationCondition::ContainsVoiceMessage => "ContainsVoiceMessage",
-        ModerationCondition::ContainsFile => "ContainsFile",
-        ModerationCondition::ExceedsMaxCharacters { .. } => "ExceedsMaxCharacters",
-        ModerationCondition::ExceedsMaxWords { .. } => "ExceedsMaxWords",
-        ModerationCondition::ExceedsMaxLines { .. } => "ExceedsMaxLines",
-        ModerationCondition::AuthorHitsMessageRateLimit { .. } => "AuthorHitsMessageRateLimit",
-        ModerationCondition::AuthorHitsCharacterRateLimit { .. } => "AuthorHitsCharacterRateLimit",
-        ModerationCondition::AuthorHitsLineRateLimit { .. } => "AuthorHitsLineRateLimit",
-        ModerationCondition::AuthorHitsModerationRateLimit { .. } => {
-            "AuthorHitsModerationRateLimit"
+        ModerationCondition::ContainsWords(_) => "ContainsWords",
+        ModerationCondition::MatchesExactMessage(_) => "MatchesExactMessage",
+        ModerationCondition::MatchesRegex(_) => "MatchesRegex",
+        ModerationCondition::ContainsRepeatedSequence(_) => "ContainsRepeatedSequence",
+        ModerationCondition::ContainsLinksInList(_) => "ContainsLinksInList",
+        ModerationCondition::ContainsLinksOutsideList(_) => "ContainsLinksOutsideList",
+        ModerationCondition::ContainsLinksOutsideTop100(_) => "ContainsLinksOutsideTop100",
+        ModerationCondition::IsBlank(IsBlank {}) => "IsBlank",
+        ModerationCondition::ContainsInvisibleCharacters(ContainsInvisibleCharacters {}) => {
+            "ContainsInvisibleCharacters"
         }
-        ModerationCondition::GroupHitsMessageRateLimit { .. } => "GroupHitsMessageRateLimit",
-        ModerationCondition::GroupHitsCharacterRateLimit { .. } => "GroupHitsCharacterRateLimit",
-        ModerationCondition::GroupHitsLineRateLimit { .. } => "GroupHitsLineRateLimit",
-        ModerationCondition::AuthorJoinedRecently { .. } => "AuthorJoinedRecently",
-        ModerationCondition::FlaggedByOmniModeration { .. } => "FlaggedByOmniModeration",
-        ModerationCondition::FlaggedByOpenRouterInstruction { .. } => {
-            "FlaggedByOpenRouterInstruction"
+        ModerationCondition::ContainsImage(ContainsImage {}) => "ContainsImage",
+        ModerationCondition::ContainsVideo(ContainsVideo {}) => "ContainsVideo",
+        ModerationCondition::ContainsVoiceMessage(ContainsVoiceMessage {}) => {
+            "ContainsVoiceMessage"
         }
+        ModerationCondition::ContainsFile(ContainsFile {}) => "ContainsFile",
+        ModerationCondition::ExceedsMaxCharacters(_) => "ExceedsMaxCharacters",
+        ModerationCondition::ExceedsMaxWords(_) => "ExceedsMaxWords",
+        ModerationCondition::ExceedsMaxLines(_) => "ExceedsMaxLines",
+        ModerationCondition::AuthorHitsMessageRateLimit(_) => "AuthorHitsMessageRateLimit",
+        ModerationCondition::AuthorHitsCharacterRateLimit(AuthorHitsCharacterRateLimit {
+            ..
+        }) => "AuthorHitsCharacterRateLimit",
+        ModerationCondition::AuthorHitsLineRateLimit(_) => "AuthorHitsLineRateLimit",
+        ModerationCondition::AuthorHitsModerationRateLimit(AuthorHitsModerationRateLimit {
+            ..
+        }) => "AuthorHitsModerationRateLimit",
+        ModerationCondition::GroupHitsMessageRateLimit(_) => "GroupHitsMessageRateLimit",
+        ModerationCondition::GroupHitsCharacterRateLimit(GroupHitsCharacterRateLimit {
+            ..
+        }) => "GroupHitsCharacterRateLimit",
+        ModerationCondition::GroupHitsLineRateLimit(_) => "GroupHitsLineRateLimit",
+        ModerationCondition::AuthorJoinedRecently(_) => "AuthorJoinedRecently",
+        ModerationCondition::FlaggedByOmniModeration(_) => "FlaggedByOmniModeration",
+        ModerationCondition::FlaggedByOpenRouterInstruction(FlaggedByOpenRouterInstruction {
+            ..
+        }) => "FlaggedByOpenRouterInstruction",
     };
     tx.execute(
         "INSERT INTO moderation_conditions (rule_id, parent_id, rank, type) VALUES (?1, ?2, ?3, ?4)",
@@ -145,17 +162,17 @@ fn insert_condition(
         ModerationCondition::Not { condition } => {
             insert_condition(tx, rule_id, Some(condition_id), 0, condition)?;
         }
-        ModerationCondition::ContainsWords { keywords } => insert_condition_list(
+        ModerationCondition::ContainsWords(ContainsWords { keywords }) => insert_condition_list(
             tx,
             "moderation_condition__contains_words__keywords",
             "keyword",
             condition_id,
             keywords,
         )?,
-        ModerationCondition::MatchesExactMessage {
+        ModerationCondition::MatchesExactMessage(MatchesExactMessage {
             messages,
             case_sensitive,
-        } => {
+        }) => {
             tx.execute(
                 "INSERT INTO moderation_condition__matches_exact_message (condition_id, case_sensitive) VALUES (?1, ?2)",
                 params![condition_id, case_sensitive],
@@ -169,161 +186,167 @@ fn insert_condition(
                 messages,
             )?;
         }
-        ModerationCondition::MatchesRegex { patterns } => insert_condition_list(
+        ModerationCondition::MatchesRegex(MatchesRegex { patterns }) => insert_condition_list(
             tx,
             "moderation_condition__matches_regex__patterns",
             "pattern",
             condition_id,
             patterns,
         )?,
-        ModerationCondition::ContainsRepeatedSequence {
+        ModerationCondition::ContainsRepeatedSequence(ContainsRepeatedSequence {
             min_repeats,
             min_length,
-        } => {
+        }) => {
             tx.execute(
                 "INSERT INTO moderation_condition__contains_repeated_sequence (condition_id, min_repeats, min_length) VALUES (?1, ?2, ?3)",
                 params![condition_id, min_repeats, min_length],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::ContainsLinksInList { domains } => insert_condition_list(
-            tx,
-            "moderation_condition__contains_links_in_list__domains",
-            "domain",
-            condition_id,
-            domains,
-        )?,
-        ModerationCondition::ContainsLinksOutsideList { domains } => insert_condition_list(
-            tx,
-            "moderation_condition__contains_links_outside_list__domains",
-            "domain",
-            condition_id,
-            domains,
-        )?,
-        ModerationCondition::ContainsLinksOutsideTop100 { domains } => insert_condition_list(
-            tx,
-            "moderation_condition__contains_links_outside_top100__domains",
-            "domain",
-            condition_id,
-            domains,
-        )?,
+        ModerationCondition::ContainsLinksInList(ContainsLinksInList { domains }) => {
+            insert_condition_list(
+                tx,
+                "moderation_condition__contains_links_in_list__domains",
+                "domain",
+                condition_id,
+                domains,
+            )?
+        }
+        ModerationCondition::ContainsLinksOutsideList(ContainsLinksOutsideList { domains }) => {
+            insert_condition_list(
+                tx,
+                "moderation_condition__contains_links_outside_list__domains",
+                "domain",
+                condition_id,
+                domains,
+            )?
+        }
+        ModerationCondition::ContainsLinksOutsideTop100(ContainsLinksOutsideTop100 { domains }) => {
+            insert_condition_list(
+                tx,
+                "moderation_condition__contains_links_outside_top100__domains",
+                "domain",
+                condition_id,
+                domains,
+            )?
+        }
         // No parameters, so nothing beyond the registry row.
-        ModerationCondition::IsBlank
-        | ModerationCondition::ContainsInvisibleCharacters
-        | ModerationCondition::ContainsImage
-        | ModerationCondition::ContainsVideo
-        | ModerationCondition::ContainsVoiceMessage
-        | ModerationCondition::ContainsFile => {}
-        ModerationCondition::ExceedsMaxCharacters { max_characters } => {
+        ModerationCondition::IsBlank(IsBlank {})
+        | ModerationCondition::ContainsInvisibleCharacters(ContainsInvisibleCharacters {})
+        | ModerationCondition::ContainsImage(ContainsImage {})
+        | ModerationCondition::ContainsVideo(ContainsVideo {})
+        | ModerationCondition::ContainsVoiceMessage(ContainsVoiceMessage {})
+        | ModerationCondition::ContainsFile(ContainsFile {}) => {}
+        ModerationCondition::ExceedsMaxCharacters(ExceedsMaxCharacters { max_characters }) => {
             tx.execute(
                 "INSERT INTO moderation_condition__exceeds_max_characters (condition_id, max_characters) VALUES (?1, ?2)",
                 params![condition_id, max_characters],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::ExceedsMaxWords { max_words } => {
+        ModerationCondition::ExceedsMaxWords(ExceedsMaxWords { max_words }) => {
             tx.execute(
                 "INSERT INTO moderation_condition__exceeds_max_words (condition_id, max_words) VALUES (?1, ?2)",
                 params![condition_id, max_words],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::ExceedsMaxLines {
+        ModerationCondition::ExceedsMaxLines(ExceedsMaxLines {
             max_lines,
             chars_per_line,
-        } => {
+        }) => {
             tx.execute(
                 "INSERT INTO moderation_condition__exceeds_max_lines (condition_id, max_lines, chars_per_line) VALUES (?1, ?2, ?3)",
                 params![condition_id, max_lines, chars_per_line],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::AuthorHitsMessageRateLimit {
+        ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
             message_count,
             time_window_minutes,
-        } => {
+        }) => {
             tx.execute(
                 "INSERT INTO moderation_condition__author_hits_message_rate_limit (condition_id, message_count, time_window_minutes) VALUES (?1, ?2, ?3)",
                 params![condition_id, message_count, time_window_minutes],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::AuthorHitsCharacterRateLimit {
+        ModerationCondition::AuthorHitsCharacterRateLimit(AuthorHitsCharacterRateLimit {
             character_count,
             time_window_minutes,
-        } => {
+        }) => {
             tx.execute(
                 "INSERT INTO moderation_condition__author_hits_character_rate_limit (condition_id, character_count, time_window_minutes) VALUES (?1, ?2, ?3)",
                 params![condition_id, character_count, time_window_minutes],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::AuthorHitsLineRateLimit {
+        ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
             line_count,
             time_window_minutes,
             chars_per_line,
-        } => {
+        }) => {
             tx.execute(
                 "INSERT INTO moderation_condition__author_hits_line_rate_limit (condition_id, line_count, time_window_minutes, chars_per_line) VALUES (?1, ?2, ?3, ?4)",
                 params![condition_id, line_count, time_window_minutes, chars_per_line],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::AuthorHitsModerationRateLimit {
+        ModerationCondition::AuthorHitsModerationRateLimit(AuthorHitsModerationRateLimit {
             message_count,
             time_window_minutes,
-        } => {
+        }) => {
             tx.execute(
                 "INSERT INTO moderation_condition__author_hits_moderation_rate_limit (condition_id, message_count, time_window_minutes) VALUES (?1, ?2, ?3)",
                 params![condition_id, message_count, time_window_minutes],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::GroupHitsMessageRateLimit {
+        ModerationCondition::GroupHitsMessageRateLimit(GroupHitsMessageRateLimit {
             message_count,
             time_window_minutes,
-        } => {
+        }) => {
             tx.execute(
                 "INSERT INTO moderation_condition__group_hits_message_rate_limit (condition_id, message_count, time_window_minutes) VALUES (?1, ?2, ?3)",
                 params![condition_id, message_count, time_window_minutes],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::GroupHitsCharacterRateLimit {
+        ModerationCondition::GroupHitsCharacterRateLimit(GroupHitsCharacterRateLimit {
             character_count,
             time_window_minutes,
-        } => {
+        }) => {
             tx.execute(
                 "INSERT INTO moderation_condition__group_hits_character_rate_limit (condition_id, character_count, time_window_minutes) VALUES (?1, ?2, ?3)",
                 params![condition_id, character_count, time_window_minutes],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::GroupHitsLineRateLimit {
+        ModerationCondition::GroupHitsLineRateLimit(GroupHitsLineRateLimit {
             line_count,
             time_window_minutes,
             chars_per_line,
-        } => {
+        }) => {
             tx.execute(
                 "INSERT INTO moderation_condition__group_hits_line_rate_limit (condition_id, line_count, time_window_minutes, chars_per_line) VALUES (?1, ?2, ?3, ?4)",
                 params![condition_id, line_count, time_window_minutes, chars_per_line],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::AuthorJoinedRecently {
+        ModerationCondition::AuthorJoinedRecently(AuthorJoinedRecently {
             time_window_minutes,
-        } => {
+        }) => {
             tx.execute(
                 "INSERT INTO moderation_condition__author_joined_recently (condition_id, time_window_minutes) VALUES (?1, ?2)",
                 params![condition_id, time_window_minutes],
             )
             .map_err(|e| -> Err { e.to_string().into() })?;
         }
-        ModerationCondition::FlaggedByOmniModeration {
+        ModerationCondition::FlaggedByOmniModeration(FlaggedByOmniModeration {
             api_key,
             triggers,
             retry,
-        } => {
+        }) => {
             tx.execute(
                 "INSERT INTO moderation_condition__flagged_by_omni_moderation (condition_id, api_key, max_attempts, retry_delay_seconds) VALUES (?1, ?2, ?3, ?4)",
                 params![
@@ -350,13 +373,13 @@ fn insert_condition(
                     .map_err(|e| -> Err { e.to_string().into() })?;
             }
         }
-        ModerationCondition::FlaggedByOpenRouterInstruction {
+        ModerationCondition::FlaggedByOpenRouterInstruction(FlaggedByOpenRouterInstruction {
             api_key,
             model,
             instruction,
             context_messages,
             retry,
-        } => {
+        }) => {
             tx.execute(
                 "INSERT INTO moderation_condition__flagged_by_openrouter_instruction (condition_id, api_key, model, instruction, context_messages, max_attempts, retry_delay_seconds) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![

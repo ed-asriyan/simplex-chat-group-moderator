@@ -3,17 +3,11 @@ use super::*;
 #[test]
 fn matches_the_kind_it_asks_about() {
     assert_eq!(
-        should_moderate(
-            Some(MessageAttachment::Image),
-            &ModerationCondition::ContainsImage
-        ),
+        should_moderate(Some(MessageAttachment::Image), MessageAttachment::Image),
         Some("contains an image".to_string())
     );
     assert_eq!(
-        should_moderate(
-            Some(MessageAttachment::Voice),
-            &ModerationCondition::ContainsVoiceMessage
-        ),
+        should_moderate(Some(MessageAttachment::Voice), MessageAttachment::Voice),
         Some("contains a voice message".to_string())
     );
 }
@@ -21,42 +15,25 @@ fn matches_the_kind_it_asks_about() {
 #[test]
 fn ignores_another_kind() {
     assert_eq!(
-        should_moderate(
-            Some(MessageAttachment::Video),
-            &ModerationCondition::ContainsImage
-        ),
+        should_moderate(Some(MessageAttachment::Video), MessageAttachment::Image),
         None
     );
     // A picture is not "a file": the owner who blocks files is not blocking
     // pictures, which have a condition of their own.
     assert_eq!(
-        should_moderate(
-            Some(MessageAttachment::Image),
-            &ModerationCondition::ContainsFile
-        ),
+        should_moderate(Some(MessageAttachment::Image), MessageAttachment::File),
         None
     );
 }
 
 #[test]
 fn plain_text_message_never_matches() {
-    for condition in [
-        ModerationCondition::ContainsImage,
-        ModerationCondition::ContainsVideo,
-        ModerationCondition::ContainsVoiceMessage,
-        ModerationCondition::ContainsFile,
+    for wanted in [
+        MessageAttachment::Image,
+        MessageAttachment::Video,
+        MessageAttachment::Voice,
+        MessageAttachment::File,
     ] {
-        assert_eq!(should_moderate(None, &condition), None);
+        assert_eq!(should_moderate(None, wanted), None);
     }
-}
-
-#[test]
-fn non_attachment_condition_never_matches() {
-    assert_eq!(
-        should_moderate(
-            Some(MessageAttachment::Image),
-            &ModerationCondition::IsBlank
-        ),
-        None
-    );
 }

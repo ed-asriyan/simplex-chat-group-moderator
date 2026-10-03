@@ -1,4 +1,13 @@
 use super::ModerationCondition;
+use crate::domain::moderator::ports::conditions::{
+    AuthorHitsCharacterRateLimit, AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit,
+    AuthorHitsModerationRateLimit, AuthorJoinedRecently, ContainsFile, ContainsImage,
+    ContainsInvisibleCharacters, ContainsLinksInList, ContainsLinksOutsideList,
+    ContainsLinksOutsideTop100, ContainsRepeatedSequence, ContainsVideo, ContainsVoiceMessage,
+    ContainsWords, ExceedsMaxCharacters, ExceedsMaxLines, ExceedsMaxWords, FlaggedByOmniModeration,
+    FlaggedByOpenRouterInstruction, GroupHitsCharacterRateLimit, GroupHitsLineRateLimit,
+    GroupHitsMessageRateLimit, IsBlank, MatchesExactMessage, MatchesRegex,
+};
 
 fn err_of(condition: &mut ModerationCondition) -> String {
     condition
@@ -9,116 +18,116 @@ fn err_of(condition: &mut ModerationCondition) -> String {
 
 #[test]
 fn test_rejects_too_many_keywords() {
-    let mut condition = ModerationCondition::ContainsWords {
+    let mut condition = ModerationCondition::ContainsWords(ContainsWords {
         keywords: (0..10_001).map(|i| format!("kw{i}")).collect(),
-    };
+    });
     assert!(err_of(&mut condition).contains("Too many keywords"));
 }
 
 #[test]
 fn test_rejects_too_long_keyword() {
-    let mut condition = ModerationCondition::ContainsWords {
+    let mut condition = ModerationCondition::ContainsWords(ContainsWords {
         keywords: vec!["a".repeat(101)],
-    };
+    });
     assert!(err_of(&mut condition).contains("Keyword too long"));
 }
 
 #[test]
 fn test_keyword_length_is_counted_in_characters_not_bytes() {
     // 100 Cyrillic characters are 200 bytes but must still be accepted.
-    let mut condition = ModerationCondition::ContainsWords {
+    let mut condition = ModerationCondition::ContainsWords(ContainsWords {
         keywords: vec!["я".repeat(100)],
-    };
+    });
     condition.normalize_and_validate().unwrap();
 }
 
 #[test]
 fn test_duplicate_keywords_are_collapsed_before_the_limit_applies() {
     // Well over the limit, but they collapse to a single distinct keyword.
-    let mut condition = ModerationCondition::ContainsWords {
+    let mut condition = ModerationCondition::ContainsWords(ContainsWords {
         keywords: std::iter::repeat_n("spam".to_string(), 10_001).collect(),
-    };
+    });
 
     condition.normalize_and_validate().unwrap();
 
     assert_eq!(
         condition,
-        ModerationCondition::ContainsWords {
+        ModerationCondition::ContainsWords(ContainsWords {
             keywords: vec!["spam".to_string()]
-        }
+        })
     );
 }
 
 #[test]
 fn test_keywords_are_sorted_and_empty_entries_dropped() {
-    let mut condition = ModerationCondition::ContainsWords {
+    let mut condition = ModerationCondition::ContainsWords(ContainsWords {
         keywords: vec![
             "beta".to_string(),
             String::new(),
             "alpha".to_string(),
             "beta".to_string(),
         ],
-    };
+    });
 
     condition.normalize_and_validate().unwrap();
 
     assert_eq!(
         condition,
-        ModerationCondition::ContainsWords {
+        ModerationCondition::ContainsWords(ContainsWords {
             keywords: vec!["alpha".to_string(), "beta".to_string()]
-        }
+        })
     );
 }
 
 #[test]
 fn test_rejects_too_many_messages() {
-    let mut condition = ModerationCondition::MatchesExactMessage {
+    let mut condition = ModerationCondition::MatchesExactMessage(MatchesExactMessage {
         messages: (0..10_001).map(|i| format!("msg{i}")).collect(),
         case_sensitive: false,
-    };
+    });
     assert!(err_of(&mut condition).contains("Too many messages"));
 }
 
 #[test]
 fn test_rejects_too_long_message() {
-    let mut condition = ModerationCondition::MatchesExactMessage {
+    let mut condition = ModerationCondition::MatchesExactMessage(MatchesExactMessage {
         messages: vec!["a".repeat(1001)],
         case_sensitive: false,
-    };
+    });
     assert!(err_of(&mut condition).contains("Message too long"));
 }
 
 #[test]
 fn test_message_case_sensitivity_flag_is_preserved() {
-    let mut condition = ModerationCondition::MatchesExactMessage {
+    let mut condition = ModerationCondition::MatchesExactMessage(MatchesExactMessage {
         messages: vec!["b".to_string(), "a".to_string()],
         case_sensitive: true,
-    };
+    });
 
     condition.normalize_and_validate().unwrap();
 
     assert_eq!(
         condition,
-        ModerationCondition::MatchesExactMessage {
+        ModerationCondition::MatchesExactMessage(MatchesExactMessage {
             messages: vec!["a".to_string(), "b".to_string()],
             case_sensitive: true,
-        }
+        })
     );
 }
 
 #[test]
 fn test_rejects_too_long_listed_domain() {
-    let mut condition = ModerationCondition::ContainsLinksInList {
+    let mut condition = ModerationCondition::ContainsLinksInList(ContainsLinksInList {
         domains: vec![format!("{}.com", "a".repeat(100))],
-    };
+    });
     assert!(err_of(&mut condition).contains("Domain too long"));
 }
 
 #[test]
 fn test_rejects_too_many_domains() {
-    let mut condition = ModerationCondition::ContainsLinksOutsideList {
+    let mut condition = ModerationCondition::ContainsLinksOutsideList(ContainsLinksOutsideList {
         domains: (0..10_001).map(|i| format!("site{i}.com")).collect(),
-    };
+    });
     assert!(err_of(&mut condition).contains("Too many domains"));
 }
 
@@ -134,52 +143,60 @@ fn test_every_domain_list_is_normalized() {
     };
     let tidy = || vec!["a.com".to_string(), "b.com".to_string()];
 
-    let mut in_list = ModerationCondition::ContainsLinksInList { domains: messy() };
+    let mut in_list =
+        ModerationCondition::ContainsLinksInList(ContainsLinksInList { domains: messy() });
     in_list.normalize_and_validate().unwrap();
     assert_eq!(
         in_list,
-        ModerationCondition::ContainsLinksInList { domains: tidy() }
+        ModerationCondition::ContainsLinksInList(ContainsLinksInList { domains: tidy() })
     );
 
-    let mut outside_list = ModerationCondition::ContainsLinksOutsideList { domains: messy() };
+    let mut outside_list =
+        ModerationCondition::ContainsLinksOutsideList(ContainsLinksOutsideList {
+            domains: messy(),
+        });
     outside_list.normalize_and_validate().unwrap();
     assert_eq!(
         outside_list,
-        ModerationCondition::ContainsLinksOutsideList { domains: tidy() }
+        ModerationCondition::ContainsLinksOutsideList(ContainsLinksOutsideList { domains: tidy() })
     );
 
-    let mut top100 = ModerationCondition::ContainsLinksOutsideTop100 { domains: messy() };
+    let mut top100 = ModerationCondition::ContainsLinksOutsideTop100(ContainsLinksOutsideTop100 {
+        domains: messy(),
+    });
     top100.normalize_and_validate().unwrap();
     assert_eq!(
         top100,
-        ModerationCondition::ContainsLinksOutsideTop100 { domains: tidy() }
+        ModerationCondition::ContainsLinksOutsideTop100(ContainsLinksOutsideTop100 {
+            domains: tidy()
+        })
     );
 }
 
 #[test]
 fn test_conditions_without_list_parameters_are_left_alone() {
     for mut condition in [
-        ModerationCondition::IsBlank,
-        ModerationCondition::ContainsInvisibleCharacters,
-        ModerationCondition::ExceedsMaxCharacters { max_characters: 1 },
-        ModerationCondition::ExceedsMaxWords { max_words: 10 },
-        ModerationCondition::ExceedsMaxLines {
+        ModerationCondition::IsBlank(IsBlank {}),
+        ModerationCondition::ContainsInvisibleCharacters(ContainsInvisibleCharacters {}),
+        ModerationCondition::ExceedsMaxCharacters(ExceedsMaxCharacters { max_characters: 1 }),
+        ModerationCondition::ExceedsMaxWords(ExceedsMaxWords { max_words: 10 }),
+        ModerationCondition::ExceedsMaxLines(ExceedsMaxLines {
             max_lines: 5,
             chars_per_line: 0,
-        },
-        ModerationCondition::AuthorHitsMessageRateLimit {
+        }),
+        ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
             message_count: 5,
             time_window_minutes: 2,
-        },
+        }),
         // 0 disables these two rather than being rejected.
-        ModerationCondition::AuthorHitsMessageRateLimit {
+        ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
             message_count: 0,
             time_window_minutes: 0,
-        },
-        ModerationCondition::AuthorHitsModerationRateLimit {
+        }),
+        ModerationCondition::AuthorHitsModerationRateLimit(AuthorHitsModerationRateLimit {
             message_count: 3,
             time_window_minutes: 10,
-        },
+        }),
     ] {
         let unchanged = condition.clone();
         condition.normalize_and_validate().unwrap();
@@ -192,27 +209,31 @@ fn test_rejects_length_conditions_with_zero_maximum() {
     // 0 used to mean "this check is off" inside the old combined condition;
     // on its own it would store a rule that can never match.
     assert!(
-        err_of(&mut ModerationCondition::ExceedsMaxCharacters { max_characters: 0 })
-            .contains("'Message Exceeds Max Characters' needs a maximum of at least 1")
+        err_of(&mut ModerationCondition::ExceedsMaxCharacters(
+            ExceedsMaxCharacters { max_characters: 0 }
+        ))
+        .contains("'Message Exceeds Max Characters' needs a maximum of at least 1")
     );
     assert!(
-        err_of(&mut ModerationCondition::ExceedsMaxWords { max_words: 0 })
-            .contains("'Message Exceeds Max Words' needs a maximum of at least 1")
+        err_of(&mut ModerationCondition::ExceedsMaxWords(ExceedsMaxWords {
+            max_words: 0
+        }))
+        .contains("'Message Exceeds Max Words' needs a maximum of at least 1")
     );
     assert!(
-        err_of(&mut ModerationCondition::ExceedsMaxLines {
+        err_of(&mut ModerationCondition::ExceedsMaxLines(ExceedsMaxLines {
             max_lines: 0,
             chars_per_line: 40,
-        })
+        }))
         .contains("'Message Exceeds Max Lines' needs a maximum of at least 1")
     );
 }
 
 #[test]
 fn test_rejects_regex_pattern_that_does_not_compile() {
-    let mut condition = ModerationCondition::MatchesRegex {
+    let mut condition = ModerationCondition::MatchesRegex(MatchesRegex {
         patterns: vec!["(unclosed".to_string()],
-    };
+    });
     assert!(err_of(&mut condition).contains("Invalid regex pattern"));
 }
 
@@ -220,62 +241,62 @@ fn test_rejects_regex_pattern_that_does_not_compile() {
 fn test_rejects_regex_pattern_using_unsupported_syntax() {
     // The regex crate has no backreferences; the owner must find out when they
     // save the rule, not silently never match.
-    let mut condition = ModerationCondition::MatchesRegex {
+    let mut condition = ModerationCondition::MatchesRegex(MatchesRegex {
         patterns: vec![r"(.)\1{5,}".to_string()],
-    };
+    });
     assert!(err_of(&mut condition).contains("Invalid regex pattern"));
 }
 
 #[test]
 fn test_rejects_too_many_regex_patterns() {
-    let mut condition = ModerationCondition::MatchesRegex {
+    let mut condition = ModerationCondition::MatchesRegex(MatchesRegex {
         patterns: (0..101).map(|i| format!("pattern{i}")).collect(),
-    };
+    });
     assert!(err_of(&mut condition).contains("Too many regex patterns"));
 }
 
 #[test]
 fn test_rejects_too_long_regex_pattern() {
-    let mut condition = ModerationCondition::MatchesRegex {
+    let mut condition = ModerationCondition::MatchesRegex(MatchesRegex {
         patterns: vec!["a".repeat(201)],
-    };
+    });
     assert!(err_of(&mut condition).contains("Regex pattern too long"));
 }
 
 #[test]
 fn test_regex_patterns_are_normalized() {
-    let mut condition = ModerationCondition::MatchesRegex {
+    let mut condition = ModerationCondition::MatchesRegex(MatchesRegex {
         patterns: vec![
             r"\d{3}".to_string(),
             String::new(),
             r" {5,}".to_string(),
             r"\d{3}".to_string(),
         ],
-    };
+    });
 
     condition.normalize_and_validate().unwrap();
 
     assert_eq!(
         condition,
-        ModerationCondition::MatchesRegex {
+        ModerationCondition::MatchesRegex(MatchesRegex {
             patterns: vec![r" {5,}".to_string(), r"\d{3}".to_string()]
-        }
+        })
     );
 }
 
 #[test]
 fn test_accepts_valid_regex_patterns() {
-    let mut condition = ModerationCondition::MatchesRegex {
+    let mut condition = ModerationCondition::MatchesRegex(MatchesRegex {
         patterns: vec![r"(?i)free\s+crypto".to_string(), r" {5,}".to_string()],
-    };
+    });
     condition.normalize_and_validate().unwrap();
 }
 
 fn repeated(min_repeats: u32, min_length: u32) -> ModerationCondition {
-    ModerationCondition::ContainsRepeatedSequence {
+    ModerationCondition::ContainsRepeatedSequence(ContainsRepeatedSequence {
         min_repeats,
         min_length,
-    }
+    })
 }
 
 #[test]
@@ -302,9 +323,9 @@ fn test_accepts_valid_repeated_sequence_settings() {
 
 #[test]
 fn test_rejects_joined_recently_with_zero_window() {
-    let mut condition = ModerationCondition::AuthorJoinedRecently {
+    let mut condition = ModerationCondition::AuthorJoinedRecently(AuthorJoinedRecently {
         time_window_minutes: 0,
-    };
+    });
     assert!(
         err_of(&mut condition)
             .contains("'Author Joined Recently' needs a time window of at least 1 minute")
@@ -314,9 +335,9 @@ fn test_rejects_joined_recently_with_zero_window() {
 #[test]
 fn test_accepts_joined_recently_with_positive_window() {
     for time_window_minutes in [1, 60, u32::MAX] {
-        let mut condition = ModerationCondition::AuthorJoinedRecently {
+        let mut condition = ModerationCondition::AuthorJoinedRecently(AuthorJoinedRecently {
             time_window_minutes,
-        };
+        });
         let unchanged = condition.clone();
         condition.normalize_and_validate().unwrap();
         assert_eq!(condition, unchanged);
@@ -325,19 +346,19 @@ fn test_accepts_joined_recently_with_positive_window() {
 
 fn group_rate_limits(count: u32, time_window_minutes: u32) -> [ModerationCondition; 3] {
     [
-        ModerationCondition::GroupHitsMessageRateLimit {
+        ModerationCondition::GroupHitsMessageRateLimit(GroupHitsMessageRateLimit {
             message_count: count,
             time_window_minutes,
-        },
-        ModerationCondition::GroupHitsCharacterRateLimit {
+        }),
+        ModerationCondition::GroupHitsCharacterRateLimit(GroupHitsCharacterRateLimit {
             character_count: count,
             time_window_minutes,
-        },
-        ModerationCondition::GroupHitsLineRateLimit {
+        }),
+        ModerationCondition::GroupHitsLineRateLimit(GroupHitsLineRateLimit {
             line_count: count,
             time_window_minutes,
             chars_per_line: 40,
-        },
+        }),
     ]
 }
 
@@ -378,9 +399,9 @@ fn test_accepts_group_rate_limits_within_range() {
 // ---------------------------------------------------------------------------
 
 fn words(keyword: &str) -> ModerationCondition {
-    ModerationCondition::ContainsWords {
+    ModerationCondition::ContainsWords(ContainsWords {
         keywords: vec![keyword.to_string()],
-    }
+    })
 }
 
 fn normalized(condition: ModerationCondition) -> ModerationCondition {
@@ -516,9 +537,9 @@ fn test_normalizes_the_leaves_inside_a_composite() {
     // when the condition is the whole rule.
     let condition = normalized(ModerationCondition::All {
         conditions: vec![
-            ModerationCondition::ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["b".into(), String::new(), "a".into(), "a".into()],
-            },
+            }),
             words("z"),
         ],
     });
@@ -526,9 +547,9 @@ fn test_normalizes_the_leaves_inside_a_composite() {
         condition,
         ModerationCondition::All {
             conditions: vec![
-                ModerationCondition::ContainsWords {
+                ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["a".into(), "b".into()],
-                },
+                }),
                 words("z"),
             ],
         }
@@ -538,9 +559,9 @@ fn test_normalizes_the_leaves_inside_a_composite() {
 #[test]
 fn test_validates_the_leaves_inside_a_composite() {
     let mut condition = ModerationCondition::Not {
-        condition: Box::new(ModerationCondition::MatchesRegex {
+        condition: Box::new(ModerationCondition::MatchesRegex(MatchesRegex {
             patterns: vec!["(unclosed".to_string()],
-        }),
+        })),
     };
     assert!(err_of(&mut condition).contains("Invalid regex pattern"));
 }
@@ -586,10 +607,12 @@ fn test_rejects_moderation_rate_limit_under_a_negation() {
         conditions: vec![
             words("a"),
             ModerationCondition::Not {
-                condition: Box::new(ModerationCondition::AuthorHitsModerationRateLimit {
-                    message_count: 2,
-                    time_window_minutes: 5,
-                }),
+                condition: Box::new(ModerationCondition::AuthorHitsModerationRateLimit(
+                    AuthorHitsModerationRateLimit {
+                        message_count: 2,
+                        time_window_minutes: 5,
+                    },
+                )),
             },
         ],
     };
@@ -603,10 +626,10 @@ fn test_allows_moderation_rate_limit_outside_a_negation() {
     normalized(ModerationCondition::All {
         conditions: vec![
             words("a"),
-            ModerationCondition::AuthorHitsModerationRateLimit {
+            ModerationCondition::AuthorHitsModerationRateLimit(AuthorHitsModerationRateLimit {
                 message_count: 2,
                 time_window_minutes: 5,
-            },
+            }),
         ],
     });
 }
@@ -622,15 +645,17 @@ fn test_activity_windows_are_found_at_any_depth() {
             words("a"),
             ModerationCondition::Any {
                 conditions: vec![
-                    ModerationCondition::AuthorHitsMessageRateLimit {
+                    ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
                         message_count: 3,
                         time_window_minutes: 7,
-                    },
+                    }),
                     ModerationCondition::Not {
-                        condition: Box::new(ModerationCondition::AuthorHitsMessageRateLimit {
-                            message_count: 9,
-                            time_window_minutes: 30,
-                        }),
+                        condition: Box::new(ModerationCondition::AuthorHitsMessageRateLimit(
+                            AuthorHitsMessageRateLimit {
+                                message_count: 9,
+                                time_window_minutes: 30,
+                            },
+                        )),
                     },
                 ],
             },
@@ -648,15 +673,19 @@ fn test_character_windows_are_found_at_any_depth() {
             words("a"),
             ModerationCondition::Any {
                 conditions: vec![
-                    ModerationCondition::AuthorHitsCharacterRateLimit {
-                        character_count: 300,
-                        time_window_minutes: 7,
-                    },
+                    ModerationCondition::AuthorHitsCharacterRateLimit(
+                        AuthorHitsCharacterRateLimit {
+                            character_count: 300,
+                            time_window_minutes: 7,
+                        },
+                    ),
                     ModerationCondition::Not {
-                        condition: Box::new(ModerationCondition::AuthorHitsCharacterRateLimit {
-                            character_count: 5000,
-                            time_window_minutes: 30,
-                        }),
+                        condition: Box::new(ModerationCondition::AuthorHitsCharacterRateLimit(
+                            AuthorHitsCharacterRateLimit {
+                                character_count: 5000,
+                                time_window_minutes: 30,
+                            },
+                        )),
                     },
                 ],
             },
@@ -676,17 +705,19 @@ fn test_line_windows_and_wrap_width_are_found_at_any_depth() {
             words("a"),
             ModerationCondition::Any {
                 conditions: vec![
-                    ModerationCondition::AuthorHitsLineRateLimit {
+                    ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
                         line_count: 30,
                         time_window_minutes: 7,
                         chars_per_line: 40,
-                    },
+                    }),
                     ModerationCondition::Not {
-                        condition: Box::new(ModerationCondition::AuthorHitsLineRateLimit {
-                            line_count: 100,
-                            time_window_minutes: 30,
-                            chars_per_line: 80,
-                        }),
+                        condition: Box::new(ModerationCondition::AuthorHitsLineRateLimit(
+                            AuthorHitsLineRateLimit {
+                                line_count: 100,
+                                time_window_minutes: 30,
+                                chars_per_line: 80,
+                            },
+                        )),
                     },
                 ],
             },
@@ -707,16 +738,16 @@ fn test_line_windows_and_wrap_width_are_found_at_any_depth() {
 fn test_wrap_width_zero_beats_every_width() {
     let condition = ModerationCondition::Any {
         conditions: vec![
-            ModerationCondition::AuthorHitsLineRateLimit {
+            ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
                 line_count: 30,
                 time_window_minutes: 5,
                 chars_per_line: 40,
-            },
-            ModerationCondition::AuthorHitsLineRateLimit {
+            }),
+            ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
                 line_count: 10,
                 time_window_minutes: 5,
                 chars_per_line: 0,
-            },
+            }),
         ],
     };
     assert_eq!(condition.line_rate_limit_wrap_width(), Some(0));
@@ -725,11 +756,13 @@ fn test_wrap_width_zero_beats_every_width() {
 #[test]
 fn test_zero_line_windows_are_ignored() {
     let condition = ModerationCondition::Not {
-        condition: Box::new(ModerationCondition::AuthorHitsLineRateLimit {
-            line_count: 30,
-            time_window_minutes: 0,
-            chars_per_line: 40,
-        }),
+        condition: Box::new(ModerationCondition::AuthorHitsLineRateLimit(
+            AuthorHitsLineRateLimit {
+                line_count: 30,
+                time_window_minutes: 0,
+                chars_per_line: 40,
+            },
+        )),
     };
     assert_eq!(condition.max_line_rate_limit_window(), None);
     // A disabled condition asks for no counting either.
@@ -739,10 +772,12 @@ fn test_zero_line_windows_are_ignored() {
 #[test]
 fn test_zero_character_windows_are_ignored() {
     let condition = ModerationCondition::Not {
-        condition: Box::new(ModerationCondition::AuthorHitsCharacterRateLimit {
-            character_count: 300,
-            time_window_minutes: 0,
-        }),
+        condition: Box::new(ModerationCondition::AuthorHitsCharacterRateLimit(
+            AuthorHitsCharacterRateLimit {
+                character_count: 300,
+                time_window_minutes: 0,
+            },
+        )),
     };
     assert_eq!(condition.max_character_rate_limit_window(), None);
 }
@@ -750,10 +785,12 @@ fn test_zero_character_windows_are_ignored() {
 #[test]
 fn test_zero_windows_are_ignored() {
     let condition = ModerationCondition::Not {
-        condition: Box::new(ModerationCondition::AuthorHitsMessageRateLimit {
-            message_count: 3,
-            time_window_minutes: 0,
-        }),
+        condition: Box::new(ModerationCondition::AuthorHitsMessageRateLimit(
+            AuthorHitsMessageRateLimit {
+                message_count: 3,
+                time_window_minutes: 0,
+            },
+        )),
     };
     assert_eq!(condition.max_message_rate_limit_window(), None);
 }
@@ -766,21 +803,23 @@ fn test_zero_windows_are_ignored() {
 fn test_descriptions_state_what_is_detected_without_judging_it() {
     let described = [
         words("a"),
-        ModerationCondition::MatchesExactMessage {
+        ModerationCondition::MatchesExactMessage(MatchesExactMessage {
             messages: vec![],
             case_sensitive: false,
-        },
-        ModerationCondition::ContainsLinksInList { domains: vec![] },
-        ModerationCondition::ContainsLinksOutsideList { domains: vec![] },
-        ModerationCondition::ContainsLinksOutsideTop100 { domains: vec![] },
-        ModerationCondition::IsBlank,
-        ModerationCondition::ContainsInvisibleCharacters,
-        ModerationCondition::ExceedsMaxCharacters { max_characters: 10 },
-        ModerationCondition::ExceedsMaxWords { max_words: 10 },
-        ModerationCondition::ExceedsMaxLines {
+        }),
+        ModerationCondition::ContainsLinksInList(ContainsLinksInList { domains: vec![] }),
+        ModerationCondition::ContainsLinksOutsideList(ContainsLinksOutsideList { domains: vec![] }),
+        ModerationCondition::ContainsLinksOutsideTop100(ContainsLinksOutsideTop100 {
+            domains: vec![],
+        }),
+        ModerationCondition::IsBlank(IsBlank {}),
+        ModerationCondition::ContainsInvisibleCharacters(ContainsInvisibleCharacters {}),
+        ModerationCondition::ExceedsMaxCharacters(ExceedsMaxCharacters { max_characters: 10 }),
+        ModerationCondition::ExceedsMaxWords(ExceedsMaxWords { max_words: 10 }),
+        ModerationCondition::ExceedsMaxLines(ExceedsMaxLines {
             max_lines: 10,
             chars_per_line: 40,
-        },
+        }),
     ]
     .map(|condition| condition.describe());
     for description in described {
@@ -803,43 +842,43 @@ fn test_descriptions_state_what_is_detected_without_judging_it() {
 #[test]
 fn test_descriptions_carry_the_thresholds() {
     assert_eq!(
-        ModerationCondition::ExceedsMaxLines {
+        ModerationCondition::ExceedsMaxLines(ExceedsMaxLines {
             max_lines: 5,
             chars_per_line: 40,
-        }
+        })
         .describe(),
         "has more than 5 lines"
     );
     assert_eq!(
-        ModerationCondition::AuthorHitsMessageRateLimit {
+        ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
             message_count: 5,
             time_window_minutes: 2,
-        }
+        })
         .describe(),
         "author sent at least 5 messages in 2 min"
     );
     assert_eq!(
-        ModerationCondition::AuthorHitsCharacterRateLimit {
+        ModerationCondition::AuthorHitsCharacterRateLimit(AuthorHitsCharacterRateLimit {
             character_count: 2000,
             time_window_minutes: 5,
-        }
+        })
         .describe(),
         "author sent at least 2000 characters in 5 min"
     );
     assert_eq!(
-        ModerationCondition::AuthorHitsLineRateLimit {
+        ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
             line_count: 30,
             time_window_minutes: 5,
             chars_per_line: 40,
-        }
+        })
         .describe(),
         "author sent at least 30 lines in 5 min"
     );
     assert_eq!(
-        ModerationCondition::AuthorHitsModerationRateLimit {
+        ModerationCondition::AuthorHitsModerationRateLimit(AuthorHitsModerationRateLimit {
             message_count: 3,
             time_window_minutes: 60,
-        }
+        })
         .describe(),
         "author had at least 3 messages moderated in 60 min"
     );
@@ -849,25 +888,28 @@ fn test_descriptions_carry_the_thresholds() {
 fn test_parameterless_conditions_round_trip_through_json() {
     // They carry nothing but their tag, which is exactly what the editor sends.
     for (condition, json) in [
-        (ModerationCondition::IsBlank, r#"{"type":"IsBlank"}"#),
         (
-            ModerationCondition::ContainsInvisibleCharacters,
+            ModerationCondition::IsBlank(IsBlank {}),
+            r#"{"type":"IsBlank"}"#,
+        ),
+        (
+            ModerationCondition::ContainsInvisibleCharacters(ContainsInvisibleCharacters {}),
             r#"{"type":"ContainsInvisibleCharacters"}"#,
         ),
         (
-            ModerationCondition::ContainsImage,
+            ModerationCondition::ContainsImage(ContainsImage {}),
             r#"{"type":"ContainsImage"}"#,
         ),
         (
-            ModerationCondition::ContainsVideo,
+            ModerationCondition::ContainsVideo(ContainsVideo {}),
             r#"{"type":"ContainsVideo"}"#,
         ),
         (
-            ModerationCondition::ContainsVoiceMessage,
+            ModerationCondition::ContainsVoiceMessage(ContainsVoiceMessage {}),
             r#"{"type":"ContainsVoiceMessage"}"#,
         ),
         (
-            ModerationCondition::ContainsFile,
+            ModerationCondition::ContainsFile(ContainsFile {}),
             r#"{"type":"ContainsFile"}"#,
         ),
     ] {
@@ -886,11 +928,11 @@ fn test_parameterless_conditions_round_trip_through_json() {
 use crate::domain::moderator::ports::{CategoryTrigger, OpenAiCategoryTriggers};
 
 fn openai(api_key: &str, triggers: OpenAiCategoryTriggers) -> ModerationCondition {
-    ModerationCondition::FlaggedByOmniModeration {
+    ModerationCondition::FlaggedByOmniModeration(FlaggedByOmniModeration {
         retry: Default::default(),
         api_key: api_key.to_string(),
         triggers,
-    }
+    })
 }
 
 fn hate_only(trigger: CategoryTrigger) -> OpenAiCategoryTriggers {
@@ -1008,13 +1050,13 @@ fn test_openai_condition_describes_itself_without_its_key() {
 // ---------------------------------------------------------------------------
 
 fn instructed(api_key: &str, model: &str, instruction: &str) -> ModerationCondition {
-    ModerationCondition::FlaggedByOpenRouterInstruction {
+    ModerationCondition::FlaggedByOpenRouterInstruction(FlaggedByOpenRouterInstruction {
         retry: Default::default(),
         api_key: api_key.to_string(),
         model: model.to_string(),
         instruction: instruction.to_string(),
         context_messages: 0,
-    }
+    })
 }
 
 #[test]
@@ -1033,7 +1075,7 @@ fn test_openrouter_instruction_is_accepted_with_key_and_instruction_trimmed() {
 
 #[test]
 fn test_openrouter_instruction_accepts_every_listed_model_and_nothing_else() {
-    for model in super::OPENROUTER_INSTRUCTION_MODELS {
+    for model in super::flagged_by_open_router_instruction::OPENROUTER_INSTRUCTION_MODELS {
         let mut condition = instructed("sk-proj-abc", model, "Block ads.");
         condition.normalize_and_validate().unwrap();
     }
@@ -1057,7 +1099,10 @@ fn test_api_retry_settings_are_capped() {
     use crate::domain::moderator::ports::ApiRetry;
     for (max_attempts, retry_delay_seconds) in [(1, 0), (5, 10), (3, 1)] {
         let mut condition = instructed("sk-proj-abc", "openai/gpt-4o-mini", "Block ads.");
-        if let ModerationCondition::FlaggedByOpenRouterInstruction { retry, .. } = &mut condition {
+        if let ModerationCondition::FlaggedByOpenRouterInstruction(
+            FlaggedByOpenRouterInstruction { retry, .. },
+        ) = &mut condition
+        {
             *retry = ApiRetry {
                 max_attempts,
                 retry_delay_seconds,
@@ -1071,7 +1116,10 @@ fn test_api_retry_settings_are_capped() {
         (3, 11, "at most 10 seconds"),
     ] {
         let mut condition = instructed("sk-proj-abc", "openai/gpt-4o-mini", "Block ads.");
-        if let ModerationCondition::FlaggedByOpenRouterInstruction { retry, .. } = &mut condition {
+        if let ModerationCondition::FlaggedByOpenRouterInstruction(
+            FlaggedByOpenRouterInstruction { retry, .. },
+        ) = &mut condition
+        {
             *retry = ApiRetry {
                 max_attempts,
                 retry_delay_seconds,
@@ -1099,11 +1147,13 @@ fn test_openrouter_instruction_needs_an_instruction() {
 
 #[test]
 fn test_openrouter_instruction_length_is_capped() {
-    let longest = "я".repeat(super::MAX_OPENROUTER_INSTRUCTION_LENGTH);
+    let longest =
+        "я".repeat(super::flagged_by_open_router_instruction::MAX_OPENROUTER_INSTRUCTION_LENGTH);
     let mut condition = instructed("sk-proj-abc", "openai/gpt-4o-mini", &longest);
     condition.normalize_and_validate().unwrap();
 
-    let too_long = "я".repeat(super::MAX_OPENROUTER_INSTRUCTION_LENGTH + 1);
+    let too_long = "я"
+        .repeat(super::flagged_by_open_router_instruction::MAX_OPENROUTER_INSTRUCTION_LENGTH + 1);
     let err = err_of(&mut instructed(
         "sk-proj-abc",
         "openai/gpt-4o-mini",
@@ -1140,19 +1190,25 @@ fn test_openrouter_instruction_describes_itself_without_its_key() {
 fn test_openrouter_instruction_sends_at_most_the_maximum_of_earlier_messages() {
     let with_context = |n| {
         let mut condition = instructed("sk-proj-abc", "openai/gpt-4o-mini", "Block ads.");
-        if let ModerationCondition::FlaggedByOpenRouterInstruction {
-            context_messages, ..
-        } = &mut condition
+        if let ModerationCondition::FlaggedByOpenRouterInstruction(
+            FlaggedByOpenRouterInstruction {
+                context_messages, ..
+            },
+        ) = &mut condition
         {
             *context_messages = n;
         }
         condition
     };
-    for n in [0, 1, super::MAX_OPENROUTER_CONTEXT_MESSAGES] {
+    for n in [
+        0,
+        1,
+        super::flagged_by_open_router_instruction::MAX_OPENROUTER_CONTEXT_MESSAGES,
+    ] {
         with_context(n).normalize_and_validate().unwrap();
     }
     let err = err_of(&mut with_context(
-        super::MAX_OPENROUTER_CONTEXT_MESSAGES + 1,
+        super::flagged_by_open_router_instruction::MAX_OPENROUTER_CONTEXT_MESSAGES + 1,
     ));
     assert!(
         err.contains("at most 10 earlier messages"),
@@ -1164,9 +1220,11 @@ fn test_openrouter_instruction_sends_at_most_the_maximum_of_earlier_messages() {
 fn test_max_openrouter_context_messages_looks_through_the_whole_tree() {
     let with_context = |n| {
         let mut condition = instructed("sk-proj-abc", "openai/gpt-4o-mini", "Block ads.");
-        if let ModerationCondition::FlaggedByOpenRouterInstruction {
-            context_messages, ..
-        } = &mut condition
+        if let ModerationCondition::FlaggedByOpenRouterInstruction(
+            FlaggedByOpenRouterInstruction {
+                context_messages, ..
+            },
+        ) = &mut condition
         {
             *context_messages = n;
         }
@@ -1183,7 +1241,7 @@ fn test_max_openrouter_context_messages_looks_through_the_whole_tree() {
     assert_eq!(tree.max_openrouter_context_messages(), Some(5));
     assert_eq!(with_context(0).max_openrouter_context_messages(), None);
     assert_eq!(
-        ModerationCondition::IsBlank.max_openrouter_context_messages(),
+        ModerationCondition::IsBlank(IsBlank {}).max_openrouter_context_messages(),
         None
     );
 }

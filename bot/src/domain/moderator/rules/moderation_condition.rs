@@ -3,10 +3,11 @@
 //! `ModerationCondition` is the single source of truth for detection types: the
 //! PascalCase variant name is the serde tag used in the rules URL and
 //! `rules-schema.json`, and its snake_case form names the condition's database
-//! table. Everything a condition does lives here — its parameters, how they are
-//! normalized and checked when an owner saves them, and how one is evaluated
-//! against a message. The per-condition matching algorithms themselves live in
-//! the sibling modules (`keywords`, `links`, `message_length`, ...).
+//! table. Each leaf condition is a type of its own, in a module of its own,
+//! implementing [`Condition`]: its parameters, how they are normalized and
+//! checked when an owner saves them, how it describes itself, and how it is
+//! evaluated against a message. This module only lists them (`conditions!`)
+//! and handles what no single condition can: the tree they form.
 //!
 //! # Conditions are a tree, not a list
 //! Besides the leaf conditions that inspect a message, there are three composite
@@ -43,209 +44,153 @@ mod openai_moderation;
 mod regex_match;
 mod repeated_sequence;
 
-use crate::domain::moderator::ports::{
-    ApiRetry, CategoryTrigger, Err, OpenAiCategory, OpenAiCategoryTriggers,
-};
-use crate::domain::moderator::rules::common::api_key::normalize as normalize_api_key;
-use crate::domain::moderator::rules::common::{api_retry, checks, rate_limit};
+use crate::domain::moderator::ports::Err;
+use async_trait::async_trait;
 use futures::future::BoxFuture;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 pub(super) use context::ConditionContext;
 
 mod context;
 
-fn deserialize_u32_default_zero<'de, D>(deserializer: D) -> Result<u32, D::Error>
-where
-    D: serde::Deserializer<'de>,
+/// What every leaf condition is to the code that evaluates a rule: a set of
+/// operations, the same for all of them. Nothing outside a condition's own
+/// module knows what one checks or how.
+#[async_trait]
+pub(in crate::domain::moderator::rules) trait Condition:
+    Send + Sync
 {
-    let opt = Option::<u32>::deserialize(deserializer)?;
-    Ok(opt.unwrap_or(0))
+    /// Brings the condition's parameters into canonical form and checks them,
+    /// when an owner saves the rule. One step on purpose: validating without
+    /// normalizing would count blank and duplicate entries towards the
+    /// limits, and normalizing without validating would let oversized values
+    /// through.
+    fn normalize_and_validate(&mut self) -> Result<(), Err>;
+
+    /// What the condition looks for, distinct from the reason evaluation
+    /// gives for a match. A `Not` around it needs this: when the `Not`
+    /// matches, the condition did not, so it produced no reason of its own.
+    fn describe(&self) -> String;
+
+    /// The reason the message matches, or `None` when it does not.
+    async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err>;
 }
 
-/// Condition/filter criteria for moderation.
-///
-/// Names describe what the message *is*, never what the owner thinks of it
-/// ("contains words", not "contains banned words"): the same condition can sit
-/// under a `Not`, where a judgement baked into the name would read backwards.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ModerationCondition {
-    /// Matches when **every** nested condition matches.
-    All {
-        conditions: Vec<ModerationCondition>,
-    },
-    /// Matches when **at least one** nested condition matches.
-    Any {
-        conditions: Vec<ModerationCondition>,
-    },
-    /// Matches when the nested condition does **not** match.
-    Not {
-        condition: Box<ModerationCondition>,
-    },
-    /// The message contains any of `keywords`, seen through obfuscation.
-    ContainsWords {
-        keywords: Vec<String>,
-    },
-    /// The whole message equals one of `messages`.
-    MatchesExactMessage {
-        messages: Vec<String>,
-        case_sensitive: bool,
-    },
-    MatchesRegex {
-        patterns: Vec<String>,
-    },
-    /// Some sequence of at least `min_length` characters appears at least
-    /// `min_repeats` times in a row.
-    ContainsRepeatedSequence {
-        min_repeats: u32,
-        min_length: u32,
-    },
-    /// The message links to a domain covered by `domains`.
-    ContainsLinksInList {
-        domains: Vec<String>,
-    },
-    /// The message links to a domain not covered by `domains`. An empty list
-    /// makes every link match.
-    ContainsLinksOutsideList {
-        domains: Vec<String>,
-    },
-    /// The message links to a domain covered neither by the built-in top-100
-    /// list nor by `domains`.
-    ContainsLinksOutsideTop100 {
-        domains: Vec<String>,
-    },
-    /// The message consists only of whitespace, line breaks and invisible
-    /// characters, or has no characters at all — and carries nothing else. A
-    /// message with an attachment is never blank, however empty its caption
-    /// is: a picture is not an empty message, it is a picture.
-    IsBlank,
-    /// The message contains at least one invisible character.
-    ContainsInvisibleCharacters,
-    /// The message carries a picture. Its caption, if any, is the message text,
-    /// so the text conditions describe the caption.
-    ContainsImage,
-    /// The message carries a video.
-    ContainsVideo,
-    /// The message carries a voice message.
-    ContainsVoiceMessage,
-    /// The message carries a file that is not a picture, video or voice
-    /// message — those have conditions of their own.
-    ContainsFile,
-    ExceedsMaxCharacters {
-        max_characters: u32,
-    },
-    ExceedsMaxWords {
-        max_words: u32,
-    },
-    /// The message takes more than `max_lines` lines, with every line longer
-    /// than `chars_per_line` characters counted as several (0: no wrapping).
-    ExceedsMaxLines {
-        max_lines: u32,
-        chars_per_line: u32,
-    },
-    /// The author sent at least `message_count` messages in the last
-    /// `time_window_minutes`, this one included. 0 in either disables it.
-    AuthorHitsMessageRateLimit {
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
-        message_count: u32,
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
-        time_window_minutes: u32,
-    },
-    /// The author wrote at least `character_count` characters in the last
-    /// `time_window_minutes`, this message's own characters included. 0 in
-    /// either disables it.
-    AuthorHitsCharacterRateLimit {
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
-        character_count: u32,
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
-        time_window_minutes: u32,
-    },
-    /// The author's messages took at least `line_count` lines on screen in the
-    /// last `time_window_minutes`, this message's own lines included, with
-    /// every line longer than `chars_per_line` characters counted as several
-    /// (0: no wrapping). 0 in the count or the window disables it.
-    ///
-    /// Each message is counted once, when it arrives, with the width configured
-    /// then: the counter keeps a total, not the messages, so changing the width
-    /// only affects messages that come after it.
-    AuthorHitsLineRateLimit {
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
-        line_count: u32,
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
-        time_window_minutes: u32,
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
-        chars_per_line: u32,
-    },
-    /// At least `message_count` of the author's messages were moderated in the
-    /// last `time_window_minutes`, this one included if another rule moderates
-    /// it. 0 in either disables it.
-    AuthorHitsModerationRateLimit {
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
-        message_count: u32,
-        #[serde(default, deserialize_with = "deserialize_u32_default_zero")]
-        time_window_minutes: u32,
-    },
-    /// The group received at least `message_count` messages in the last
-    /// `time_window_minutes`, from all its members, this one included.
-    GroupHitsMessageRateLimit {
-        message_count: u32,
-        time_window_minutes: u32,
-    },
-    /// The group's members wrote at least `character_count` characters in the
-    /// last `time_window_minutes`, all together, this message's own characters
-    /// included.
-    GroupHitsCharacterRateLimit {
-        character_count: u32,
-        time_window_minutes: u32,
-    },
-    /// The group's messages took at least `line_count` lines on screen in the
-    /// last `time_window_minutes`, from all its members, this message's own
-    /// lines included, with every line longer than `chars_per_line` characters
-    /// counted as several (0: no wrapping). Counted like
-    /// [`Self::AuthorHitsLineRateLimit`], on a counter of its own.
-    GroupHitsLineRateLimit {
-        line_count: u32,
-        time_window_minutes: u32,
-        chars_per_line: u32,
-    },
-    /// The author joined the group less than `time_window_minutes` ago. Never
-    /// matches members who were already in the group when the bot joined,
-    /// since their join time is unknown.
-    AuthorJoinedRecently {
-        time_window_minutes: u32,
-    },
-    /// OpenAI's moderation model, asked with the owner's own `api_key`, trips
-    /// at least one of the owner's per-category `triggers`. Sends the message
-    /// text to OpenAI; a message with no text is never sent and never matches.
-    FlaggedByOmniModeration {
-        api_key: String,
-        #[serde(flatten)]
-        triggers: OpenAiCategoryTriggers,
-        #[serde(flatten)]
-        retry: ApiRetry,
-    },
-    /// A `model` on OpenRouter, asked with the owner's own OpenRouter
-    /// `api_key` and given the owner's `instruction`, answers that the message
-    /// is what the instruction describes. Sends the message text to OpenRouter
-    /// and the provider it routes to, together with up to `context_messages`
-    /// of the group's messages that came before it, for the model to read but
-    /// not judge; a message with no text is never sent and never matches.
-    FlaggedByOpenRouterInstruction {
-        api_key: String,
-        model: String,
-        instruction: String,
-        #[serde(default)]
-        context_messages: u32,
-        #[serde(flatten)]
-        retry: ApiRetry,
-    },
+/// Declares every leaf condition — one line each, `Variant => module` — and
+/// builds [`ModerationCondition`] from them, with the three composites first.
+macro_rules! conditions {
+    ($($variant:ident => $module:ident,)*) => {
+        $(mod $module;)*
+
+        /// Every leaf condition's own type, for code that builds or reads one.
+        pub mod conditions {
+            $(pub use super::$module::$variant;)*
+        }
+
+        /// Condition/filter criteria for moderation.
+        ///
+        /// Names describe what the message *is*, never what the owner thinks of
+        /// it ("contains words", not "contains banned words"): the same
+        /// condition can sit under a `Not`, where a judgement baked into the
+        /// name would read backwards.
+        #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[serde(tag = "type")]
+        pub enum ModerationCondition {
+            /// Matches when **every** nested condition matches.
+            All { conditions: Vec<ModerationCondition> },
+            /// Matches when **at least one** nested condition matches.
+            Any { conditions: Vec<ModerationCondition> },
+            /// Matches when the nested condition does **not** match.
+            Not { condition: Box<ModerationCondition> },
+            $($variant($module::$variant),)*
+        }
+
+        impl ModerationCondition {
+            /// The leaf condition this is, or `None` for a composite.
+            fn as_leaf(&self) -> Option<&dyn Condition> {
+                match self {
+                    $(Self::$variant(leaf) => Some(leaf),)*
+                    Self::All { .. } | Self::Any { .. } | Self::Not { .. } => None,
+                }
+            }
+
+            fn as_leaf_mut(&mut self) -> Option<&mut dyn Condition> {
+                match self {
+                    $(Self::$variant(leaf) => Some(leaf),)*
+                    Self::All { .. } | Self::Any { .. } | Self::Not { .. } => None,
+                }
+            }
+        }
+    };
+}
+
+conditions! {
+    ContainsWords => contains_words,
+    MatchesExactMessage => matches_exact_message,
+    MatchesRegex => matches_regex,
+    ContainsRepeatedSequence => contains_repeated_sequence,
+    ContainsLinksInList => contains_links_in_list,
+    ContainsLinksOutsideList => contains_links_outside_list,
+    ContainsLinksOutsideTop100 => contains_links_outside_top100,
+    IsBlank => is_blank,
+    ContainsInvisibleCharacters => contains_invisible_characters,
+    ContainsImage => contains_image,
+    ContainsVideo => contains_video,
+    ContainsVoiceMessage => contains_voice_message,
+    ContainsFile => contains_file,
+    ExceedsMaxCharacters => exceeds_max_characters,
+    ExceedsMaxWords => exceeds_max_words,
+    ExceedsMaxLines => exceeds_max_lines,
+    AuthorHitsMessageRateLimit => author_hits_message_rate_limit,
+    AuthorHitsCharacterRateLimit => author_hits_character_rate_limit,
+    AuthorHitsLineRateLimit => author_hits_line_rate_limit,
+    AuthorHitsModerationRateLimit => author_hits_moderation_rate_limit,
+    GroupHitsMessageRateLimit => group_hits_message_rate_limit,
+    GroupHitsCharacterRateLimit => group_hits_character_rate_limit,
+    GroupHitsLineRateLimit => group_hits_line_rate_limit,
+    AuthorJoinedRecently => author_joined_recently,
+    FlaggedByOmniModeration => flagged_by_omni_moderation,
+    FlaggedByOpenRouterInstruction => flagged_by_open_router_instruction,
 }
 
 // ---------------------------------------------------------------------------
 // Tree navigation
 // ---------------------------------------------------------------------------
+
+/// Longest non-zero window over every node `pick` reads one from.
+fn max_window(
+    condition: &ModerationCondition,
+    pick: impl Fn(&ModerationCondition) -> Option<u32>,
+) -> Option<u32> {
+    let mut max: Option<u32> = None;
+    condition.walk(&mut |node| {
+        if let Some(window) = pick(node).filter(|window| *window > 0) {
+            max = Some(max.map_or(window, |m| m.max(window)));
+        }
+    });
+    max
+}
+
+/// The widest wrap width over every node `pick` reads one from, where 0 ("no
+/// wrapping") is widest of all. `pick` gives `None` for a node without a
+/// width, or with no window to count in.
+fn widest_wrap_width(
+    condition: &ModerationCondition,
+    pick: impl Fn(&ModerationCondition) -> Option<u32>,
+) -> Option<u32> {
+    let mut width: Option<u32> = None;
+    condition.walk(&mut |node| {
+        if let Some(configured) = pick(node) {
+            width = Some(match (width, configured) {
+                // 0 means "no wrapping", which is wider than any width.
+                (_, 0) | (Some(0), _) => 0,
+                (Some(current), configured) => current.max(configured),
+                (None, configured) => configured,
+            });
+        }
+    });
+    width
+}
 
 impl ModerationCondition {
     /// Visit this condition and, depth-first, every condition nested in it.
@@ -266,14 +211,14 @@ impl ModerationCondition {
         }
     }
 
-    /// Whether a [`Self::AuthorHitsModerationRateLimit`] sits anywhere in this
+    /// Whether a `AuthorHitsModerationRateLimit` sits anywhere in this
     /// tree. That condition is the one whose result depends on whether the
     /// message is moderated by *other* rules, so both the evaluation pre-pass
     /// and the memo have to treat any subtree containing it specially.
     pub fn contains_moderation_rate_limit(&self) -> bool {
         let mut found = false;
         self.walk(&mut |condition| {
-            if matches!(condition, Self::AuthorHitsModerationRateLimit { .. }) {
+            if matches!(condition, Self::AuthorHitsModerationRateLimit(_)) {
                 found = true;
             }
         });
@@ -281,57 +226,33 @@ impl ModerationCondition {
     }
 
     /// Longest non-zero `time_window_minutes` over every
-    /// [`Self::AuthorHitsMessageRateLimit`] in this tree.
+    /// `AuthorHitsMessageRateLimit` in this tree.
     pub fn max_message_rate_limit_window(&self) -> Option<u32> {
-        let mut max: Option<u32> = None;
-        self.walk(&mut |condition| {
-            if let Self::AuthorHitsMessageRateLimit {
-                time_window_minutes,
-                ..
-            } = condition
-                && *time_window_minutes > 0
-            {
-                max = Some(max.map_or(*time_window_minutes, |m: u32| m.max(*time_window_minutes)));
-            }
-        });
-        max
+        max_window(self, |node| match node {
+            Self::AuthorHitsMessageRateLimit(c) => Some(c.time_window_minutes),
+            _ => None,
+        })
     }
 
     /// Longest non-zero `time_window_minutes` over every
-    /// [`Self::AuthorHitsCharacterRateLimit`] in this tree.
+    /// `AuthorHitsCharacterRateLimit` in this tree.
     pub fn max_character_rate_limit_window(&self) -> Option<u32> {
-        let mut max: Option<u32> = None;
-        self.walk(&mut |condition| {
-            if let Self::AuthorHitsCharacterRateLimit {
-                time_window_minutes,
-                ..
-            } = condition
-                && *time_window_minutes > 0
-            {
-                max = Some(max.map_or(*time_window_minutes, |m: u32| m.max(*time_window_minutes)));
-            }
-        });
-        max
+        max_window(self, |node| match node {
+            Self::AuthorHitsCharacterRateLimit(c) => Some(c.time_window_minutes),
+            _ => None,
+        })
     }
 
     /// Longest non-zero `time_window_minutes` over every
-    /// [`Self::AuthorHitsLineRateLimit`] in this tree.
+    /// `AuthorHitsLineRateLimit` in this tree.
     pub fn max_line_rate_limit_window(&self) -> Option<u32> {
-        let mut max: Option<u32> = None;
-        self.walk(&mut |condition| {
-            if let Self::AuthorHitsLineRateLimit {
-                time_window_minutes,
-                ..
-            } = condition
-                && *time_window_minutes > 0
-            {
-                max = Some(max.map_or(*time_window_minutes, |m: u32| m.max(*time_window_minutes)));
-            }
-        });
-        max
+        max_window(self, |node| match node {
+            Self::AuthorHitsLineRateLimit(c) => Some(c.time_window_minutes),
+            _ => None,
+        })
     }
 
-    /// The wrap width every [`Self::AuthorHitsLineRateLimit`] in this tree is
+    /// The wrap width every `AuthorHitsLineRateLimit` in this tree is
     /// counted with: the widest one configured, where 0 ("no wrapping") is
     /// widest of all.
     ///
@@ -340,125 +261,68 @@ impl ModerationCondition {
     /// that count the one the mildest condition expects: deleting a message the
     /// owner did not ask to delete is worse than missing a flood.
     pub fn line_rate_limit_wrap_width(&self) -> Option<u32> {
-        let mut width: Option<u32> = None;
-        self.walk(&mut |condition| {
-            if let Self::AuthorHitsLineRateLimit {
-                time_window_minutes,
-                chars_per_line,
-                ..
-            } = condition
-                && *time_window_minutes > 0
-            {
-                width = Some(match (width, *chars_per_line) {
-                    // 0 means "no wrapping", which is wider than any width.
-                    (_, 0) | (Some(0), _) => 0,
-                    (Some(current), configured) => current.max(configured),
-                    (None, configured) => configured,
-                });
-            }
-        });
-        width
+        widest_wrap_width(self, |node| match node {
+            Self::AuthorHitsLineRateLimit(c) if c.time_window_minutes > 0 => Some(c.chars_per_line),
+            _ => None,
+        })
     }
 
     /// Longest non-zero `time_window_minutes` over every
-    /// [`Self::AuthorHitsModerationRateLimit`] in this tree.
+    /// `AuthorHitsModerationRateLimit` in this tree.
     pub fn max_moderation_rate_limit_window(&self) -> Option<u32> {
-        let mut max: Option<u32> = None;
-        self.walk(&mut |condition| {
-            if let Self::AuthorHitsModerationRateLimit {
-                time_window_minutes,
-                ..
-            } = condition
-                && *time_window_minutes > 0
-            {
-                max = Some(max.map_or(*time_window_minutes, |m: u32| m.max(*time_window_minutes)));
-            }
-        });
-        max
-    }
-
-    /// Longest `time_window_minutes` over every node `pick` reads one from.
-    fn max_window(&self, pick: impl Fn(&Self) -> Option<u32>) -> Option<u32> {
-        let mut max: Option<u32> = None;
-        self.walk(&mut |condition| {
-            if let Some(window) = pick(condition).filter(|window| *window > 0) {
-                max = Some(max.map_or(window, |m| m.max(window)));
-            }
-        });
-        max
+        max_window(self, |node| match node {
+            Self::AuthorHitsModerationRateLimit(c) => Some(c.time_window_minutes),
+            _ => None,
+        })
     }
 
     /// Longest `time_window_minutes` over every
-    /// [`Self::GroupHitsMessageRateLimit`] in this tree.
+    /// `GroupHitsMessageRateLimit` in this tree.
     pub fn max_group_message_rate_limit_window(&self) -> Option<u32> {
-        self.max_window(|condition| match condition {
-            Self::GroupHitsMessageRateLimit {
-                time_window_minutes,
-                ..
-            } => Some(*time_window_minutes),
+        max_window(self, |node| match node {
+            Self::GroupHitsMessageRateLimit(c) => Some(c.time_window_minutes),
             _ => None,
         })
     }
 
     /// Longest `time_window_minutes` over every
-    /// [`Self::GroupHitsCharacterRateLimit`] in this tree.
+    /// `GroupHitsCharacterRateLimit` in this tree.
     pub fn max_group_character_rate_limit_window(&self) -> Option<u32> {
-        self.max_window(|condition| match condition {
-            Self::GroupHitsCharacterRateLimit {
-                time_window_minutes,
-                ..
-            } => Some(*time_window_minutes),
+        max_window(self, |node| match node {
+            Self::GroupHitsCharacterRateLimit(c) => Some(c.time_window_minutes),
             _ => None,
         })
     }
 
     /// Longest `time_window_minutes` over every
-    /// [`Self::GroupHitsLineRateLimit`] in this tree.
+    /// `GroupHitsLineRateLimit` in this tree.
     pub fn max_group_line_rate_limit_window(&self) -> Option<u32> {
-        self.max_window(|condition| match condition {
-            Self::GroupHitsLineRateLimit {
-                time_window_minutes,
-                ..
-            } => Some(*time_window_minutes),
+        max_window(self, |node| match node {
+            Self::GroupHitsLineRateLimit(c) => Some(c.time_window_minutes),
             _ => None,
         })
     }
 
     /// Most `context_messages` over every
-    /// [`Self::FlaggedByOpenRouterInstruction`] in this tree: how many of the
+    /// `FlaggedByOpenRouterInstruction` in this tree: how many of the
     /// group's latest messages have to be kept for it to read. `None` when no
     /// condition here asks for any.
     pub fn max_openrouter_context_messages(&self) -> Option<u32> {
-        self.max_window(|condition| match condition {
-            Self::FlaggedByOpenRouterInstruction {
-                context_messages, ..
-            } => Some(*context_messages),
+        max_window(self, |node| match node {
+            Self::FlaggedByOpenRouterInstruction(c) => Some(c.context_messages),
             _ => None,
         })
     }
 
-    /// The wrap width every [`Self::GroupHitsLineRateLimit`] in this tree is
+    /// The wrap width every `GroupHitsLineRateLimit` in this tree is
     /// counted with, chosen the way [`Self::line_rate_limit_wrap_width`] chooses
     /// it for the author's counter: the widest, with 0 widest of all. The group
     /// counter is separate, so the two widths never mix.
     pub fn group_line_rate_limit_wrap_width(&self) -> Option<u32> {
-        let mut width: Option<u32> = None;
-        self.walk(&mut |condition| {
-            if let Self::GroupHitsLineRateLimit {
-                time_window_minutes,
-                chars_per_line,
-                ..
-            } = condition
-                && *time_window_minutes > 0
-            {
-                width = Some(match (width, *chars_per_line) {
-                    (_, 0) | (Some(0), _) => 0,
-                    (Some(current), configured) => current.max(configured),
-                    (None, configured) => configured,
-                });
-            }
-        });
-        width
+        widest_wrap_width(self, |node| match node {
+            Self::GroupHitsLineRateLimit(c) if c.time_window_minutes > 0 => Some(c.chars_per_line),
+            _ => None,
+        })
     }
 
     /// Human-readable description of *what this condition looks for*.
@@ -485,77 +349,10 @@ impl ModerationCondition {
                     .join("; ")
             ),
             Self::Not { condition } => format!("not ({})", condition.describe()),
-            Self::ContainsWords { .. } => "contains one of the listed words".into(),
-            Self::MatchesExactMessage { .. } => "exactly matches one of the listed texts".into(),
-            Self::MatchesRegex { .. } => "matches a regex pattern".into(),
-            Self::ContainsRepeatedSequence { .. } => "contains a repeated sequence".into(),
-            Self::ContainsLinksInList { .. } => "contains a link to a listed website".into(),
-            Self::ContainsLinksOutsideList { .. } => {
-                "contains a link to a website outside the list".into()
-            }
-            Self::ContainsLinksOutsideTop100 { .. } => {
-                "contains a link outside the top 100 websites".into()
-            }
-            Self::IsBlank => "is empty or blank and carries no attachment".into(),
-            Self::ContainsInvisibleCharacters => "contains invisible characters".into(),
-            Self::ContainsImage => "contains an image".into(),
-            Self::ContainsVideo => "contains a video".into(),
-            Self::ContainsVoiceMessage => "contains a voice message".into(),
-            Self::ContainsFile => "contains a file".into(),
-            Self::ExceedsMaxCharacters { max_characters } => {
-                format!("has more than {max_characters} characters")
-            }
-            Self::ExceedsMaxWords { max_words } => format!("has more than {max_words} words"),
-            Self::ExceedsMaxLines { max_lines, .. } => format!("has more than {max_lines} lines"),
-            Self::AuthorHitsMessageRateLimit {
-                message_count,
-                time_window_minutes,
-            } => format!(
-                "author sent at least {message_count} messages in {time_window_minutes} min"
-            ),
-            Self::AuthorHitsCharacterRateLimit {
-                character_count,
-                time_window_minutes,
-            } => format!(
-                "author sent at least {character_count} characters in {time_window_minutes} min"
-            ),
-            Self::AuthorHitsLineRateLimit {
-                line_count,
-                time_window_minutes,
-                ..
-            } => {
-                format!("author sent at least {line_count} lines in {time_window_minutes} min")
-            }
-            Self::AuthorHitsModerationRateLimit {
-                message_count,
-                time_window_minutes,
-            } => format!(
-                "author had at least {message_count} messages moderated in {time_window_minutes} min"
-            ),
-            Self::GroupHitsMessageRateLimit {
-                message_count,
-                time_window_minutes,
-            } => format!(
-                "group received at least {message_count} messages in {time_window_minutes} min"
-            ),
-            Self::GroupHitsCharacterRateLimit {
-                character_count,
-                time_window_minutes,
-            } => format!(
-                "group received at least {character_count} characters in {time_window_minutes} min"
-            ),
-            Self::GroupHitsLineRateLimit {
-                line_count,
-                time_window_minutes,
-                ..
-            } => format!("group received at least {line_count} lines in {time_window_minutes} min"),
-            Self::AuthorJoinedRecently {
-                time_window_minutes,
-            } => format!("author joined less than {time_window_minutes} min ago"),
-            Self::FlaggedByOmniModeration { .. } => "flagged by OpenAI Omni".into(),
-            Self::FlaggedByOpenRouterInstruction { model, .. } => {
-                format!("flagged by OpenRouter instruction ({model})")
-            }
+            leaf => match leaf.as_leaf() {
+                Some(condition) => condition.describe(),
+                None => unreachable!("composites are matched above"),
+            },
         }
     }
 }
@@ -564,274 +361,11 @@ impl ModerationCondition {
 // Saving: normalization and limits
 // ---------------------------------------------------------------------------
 
-/// Maximum length (in characters) of a single keyword or domain.
-const MAX_KEYWORD_LENGTH: usize = 100;
-
-/// Maximum length (in characters) of a single exact message.
-const MAX_MESSAGE_LENGTH: usize = 1000;
-
-/// Maximum number of regex patterns in a single condition. Far lower than the other
-/// lists because compiled patterns are memoized in a fixed-size process-wide cache
-/// (see `regex_match`): this bounds how much of that shared cache one rule can claim,
-/// keeping the cache useful for every other group.
-const MAX_REGEX_PATTERNS: usize = 100;
-
-/// Maximum length (in characters) of a single regex pattern.
-const MAX_REGEX_PATTERN_LENGTH: usize = 200;
-
 /// Maximum nesting depth of one rule's condition tree. A bare leaf has depth 1.
 pub const MAX_CONDITION_DEPTH: usize = 8;
 
 /// Maximum number of condition nodes (composites included) in one rule's tree.
 pub const MAX_CONDITION_NODES: usize = 64;
-
-/// Bring a leaf condition's parameters into canonical form and check them.
-fn normalize_and_validate_leaf(condition: &mut ModerationCondition) -> Result<(), Err> {
-    match condition {
-        ModerationCondition::ContainsWords { keywords } => {
-            checks::normalize_list(keywords);
-            checks::check_list(keywords, MAX_KEYWORD_LENGTH, "keywords", "Keyword")
-        }
-        ModerationCondition::MatchesExactMessage { messages, .. } => {
-            checks::normalize_list(messages);
-            checks::check_list(messages, MAX_MESSAGE_LENGTH, "messages", "Message")
-        }
-        ModerationCondition::MatchesRegex { patterns } => {
-            checks::normalize_list(patterns);
-            if patterns.len() > MAX_REGEX_PATTERNS {
-                return Err(format!(
-                    "Too many regex patterns: {} provided, maximum is {MAX_REGEX_PATTERNS}",
-                    patterns.len()
-                )
-                .into());
-            }
-            if let Some(pattern) = patterns
-                .iter()
-                .find(|p| p.chars().count() > MAX_REGEX_PATTERN_LENGTH)
-            {
-                return Err(format!(
-                    "Regex pattern too long: {} characters, maximum is {MAX_REGEX_PATTERN_LENGTH}",
-                    pattern.chars().count()
-                )
-                .into());
-            }
-            // Rejecting here is what lets the matcher treat a non-compiling
-            // pattern as "never matches" instead of surfacing errors per message.
-            if let Some(pattern) = patterns.iter().find(|p| Regex::new(p).is_err()) {
-                return Err(format!("Invalid regex pattern: '{pattern}'").into());
-            }
-            Ok(())
-        }
-        ModerationCondition::ContainsRepeatedSequence {
-            min_repeats,
-            min_length,
-        } => {
-            // A single occurrence is not a repetition: 1 (or 0) would match
-            // every non-empty message.
-            if *min_repeats < 2 {
-                return Err(
-                    format!("Minimum repeats must be at least 2, got {min_repeats}").into(),
-                );
-            }
-            if !(1..=repeated_sequence::MAX_SEQUENCE_LENGTH).contains(min_length) {
-                return Err(format!(
-                    "Minimum sequence length must be between 1 and {}, got {min_length}",
-                    repeated_sequence::MAX_SEQUENCE_LENGTH
-                )
-                .into());
-            }
-            Ok(())
-        }
-        ModerationCondition::ContainsLinksInList { domains }
-        | ModerationCondition::ContainsLinksOutsideList { domains }
-        | ModerationCondition::ContainsLinksOutsideTop100 { domains } => {
-            checks::normalize_list(domains);
-            checks::check_list(domains, MAX_KEYWORD_LENGTH, "domains", "Domain")
-        }
-        // Unlike `AuthorHitsMessageRateLimit`, where 0 means "disabled", a zero
-        // here would store a rule that can never match while the owner believes
-        // it protects the group.
-        ModerationCondition::ExceedsMaxCharacters { max_characters } => checks::check_nonzero(
-            *max_characters,
-            "'Message Exceeds Max Characters' needs a maximum of at least 1 character",
-        ),
-        ModerationCondition::ExceedsMaxWords { max_words } => checks::check_nonzero(
-            *max_words,
-            "'Message Exceeds Max Words' needs a maximum of at least 1 word",
-        ),
-        ModerationCondition::ExceedsMaxLines { max_lines, .. } => checks::check_nonzero(
-            *max_lines,
-            "'Message Exceeds Max Lines' needs a maximum of at least 1 line",
-        ),
-        // Unlike their author counterparts, which predate this check and read 0
-        // as "disabled", these never had a disabled state to keep.
-        ModerationCondition::GroupHitsMessageRateLimit {
-            message_count,
-            time_window_minutes,
-        } => {
-            checks::check_nonzero(
-                *message_count,
-                "'Group Hits Message Rate Limit' needs at least 1 message",
-            )?;
-            rate_limit::check_window(*time_window_minutes, "Group Hits Message Rate Limit")
-        }
-        ModerationCondition::GroupHitsCharacterRateLimit {
-            character_count,
-            time_window_minutes,
-        } => {
-            checks::check_nonzero(
-                *character_count,
-                "'Group Hits Character Rate Limit' needs at least 1 character",
-            )?;
-            rate_limit::check_window(*time_window_minutes, "Group Hits Character Rate Limit")
-        }
-        ModerationCondition::GroupHitsLineRateLimit {
-            line_count,
-            time_window_minutes,
-            ..
-        } => {
-            checks::check_nonzero(
-                *line_count,
-                "'Group Hits Line Rate Limit' needs at least 1 line",
-            )?;
-            rate_limit::check_window(*time_window_minutes, "Group Hits Line Rate Limit")
-        }
-        ModerationCondition::AuthorJoinedRecently {
-            time_window_minutes,
-        } => checks::check_nonzero(
-            *time_window_minutes,
-            "'Author Joined Recently' needs a time window of at least 1 minute",
-        ),
-        ModerationCondition::FlaggedByOmniModeration {
-            api_key,
-            triggers,
-            retry,
-        } => normalize_and_validate_omni_moderation(api_key, triggers, retry),
-        ModerationCondition::FlaggedByOpenRouterInstruction {
-            api_key,
-            model,
-            instruction,
-            context_messages,
-            retry,
-        } => normalize_and_validate_openrouter_instruction(
-            api_key,
-            model,
-            instruction,
-            *context_messages,
-            retry,
-        ),
-        ModerationCondition::IsBlank
-        | ModerationCondition::ContainsInvisibleCharacters
-        | ModerationCondition::ContainsImage
-        | ModerationCondition::ContainsVideo
-        | ModerationCondition::ContainsVoiceMessage
-        | ModerationCondition::ContainsFile
-        | ModerationCondition::AuthorHitsMessageRateLimit { .. }
-        | ModerationCondition::AuthorHitsCharacterRateLimit { .. }
-        | ModerationCondition::AuthorHitsLineRateLimit { .. }
-        | ModerationCondition::AuthorHitsModerationRateLimit { .. } => Ok(()),
-        ModerationCondition::All { .. }
-        | ModerationCondition::Any { .. }
-        | ModerationCondition::Not { .. } => {
-            unreachable!("composites are normalized by normalize_node")
-        }
-    }
-}
-
-fn normalize_and_validate_omni_moderation(
-    api_key: &mut String,
-    triggers: &OpenAiCategoryTriggers,
-    retry: &ApiRetry,
-) -> Result<(), Err> {
-    normalize_api_key(api_key, "OpenAI", "Flagged by OpenAI Omni")?;
-    api_retry::validate(retry, "Flagged by OpenAI Omni")?;
-
-    for category in OpenAiCategory::ALL {
-        if let CategoryTrigger::MinScorePercent(percent) = triggers.get(category)
-            && !(1..=100).contains(&percent)
-        {
-            return Err(format!(
-                "The minimum score for '{}' must be between 1 and 100, got {percent}",
-                category.api_name()
-            )
-            .into());
-        }
-    }
-    if OpenAiCategory::ALL
-        .into_iter()
-        .all(|category| triggers.get(category) == CategoryTrigger::Off)
-    {
-        return Err(
-            "'Flagged by OpenAI Omni' has every category off, so it can never match".into(),
-        );
-    }
-    Ok(())
-}
-
-/// The OpenRouter models `FlaggedByOpenRouterInstruction` may ask. Every one
-/// takes `temperature` 0 and a strict JSON schema (OpenRouter's
-/// `structured_outputs`) and answers without reasoning first, which is what
-/// keeps the answer a fast, repeatable boolean. Mirrored by the `model`
-/// field's `oneOf` in `rules-schema.json`.
-pub const OPENROUTER_INSTRUCTION_MODELS: [&str; 10] = [
-    "google/gemini-2.5-flash-lite",
-    "mistralai/mistral-small-3.2-24b-instruct",
-    "meta-llama/llama-3.3-70b-instruct",
-    "meta-llama/llama-4-maverick",
-    "openai/gpt-4.1-nano",
-    "openai/gpt-4o-mini",
-    "openai/gpt-4.1-mini",
-    "anthropic/claude-haiku-4.5",
-    "openai/gpt-4o",
-    "openai/gpt-4.1",
-];
-
-/// Maximum length (in characters) of an instruction. It travels in the editor
-/// link and in every request, so it is billed on every message it checks.
-pub const MAX_OPENROUTER_INSTRUCTION_LENGTH: usize = 4000;
-
-/// Maximum number of earlier messages sent along with the one judged. Each
-/// is billed on every message checked, and is one more member's text handed
-/// to a third party. Mirrored by the field's `maximum` in `rules-schema.json`.
-pub const MAX_OPENROUTER_CONTEXT_MESSAGES: u32 = 10;
-
-fn normalize_and_validate_openrouter_instruction(
-    api_key: &mut String,
-    model: &str,
-    instruction: &mut String,
-    context_messages: u32,
-    retry: &ApiRetry,
-) -> Result<(), Err> {
-    const TITLE: &str = "Flagged by OpenRouter Instruction";
-    normalize_api_key(api_key, "OpenRouter", TITLE)?;
-    api_retry::validate(retry, TITLE)?;
-    if context_messages > MAX_OPENROUTER_CONTEXT_MESSAGES {
-        return Err(format!(
-            "'{TITLE}' can send at most {MAX_OPENROUTER_CONTEXT_MESSAGES} earlier messages, got {context_messages}"
-        )
-        .into());
-    }
-    if !OPENROUTER_INSTRUCTION_MODELS.contains(&model) {
-        return Err(format!(
-            "'{TITLE}' cannot use the model '{model}'. Pick one of: {}",
-            OPENROUTER_INSTRUCTION_MODELS.join(", ")
-        )
-        .into());
-    }
-    let trimmed = instruction.trim();
-    if trimmed.is_empty() {
-        return Err(format!("'{TITLE}' needs an instruction").into());
-    }
-    let length = trimmed.chars().count();
-    if length > MAX_OPENROUTER_INSTRUCTION_LENGTH {
-        return Err(format!(
-            "The instruction is too long: {length} characters, maximum is {MAX_OPENROUTER_INSTRUCTION_LENGTH}"
-        )
-        .into());
-    }
-    *instruction = trimmed.to_string();
-    Ok(())
-}
 
 /// Append `condition` to `out` unless an identical sibling is already there.
 fn push_unique(out: &mut Vec<ModerationCondition>, condition: ModerationCondition) {
@@ -907,7 +441,10 @@ fn normalize_node(condition: ModerationCondition) -> Result<Option<ModerationCon
             }))
         }
         mut leaf => {
-            normalize_and_validate_leaf(&mut leaf)?;
+            let Some(condition) = leaf.as_leaf_mut() else {
+                unreachable!("composites are matched above")
+            };
+            condition.normalize_and_validate()?;
             Ok(Some(leaf))
         }
     }
@@ -937,7 +474,7 @@ fn check_no_moderation_rate_limit_under_not(
     under_not: bool,
 ) -> Result<(), Err> {
     match condition {
-        ModerationCondition::AuthorHitsModerationRateLimit { .. } if under_not => Err(
+        ModerationCondition::AuthorHitsModerationRateLimit(_) if under_not => Err(
             "'Author Hits Moderation Rate Limit' cannot be placed under a 'Not' \
              condition, because it already depends on what the other rules do with this message."
                 .into(),
@@ -1010,91 +547,6 @@ impl ModerationCondition {
 // Evaluation
 // ---------------------------------------------------------------------------
 
-fn should_moderate_by_condition(message: &str, condition: &ModerationCondition) -> Option<String> {
-    match condition {
-        ModerationCondition::ContainsWords { keywords } => {
-            keywords::should_moderate(message.trim(), keywords)
-                .map(|keyword| format!("contains word: '{keyword}'"))
-        }
-        ModerationCondition::MatchesExactMessage {
-            messages,
-            case_sensitive,
-        } => exact_message::should_moderate(message.trim(), messages, *case_sensitive),
-        ModerationCondition::MatchesRegex { patterns } => {
-            regex_match::should_moderate(message, patterns)
-                .map(|pattern| format!("matches regex pattern: '{pattern}'"))
-        }
-        ModerationCondition::ContainsRepeatedSequence {
-            min_repeats,
-            min_length,
-        } => repeated_sequence::should_moderate(message, *min_repeats, *min_length),
-        ModerationCondition::ContainsLinksInList { domains } => {
-            links::should_moderate_in_list(message.trim(), domains)
-        }
-        ModerationCondition::ContainsLinksOutsideList { domains } => {
-            links::should_moderate_outside_list(message.trim(), domains)
-        }
-        ModerationCondition::ContainsLinksOutsideTop100 { domains } => {
-            links::should_moderate_outside_top100(message.trim(), domains)
-        }
-        // The shape conditions see the raw message: leading and trailing
-        // whitespace is exactly what they are measuring.
-        ModerationCondition::ContainsInvisibleCharacters => {
-            invisible_chars::should_moderate_invisible(message)
-        }
-        ModerationCondition::ExceedsMaxCharacters { max_characters } => {
-            message_length::should_moderate_characters(message, *max_characters)
-        }
-        ModerationCondition::ExceedsMaxWords { max_words } => {
-            message_length::should_moderate_words(message, *max_words)
-        }
-        ModerationCondition::ExceedsMaxLines {
-            max_lines,
-            chars_per_line,
-        } => message_length::should_moderate_lines(message, *max_lines, *chars_per_line),
-        // Repository-backed, attachment-based, author-based and composite
-        // conditions never reach here; they are handled by `evaluate` because
-        // they need more of the message than its text, or the context.
-        ModerationCondition::IsBlank
-        | ModerationCondition::ContainsImage
-        | ModerationCondition::ContainsVideo
-        | ModerationCondition::ContainsVoiceMessage
-        | ModerationCondition::ContainsFile
-        | ModerationCondition::AuthorHitsMessageRateLimit { .. }
-        | ModerationCondition::AuthorHitsCharacterRateLimit { .. }
-        | ModerationCondition::AuthorHitsLineRateLimit { .. }
-        | ModerationCondition::AuthorHitsModerationRateLimit { .. }
-        | ModerationCondition::GroupHitsMessageRateLimit { .. }
-        | ModerationCondition::GroupHitsCharacterRateLimit { .. }
-        | ModerationCondition::GroupHitsLineRateLimit { .. }
-        | ModerationCondition::AuthorJoinedRecently { .. }
-        | ModerationCondition::FlaggedByOmniModeration { .. }
-        | ModerationCondition::FlaggedByOpenRouterInstruction { .. }
-        | ModerationCondition::All { .. }
-        | ModerationCondition::Any { .. }
-        | ModerationCondition::Not { .. } => None,
-    }
-}
-
-/// Maximum length (in characters) of a model's reason as the owner is shown
-/// it. The schema asks for one short sentence; this holds a model that ignores
-/// that to a notification's worth.
-const MAX_MODEL_REASON_LENGTH: usize = 200;
-
-/// The model's own reason, on one line and cut to size, after the model's name
-/// so the owner knows whose judgement it is.
-fn openrouter_instruction_reason(model: &str, reason: &str) -> String {
-    let reason = reason.split_whitespace().collect::<Vec<_>>().join(" ");
-    if reason.is_empty() {
-        return format!("{model} says it matches the instruction");
-    }
-    let mut shown: String = reason.chars().take(MAX_MODEL_REASON_LENGTH).collect();
-    if reason.chars().count() > MAX_MODEL_REASON_LENGTH {
-        shown.push('…');
-    }
-    format!("{model}: {shown}")
-}
-
 /// Evaluate one condition, reusing the per-message memo.
 ///
 /// Returns the reason the message matched, or `None` when it did not.
@@ -1121,7 +573,6 @@ pub(super) fn check_condition<'a>(
         Ok(result)
     })
 }
-
 async fn evaluate(
     ctx: &mut ConditionContext<'_>,
     condition: &ModerationCondition,
@@ -1162,224 +613,9 @@ async fn evaluate(
                 Ok(Some(format!("does not match: {}", inner.describe())))
             }
         }
-        ModerationCondition::AuthorHitsMessageRateLimit {
-            message_count,
-            time_window_minutes,
-        } => {
-            message_rate_limit::check(
-                ctx.activity_repo,
-                &ctx.group_message.group.id,
-                &ctx.group_message.author_id,
-                *message_count,
-                *time_window_minutes,
-                ctx.group_message.timestamp,
-            )
-            .await
-        }
-        ModerationCondition::AuthorHitsCharacterRateLimit {
-            character_count,
-            time_window_minutes,
-        } => {
-            character_rate_limit::check(
-                ctx.character_activity_repo,
-                &ctx.group_message.group.id,
-                &ctx.group_message.author_id,
-                *character_count,
-                *time_window_minutes,
-                ctx.group_message.timestamp,
-            )
-            .await
-        }
-        // The wrap width is not read here: it did its work when the message was
-        // counted into the window.
-        ModerationCondition::AuthorHitsLineRateLimit {
-            line_count,
-            time_window_minutes,
-            ..
-        } => {
-            line_rate_limit::check(
-                ctx.line_activity_repo,
-                &ctx.group_message.group.id,
-                &ctx.group_message.author_id,
-                *line_count,
-                *time_window_minutes,
-                ctx.group_message.timestamp,
-            )
-            .await
-        }
-        ModerationCondition::GroupHitsMessageRateLimit {
-            message_count,
-            time_window_minutes,
-        } => {
-            message_rate_limit::check_group(
-                ctx.group_activity_repo,
-                &ctx.group_message.group.id,
-                *message_count,
-                *time_window_minutes,
-                ctx.group_message.timestamp,
-            )
-            .await
-        }
-        ModerationCondition::GroupHitsCharacterRateLimit {
-            character_count,
-            time_window_minutes,
-        } => {
-            character_rate_limit::check_group(
-                ctx.group_character_activity_repo,
-                &ctx.group_message.group.id,
-                *character_count,
-                *time_window_minutes,
-                ctx.group_message.timestamp,
-            )
-            .await
-        }
-        ModerationCondition::GroupHitsLineRateLimit {
-            line_count,
-            time_window_minutes,
-            ..
-        } => {
-            line_rate_limit::check_group(
-                ctx.group_line_activity_repo,
-                &ctx.group_message.group.id,
-                *line_count,
-                *time_window_minutes,
-                ctx.group_message.timestamp,
-            )
-            .await
-        }
-        ModerationCondition::AuthorHitsModerationRateLimit { .. }
-            if ctx.moderation_rate_limit_pinned =>
-        {
-            Ok(None)
-        }
-        ModerationCondition::AuthorHitsModerationRateLimit {
-            message_count,
-            time_window_minutes,
-        } if ctx.message_is_moderated => {
-            if *message_count == 0 || *time_window_minutes == 0 {
-                Ok(None)
-            } else {
-                let since =
-                    rate_limit::window_start(ctx.group_message.timestamp, *time_window_minutes);
-                let count = ctx
-                    .moderation_activity_repo
-                    .count_moderated_messages_since(
-                        &ctx.group_message.group.id,
-                        &ctx.group_message.author_id,
-                        since,
-                        ctx.group_message.timestamp,
-                    )
-                    .await?
-                    + 1;
-                Ok(moderation_rate_limit::should_moderate(
-                    count,
-                    *message_count,
-                    *time_window_minutes,
-                ))
-            }
-        }
-        ModerationCondition::AuthorHitsModerationRateLimit {
-            message_count,
-            time_window_minutes,
-        } => {
-            moderation_rate_limit::check(
-                ctx.moderation_activity_repo,
-                &ctx.group_message.group.id,
-                &ctx.group_message.author_id,
-                *message_count,
-                *time_window_minutes,
-                ctx.group_message.timestamp,
-            )
-            .await
-        }
-        // A message that carries something is not an empty message, whatever
-        // its caption says, so the attachment is checked before the text.
-        ModerationCondition::IsBlank if ctx.group_message.attachment.is_some() => Ok(None),
-        ModerationCondition::IsBlank => Ok(invisible_chars::should_moderate_blank(
-            &ctx.group_message.text,
-        )),
-        ModerationCondition::ContainsImage
-        | ModerationCondition::ContainsVideo
-        | ModerationCondition::ContainsVoiceMessage
-        | ModerationCondition::ContainsFile => Ok(attachment::should_moderate(
-            ctx.group_message.attachment,
-            condition,
-        )),
-        ModerationCondition::AuthorJoinedRecently {
-            time_window_minutes,
-        } => Ok(joined_recently::should_moderate(
-            ctx.group_message.author_joined_at,
-            ctx.group_message.timestamp,
-            *time_window_minutes,
-        )),
-        ModerationCondition::FlaggedByOmniModeration {
-            api_key,
-            triggers,
-            retry,
-        } => {
-            let text = &ctx.group_message.text;
-            // Nothing to show OpenAI: a caption-less attachment or blank text.
-            if text.trim().is_empty() {
-                return Ok(None);
-            }
-            match ctx.openai.classify(api_key, text, retry).await {
-                Ok(verdict) => Ok(openai_moderation::should_moderate(triggers, &verdict)),
-                // No verdict is no match: OpenAI being down, rate limited or
-                // refusing the key must not stop the other rules. The adapter
-                // has logged why.
-                Err(_) => Ok(None),
-            }
-        }
-        ModerationCondition::FlaggedByOpenRouterInstruction {
-            api_key,
-            model,
-            instruction,
-            context_messages,
-            retry,
-        } => {
-            let text = &ctx.group_message.text;
-            if text.trim().is_empty() {
-                return Ok(None);
-            }
-            let context = if *context_messages == 0 {
-                Vec::new()
-            } else {
-                match ctx
-                    .message_history
-                    .messages_before(
-                        &ctx.group_message.group.id,
-                        &ctx.group_message.message_id,
-                        *context_messages,
-                        ctx.group_message.timestamp,
-                    )
-                    .await
-                {
-                    Ok(earlier) => instruction_context::for_model(&earlier),
-                    // Asked without the context the owner configured, the
-                    // model could give a different answer; no verdict is safer
-                    // than a different one.
-                    Err(_) => return Ok(None),
-                }
-            };
-            match ctx
-                .openrouter
-                .matches_instruction(
-                    api_key,
-                    model,
-                    instruction,
-                    &ctx.group_message.author_name,
-                    text,
-                    &context,
-                    retry,
-                )
-                .await
-            {
-                Ok(verdict) if verdict.matches => {
-                    Ok(Some(openrouter_instruction_reason(model, &verdict.reason)))
-                }
-                Ok(_) | Err(_) => Ok(None),
-            }
-        }
-        other => Ok(should_moderate_by_condition(&ctx.group_message.text, other)),
+        leaf => match leaf.as_leaf() {
+            Some(condition) => condition.should_moderate(ctx).await,
+            None => unreachable!("composites are matched above"),
+        },
     }
 }

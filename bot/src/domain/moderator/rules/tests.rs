@@ -1,4 +1,10 @@
 use super::*;
+use crate::domain::moderator::ports::conditions::{
+    AuthorHitsCharacterRateLimit, AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit,
+    AuthorHitsModerationRateLimit, AuthorJoinedRecently, ContainsImage, ContainsWords,
+    FlaggedByOmniModeration, FlaggedByOpenRouterInstruction, IsBlank, MatchesExactMessage,
+    MatchesRegex,
+};
 use crate::domain::moderator::ports::{
     CategoryTrigger, GroupMessage, KeyCheck, MessageAttachment, MessengerGroup, MessengerGroupId,
     OpenAi, OpenAiCategory, OpenAiCategoryTriggers, OpenAiModerationResult, OpenRouter,
@@ -26,7 +32,7 @@ fn test_deserialize_rule_with_moderate_message_action() {
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
     assert_eq!(rule.actions, vec![ModerationAction::ModerateMessage]);
     match rule.condition {
-        ModerationCondition::ContainsWords { keywords } => {
+        ModerationCondition::ContainsWords(ContainsWords { keywords }) => {
             assert_eq!(keywords, vec!["spam".to_string(), "ad".to_string()]);
         }
         _ => panic!("Expected ContainsWords condition"),
@@ -114,9 +120,9 @@ fn test_deserialize_rule_with_several_actions_keeps_their_order() {
 fn test_normalize_and_validate_rejects_a_rule_without_actions() {
     let mut rule = ModerationRule {
         actions: vec![],
-        condition: ModerationCondition::ContainsWords {
+        condition: ModerationCondition::ContainsWords(ContainsWords {
             keywords: vec!["spam".to_string()],
-        },
+        }),
     };
     let err = rule.normalize_and_validate().unwrap_err().to_string();
     assert!(err.contains("no actions"), "unexpected error: {err}");
@@ -138,9 +144,9 @@ fn test_normalize_and_validate_canonicalizes_the_action_list() {
                 duration_minutes: 0,
             },
         ],
-        condition: ModerationCondition::ContainsWords {
+        condition: ModerationCondition::ContainsWords(ContainsWords {
             keywords: vec!["spam".to_string()],
-        },
+        }),
     };
     rule.normalize_and_validate().unwrap();
     assert_eq!(
@@ -163,10 +169,10 @@ fn test_serialization_roundtrip() {
                 delete_all_messages: false,
             },
         ],
-        condition: ModerationCondition::MatchesExactMessage {
+        condition: ModerationCondition::MatchesExactMessage(MatchesExactMessage {
             messages: vec!["banned message".to_string()],
             case_sensitive: false,
-        },
+        }),
     };
 
     let serialized = serde_json::to_string(&rule).unwrap();
@@ -180,9 +186,9 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
         actions: vec![ModerationAction::KickAuthor {
             delete_all_messages: false,
         }],
-        condition: ModerationCondition::ContainsWords {
+        condition: ModerationCondition::ContainsWords(ContainsWords {
             keywords: vec!["danger".to_string()],
-        },
+        }),
     }];
 
     let msg = GroupMessage {
@@ -223,9 +229,9 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
     let rules = vec![
         ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["first".to_string()],
-            },
+            }),
         },
         ModerationRule {
             actions: vec![
@@ -234,9 +240,9 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
                     delete_all_messages: false,
                 },
             ],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["second".to_string()],
-            },
+            }),
         },
     ];
 
@@ -331,9 +337,9 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
 async fn test_no_rules_match_returns_none() {
     let rules = vec![ModerationRule {
         actions: vec![ModerationAction::ModerateMessage],
-        condition: ModerationCondition::ContainsWords {
+        condition: ModerationCondition::ContainsWords(ContainsWords {
             keywords: vec!["banned".to_string()],
-        },
+        }),
     }];
 
     let msg = GroupMessage {
@@ -383,10 +389,10 @@ fn test_deserialize_message_rate_limit_rule() {
     );
     assert_eq!(
         rule.condition,
-        ModerationCondition::AuthorHitsMessageRateLimit {
+        ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
             message_count: 5,
             time_window_minutes: 10,
-        }
+        })
     );
 }
 
@@ -394,10 +400,10 @@ fn test_deserialize_message_rate_limit_rule() {
 fn test_message_rate_limit_serialization_roundtrip() {
     let rule = ModerationRule {
         actions: vec![ModerationAction::ModerateMessage],
-        condition: ModerationCondition::AuthorHitsMessageRateLimit {
+        condition: ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
             message_count: 10,
             time_window_minutes: 5,
-        },
+        }),
     };
     let serialized = serde_json::to_string(&rule).unwrap();
     let deserialized: ModerationRule = serde_json::from_str(&serialized).unwrap();
@@ -418,10 +424,10 @@ fn test_deserialize_character_rate_limit_rule() {
     assert_eq!(rule.actions, vec![ModerationAction::ModerateMessage]);
     assert_eq!(
         rule.condition,
-        ModerationCondition::AuthorHitsCharacterRateLimit {
+        ModerationCondition::AuthorHitsCharacterRateLimit(AuthorHitsCharacterRateLimit {
             character_count: 2000,
             time_window_minutes: 5,
-        }
+        })
     );
 }
 
@@ -429,10 +435,12 @@ fn test_deserialize_character_rate_limit_rule() {
 fn test_character_rate_limit_serialization_roundtrip() {
     let rule = ModerationRule {
         actions: vec![ModerationAction::ModerateMessage],
-        condition: ModerationCondition::AuthorHitsCharacterRateLimit {
-            character_count: 500,
-            time_window_minutes: 2,
-        },
+        condition: ModerationCondition::AuthorHitsCharacterRateLimit(
+            AuthorHitsCharacterRateLimit {
+                character_count: 500,
+                time_window_minutes: 2,
+            },
+        ),
     };
     let serialized = serde_json::to_string(&rule).unwrap();
     let deserialized: ModerationRule = serde_json::from_str(&serialized).unwrap();
@@ -445,11 +453,11 @@ fn test_character_rate_limit_serialization_roundtrip() {
 async fn test_should_moderate_with_line_rate_limit() {
     let rules = vec![ModerationRule {
         actions: vec![ModerationAction::ModerateMessage],
-        condition: ModerationCondition::AuthorHitsLineRateLimit {
+        condition: ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
             line_count: 30,
             time_window_minutes: 1,
             chars_per_line: 40,
-        },
+        }),
     }];
 
     let msg = GroupMessage {
@@ -614,10 +622,12 @@ impl UserModerationActivityRepository for MockActivityRepoForFilter {
 async fn test_should_moderate_with_character_rate_limit() {
     let rules = vec![ModerationRule {
         actions: vec![ModerationAction::ModerateMessage],
-        condition: ModerationCondition::AuthorHitsCharacterRateLimit {
-            character_count: 500,
-            time_window_minutes: 1,
-        },
+        condition: ModerationCondition::AuthorHitsCharacterRateLimit(
+            AuthorHitsCharacterRateLimit {
+                character_count: 500,
+                time_window_minutes: 1,
+            },
+        ),
     }];
 
     let msg = GroupMessage {
@@ -748,17 +758,19 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
 
     let by_messages = vec![ModerationRule {
         actions: vec![ModerationAction::ModerateMessage],
-        condition: ModerationCondition::AuthorHitsMessageRateLimit {
+        condition: ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
             message_count: 10,
             time_window_minutes: 1,
-        },
+        }),
     }];
     let by_characters = vec![ModerationRule {
         actions: vec![ModerationAction::ModerateMessage],
-        condition: ModerationCondition::AuthorHitsCharacterRateLimit {
-            character_count: 10,
-            time_window_minutes: 1,
-        },
+        condition: ModerationCondition::AuthorHitsCharacterRateLimit(
+            AuthorHitsCharacterRateLimit {
+                character_count: 10,
+                time_window_minutes: 1,
+            },
+        ),
     }];
 
     // Ten messages hit the message limit of 10 and the character limit of 10
@@ -864,10 +876,10 @@ async fn test_should_moderate_with_message_rate_limit() {
                 delete_all_messages: false,
             },
         ],
-        condition: ModerationCondition::AuthorHitsMessageRateLimit {
+        condition: ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
             message_count: 5,
             time_window_minutes: 1,
-        },
+        }),
     }];
 
     let msg = GroupMessage {
@@ -948,10 +960,12 @@ async fn test_should_moderate_with_moderation_rate_limit() {
                 delete_all_messages: false,
             },
         ],
-        condition: ModerationCondition::AuthorHitsModerationRateLimit {
-            message_count: 3,
-            time_window_minutes: 60,
-        },
+        condition: ModerationCondition::AuthorHitsModerationRateLimit(
+            AuthorHitsModerationRateLimit {
+                message_count: 3,
+                time_window_minutes: 60,
+            },
+        ),
     }];
 
     let msg = GroupMessage {
@@ -1028,17 +1042,17 @@ async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_mess
     let rules = vec![
         ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["spam".to_string()],
-            },
+            }),
         },
         ModerationRule {
             actions: vec![ModerationAction::KickAuthor {
                 delete_all_messages: true,
             }],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["malware".to_string()],
-            },
+            }),
         },
     ];
 
@@ -1088,17 +1102,17 @@ async fn test_independent_rules_combine_and_order_deletion_before_kick() {
     let rules = vec![
         ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["spam".to_string()],
-            },
+            }),
         },
         ModerationRule {
             actions: vec![ModerationAction::KickAuthor {
                 delete_all_messages: false,
             }],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["kickme".to_string()],
-            },
+            }),
         },
     ];
 
@@ -1157,9 +1171,9 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
     let rules = vec![
         ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["badword".to_string()],
-            },
+            }),
         },
         ModerationRule {
             actions: vec![
@@ -1168,10 +1182,12 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
                     delete_all_messages: false,
                 },
             ],
-            condition: ModerationCondition::AuthorHitsModerationRateLimit {
-                message_count: 3,
-                time_window_minutes: 60,
-            },
+            condition: ModerationCondition::AuthorHitsModerationRateLimit(
+                AuthorHitsModerationRateLimit {
+                    message_count: 3,
+                    time_window_minutes: 60,
+                },
+            ),
         },
     ];
 
@@ -1235,16 +1251,18 @@ async fn test_moderation_rate_limit_is_order_independent() {
                     delete_all_messages: false,
                 },
             ],
-            condition: ModerationCondition::AuthorHitsModerationRateLimit {
-                message_count: 3,
-                time_window_minutes: 60,
-            },
+            condition: ModerationCondition::AuthorHitsModerationRateLimit(
+                AuthorHitsModerationRateLimit {
+                    message_count: 3,
+                    time_window_minutes: 60,
+                },
+            ),
         },
         ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["badword".to_string()],
-            },
+            }),
         },
     ];
 
@@ -1304,9 +1322,9 @@ async fn test_moderation_rate_limit_is_order_independent() {
 // ---------------------------------------------------------------------------
 
 fn words(keyword: &str) -> ModerationCondition {
-    ModerationCondition::ContainsWords {
+    ModerationCondition::ContainsWords(ContainsWords {
         keywords: vec![keyword.to_string()],
-    }
+    })
 }
 
 fn rule_with(condition: ModerationCondition) -> Vec<ModerationRule> {
@@ -1439,10 +1457,12 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
             ],
             condition: ModerationCondition::All {
                 conditions: vec![
-                    ModerationCondition::AuthorHitsModerationRateLimit {
-                        message_count: 3,
-                        time_window_minutes: 60,
-                    },
+                    ModerationCondition::AuthorHitsModerationRateLimit(
+                        AuthorHitsModerationRateLimit {
+                            message_count: 3,
+                            time_window_minutes: 60,
+                        },
+                    ),
                     ModerationCondition::Not {
                         condition: Box::new(words("exempt")),
                     },
@@ -1514,10 +1534,10 @@ async fn test_moderation_rate_limit_in_a_tree_ignores_its_own_rule() {
         actions: vec![ModerationAction::ModerateMessage],
         condition: ModerationCondition::Any {
             conditions: vec![
-                ModerationCondition::AuthorHitsModerationRateLimit {
+                ModerationCondition::AuthorHitsModerationRateLimit(AuthorHitsModerationRateLimit {
                     message_count: 3,
                     time_window_minutes: 60,
-                },
+                }),
                 words("absent"),
             ],
         },
@@ -1588,9 +1608,9 @@ fn test_composite_wire_format_matches_the_editor_schema() {
                 ModerationCondition::Any {
                     conditions: vec![
                         words("spam"),
-                        ModerationCondition::MatchesRegex {
+                        ModerationCondition::MatchesRegex(MatchesRegex {
                             patterns: vec![r"\d{4,}".to_string()],
-                        },
+                        }),
                     ],
                 },
                 ModerationCondition::Not {
@@ -1708,7 +1728,7 @@ fn test_editor_link_rules_survive_saving_unchanged() {
                 ModerationCondition::Any {
                     conditions: vec![words("message"), words("mac")],
                 },
-                ModerationCondition::ContainsWords { keywords: vec![] },
+                ModerationCondition::ContainsWords(ContainsWords { keywords: vec![] }),
             ],
         }
     );
@@ -1839,9 +1859,9 @@ async fn matched_from(
 }
 
 fn joined_recently(time_window_minutes: u32) -> ModerationCondition {
-    ModerationCondition::AuthorJoinedRecently {
+    ModerationCondition::AuthorJoinedRecently(AuthorJoinedRecently {
         time_window_minutes,
-    }
+    })
 }
 
 #[test]
@@ -1933,11 +1953,11 @@ async fn test_moderates_pictures_and_leaves_them_out_of_is_blank() {
     let rules = vec![
         ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::ContainsImage,
+            condition: ModerationCondition::ContainsImage(ContainsImage {}),
         },
         ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::IsBlank,
+            condition: ModerationCondition::IsBlank(IsBlank {}),
         },
     ];
 
@@ -2171,11 +2191,11 @@ fn hateful() -> OpenAiModerationResult {
 fn openai_hate(api_key: &str) -> ModerationCondition {
     let mut triggers = OpenAiCategoryTriggers::default();
     triggers.hate = CategoryTrigger::OpenAiDecides;
-    ModerationCondition::FlaggedByOmniModeration {
+    ModerationCondition::FlaggedByOmniModeration(FlaggedByOmniModeration {
         retry: Default::default(),
         api_key: api_key.to_string(),
         triggers,
-    }
+    })
 }
 
 async fn matched_with(
@@ -2218,9 +2238,11 @@ fn test_openai_condition_wire_format_matches_the_editor_schema() {
         "sexual": "off"
     }"#;
     let condition: ModerationCondition = serde_json::from_str(json).unwrap();
-    let ModerationCondition::FlaggedByOmniModeration {
-        api_key, triggers, ..
-    } = &condition
+    let ModerationCondition::FlaggedByOmniModeration(FlaggedByOmniModeration {
+        api_key,
+        triggers,
+        ..
+    }) = &condition
     else {
         panic!("expected FlaggedByOmniModeration, got {condition:?}");
     };
@@ -2447,13 +2469,13 @@ async fn test_openai_is_not_asked_for_a_rule_whose_actions_are_already_planned()
 // ---------------------------------------------------------------------------
 
 fn openrouter_instruction(api_key: &str) -> ModerationCondition {
-    ModerationCondition::FlaggedByOpenRouterInstruction {
+    ModerationCondition::FlaggedByOpenRouterInstruction(FlaggedByOpenRouterInstruction {
         retry: Default::default(),
         api_key: api_key.to_string(),
         model: "openai/gpt-4o-mini".to_string(),
         instruction: "Block crypto ads.".to_string(),
         context_messages: 0,
-    }
+    })
 }
 
 #[test]
@@ -2679,10 +2701,10 @@ async fn test_all_does_not_ask_the_model_once_an_earlier_condition_fails() {
 
 fn instruction_with_context(context_messages: u32) -> ModerationCondition {
     let mut condition = openrouter_instruction("sk-one");
-    if let ModerationCondition::FlaggedByOpenRouterInstruction {
+    if let ModerationCondition::FlaggedByOpenRouterInstruction(FlaggedByOpenRouterInstruction {
         context_messages: n,
         ..
-    } = &mut condition
+    }) = &mut condition
     {
         *n = context_messages;
     }

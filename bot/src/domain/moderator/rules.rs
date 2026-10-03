@@ -94,7 +94,7 @@ mod format_tests;
 
 pub use common::screen_lines::count_effective_lines;
 pub use moderation_action::ModerationAction;
-pub use moderation_condition::ModerationCondition;
+pub use moderation_condition::{ModerationCondition, conditions};
 pub use moderation_rule::ModerationRule;
 
 use super::ports::{

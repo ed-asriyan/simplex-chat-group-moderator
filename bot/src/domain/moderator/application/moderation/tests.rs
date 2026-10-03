@@ -2,6 +2,12 @@ use super::MessageModerationApplication;
 use crate::domain::moderator::application::tests::{
     MockGroupModerator, MockMemberRestoreRepository, MockModerationRepository, PortCall,
 };
+use crate::domain::moderator::ports::conditions::{
+    AuthorHitsCharacterRateLimit, AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit,
+    AuthorHitsModerationRateLimit, ContainsWords, ExceedsMaxLines, FlaggedByOmniModeration,
+    FlaggedByOpenRouterInstruction, GroupHitsCharacterRateLimit, GroupHitsLineRateLimit,
+    GroupHitsMessageRateLimit,
+};
 use crate::domain::moderator::ports::{
     CategoryTrigger, Err, Group, GroupId, GroupMessage, GroupMessageActivityRepository, KeyCheck,
     MessageAttachment, MessageId, MessengerGroup, MessengerGroupId, ModerationAction,
@@ -210,9 +216,9 @@ async fn test_process_group_message_moderate_message_action() {
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["badword".to_string()],
-            },
+            }),
         },
     };
 
@@ -294,9 +300,9 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
                     delete_all_messages: false,
                 },
             ],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
-            },
+            }),
         },
     };
 
@@ -381,9 +387,9 @@ async fn test_process_group_message_kick_author_without_deleting_messages() {
             actions: vec![ModerationAction::KickAuthor {
                 delete_all_messages: false,
             }],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
-            },
+            }),
         },
     };
 
@@ -465,9 +471,9 @@ async fn test_process_group_message_kick_author_deleting_all_messages() {
             actions: vec![ModerationAction::KickAuthor {
                 delete_all_messages: true,
             }],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
-            },
+            }),
         },
     };
 
@@ -552,9 +558,9 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
                     delete_all_messages: false,
                 },
             ],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
-            },
+            }),
         },
     };
 
@@ -626,9 +632,9 @@ async fn test_process_group_message_no_match_does_nothing() {
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["badword".to_string()],
-            },
+            }),
         },
     };
 
@@ -700,9 +706,9 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["first".to_string()],
-            },
+            }),
         },
     };
     let rule2 = OwnedModerationRule {
@@ -714,9 +720,9 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
                     delete_all_messages: false,
                 },
             ],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["second".to_string()],
-            },
+            }),
         },
     };
 
@@ -804,9 +810,9 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
                 },
                 ModerationAction::ModerateMessage,
             ],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
-            },
+            }),
         },
     };
 
@@ -903,9 +909,9 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
             actions: vec![ModerationAction::SetAuthorObserver {
                 duration_minutes: 0,
             }],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
-            },
+            }),
         },
     };
 
@@ -1001,9 +1007,9 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
                 },
                 ModerationAction::ModerateMessage,
             ],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
-            },
+            }),
         },
     };
 
@@ -1082,9 +1088,9 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
             actions: vec![ModerationAction::SetAuthorObserver {
                 duration_minutes: 0,
             }],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
-            },
+            }),
         },
     };
 
@@ -1162,9 +1168,9 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
                 },
                 ModerationAction::ModerateMessage,
             ],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
-            },
+            }),
         },
     };
 
@@ -1241,9 +1247,9 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
                 },
                 ModerationAction::ModerateMessage,
             ],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
-            },
+            }),
         },
     };
 
@@ -1331,18 +1337,18 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
                 },
                 ModerationAction::ModerateMessage,
             ],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["first".to_string()],
-            },
+            }),
         },
     };
     let rule2 = OwnedModerationRule {
         id: 2,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["second".to_string()],
-            },
+            }),
         },
     };
 
@@ -1423,9 +1429,9 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["first".to_string()],
-            },
+            }),
         },
     };
     let rule2 = OwnedModerationRule {
@@ -1437,9 +1443,9 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
                 },
                 ModerationAction::ModerateMessage,
             ],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["second".to_string()],
-            },
+            }),
         },
     };
 
@@ -1522,10 +1528,12 @@ async fn test_process_group_message_message_rate_limit_triggers_on_threshold() {
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit {
-                message_count: 3,
-                time_window_minutes: 1,
-            },
+            condition: ModerationCondition::AuthorHitsMessageRateLimit(
+                AuthorHitsMessageRateLimit {
+                    message_count: 3,
+                    time_window_minutes: 1,
+                },
+            ),
         },
     };
 
@@ -1614,10 +1622,12 @@ async fn test_process_group_message_message_rate_limit_kick_author() {
                     delete_all_messages: false,
                 },
             ],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit {
-                message_count: 2,
-                time_window_minutes: 5,
-            },
+            condition: ModerationCondition::AuthorHitsMessageRateLimit(
+                AuthorHitsMessageRateLimit {
+                    message_count: 2,
+                    time_window_minutes: 5,
+                },
+            ),
         },
     };
 
@@ -1702,10 +1712,12 @@ async fn test_process_group_message_message_rate_limit_dry_mode() {
                     delete_all_messages: false,
                 },
             ],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit {
-                message_count: 1,
-                time_window_minutes: 1,
-            },
+            condition: ModerationCondition::AuthorHitsMessageRateLimit(
+                AuthorHitsMessageRateLimit {
+                    message_count: 1,
+                    time_window_minutes: 1,
+                },
+            ),
         },
     };
 
@@ -1778,10 +1790,12 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit {
-                message_count: 2,
-                time_window_minutes: 5,
-            },
+            condition: ModerationCondition::AuthorHitsMessageRateLimit(
+                AuthorHitsMessageRateLimit {
+                    message_count: 2,
+                    time_window_minutes: 5,
+                },
+            ),
         },
     };
 
@@ -1887,10 +1901,12 @@ async fn test_track_user_message_called_when_message_rate_limit_rule_configured(
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit {
-                message_count: 5,
-                time_window_minutes: 10,
-            },
+            condition: ModerationCondition::AuthorHitsMessageRateLimit(
+                AuthorHitsMessageRateLimit {
+                    message_count: 5,
+                    time_window_minutes: 10,
+                },
+            ),
         },
     };
 
@@ -1966,10 +1982,12 @@ async fn test_track_user_message_uses_max_window_across_multiple_message_rate_li
             id: 1,
             rule: ModerationRule {
                 actions: vec![ModerationAction::ModerateMessage],
-                condition: ModerationCondition::AuthorHitsMessageRateLimit {
-                    message_count: 5,
-                    time_window_minutes: 5,
-                },
+                condition: ModerationCondition::AuthorHitsMessageRateLimit(
+                    AuthorHitsMessageRateLimit {
+                        message_count: 5,
+                        time_window_minutes: 5,
+                    },
+                ),
             },
         },
         OwnedModerationRule {
@@ -1978,10 +1996,12 @@ async fn test_track_user_message_uses_max_window_across_multiple_message_rate_li
                 actions: vec![ModerationAction::KickAuthor {
                     delete_all_messages: false,
                 }],
-                condition: ModerationCondition::AuthorHitsMessageRateLimit {
-                    message_count: 20,
-                    time_window_minutes: 25,
-                },
+                condition: ModerationCondition::AuthorHitsMessageRateLimit(
+                    AuthorHitsMessageRateLimit {
+                        message_count: 20,
+                        time_window_minutes: 25,
+                    },
+                ),
             },
         },
     ];
@@ -2045,10 +2065,12 @@ async fn test_track_characters_called_when_character_rate_limit_rule_configured(
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::AuthorHitsCharacterRateLimit {
-                character_count: 2000,
-                time_window_minutes: 10,
-            },
+            condition: ModerationCondition::AuthorHitsCharacterRateLimit(
+                AuthorHitsCharacterRateLimit {
+                    character_count: 2000,
+                    time_window_minutes: 10,
+                },
+            ),
         },
     };
 
@@ -2126,10 +2148,12 @@ async fn test_track_characters_not_called_without_a_character_rate_limit_rule() 
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit {
-                message_count: 5,
-                time_window_minutes: 10,
-            },
+            condition: ModerationCondition::AuthorHitsMessageRateLimit(
+                AuthorHitsMessageRateLimit {
+                    message_count: 5,
+                    time_window_minutes: 10,
+                },
+            ),
         },
     };
 
@@ -2194,11 +2218,11 @@ async fn test_track_lines_called_when_line_rate_limit_rule_configured() {
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::AuthorHitsLineRateLimit {
+            condition: ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
                 line_count: 30,
                 time_window_minutes: 10,
                 chars_per_line: 10,
-            },
+            }),
         },
     };
 
@@ -2281,22 +2305,22 @@ async fn test_track_lines_uses_the_widest_configured_wrap() {
             id: 1,
             rule: ModerationRule {
                 actions: vec![ModerationAction::ModerateMessage],
-                condition: ModerationCondition::AuthorHitsLineRateLimit {
+                condition: ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
                     line_count: 30,
                     time_window_minutes: 5,
                     chars_per_line: 10,
-                },
+                }),
             },
         },
         OwnedModerationRule {
             id: 2,
             rule: ModerationRule {
                 actions: vec![ModerationAction::ModerateMessage],
-                condition: ModerationCondition::AuthorHitsLineRateLimit {
+                condition: ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
                     line_count: 100,
                     time_window_minutes: 20,
                     chars_per_line: 40,
-                },
+                }),
             },
         },
     ];
@@ -2364,11 +2388,11 @@ async fn test_track_lines_counts_nothing_for_a_captionless_attachment() {
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::AuthorHitsLineRateLimit {
+            condition: ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
                 line_count: 30,
                 time_window_minutes: 10,
                 chars_per_line: 40,
-            },
+            }),
         },
     };
 
@@ -2429,10 +2453,10 @@ async fn test_track_lines_not_called_without_a_line_rate_limit_rule() {
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::ExceedsMaxLines {
+            condition: ModerationCondition::ExceedsMaxLines(ExceedsMaxLines {
                 max_lines: 5,
                 chars_per_line: 40,
-            },
+            }),
         },
     };
 
@@ -2495,10 +2519,12 @@ async fn test_track_characters_not_called_when_window_is_zero() {
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::AuthorHitsCharacterRateLimit {
-                character_count: 2000,
-                time_window_minutes: 0,
-            },
+            condition: ModerationCondition::AuthorHitsCharacterRateLimit(
+                AuthorHitsCharacterRateLimit {
+                    character_count: 2000,
+                    time_window_minutes: 0,
+                },
+            ),
         },
     };
 
@@ -2557,19 +2583,19 @@ async fn test_track_user_message_not_called_when_no_message_rate_limit_rules() {
             id: 1,
             rule: ModerationRule {
                 actions: vec![ModerationAction::ModerateMessage],
-                condition: ModerationCondition::ContainsWords {
+                condition: ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["badword".to_string()],
-                },
+                }),
             },
         },
         OwnedModerationRule {
             id: 2,
             rule: ModerationRule {
                 actions: vec![ModerationAction::ModerateMessage],
-                condition: ModerationCondition::ExceedsMaxLines {
+                condition: ModerationCondition::ExceedsMaxLines(ExceedsMaxLines {
                     max_lines: 5,
                     chars_per_line: 40,
-                },
+                }),
             },
         },
     ];
@@ -2686,10 +2712,12 @@ async fn test_track_user_message_not_called_when_message_rate_limit_window_is_ze
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit {
-                message_count: 5,
-                time_window_minutes: 0,
-            },
+            condition: ModerationCondition::AuthorHitsMessageRateLimit(
+                AuthorHitsMessageRateLimit {
+                    message_count: 5,
+                    time_window_minutes: 0,
+                },
+            ),
         },
     }];
 
@@ -2750,10 +2778,12 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit {
-                message_count: 5,
-                time_window_minutes: 120, // exceeds 60 min ceiling
-            },
+            condition: ModerationCondition::AuthorHitsMessageRateLimit(
+                AuthorHitsMessageRateLimit {
+                    message_count: 5,
+                    time_window_minutes: 120, // exceeds 60 min ceiling
+                },
+            ),
         },
     }];
 
@@ -2823,19 +2853,21 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
                         delete_all_messages: false,
                     },
                 ],
-                condition: ModerationCondition::AuthorHitsModerationRateLimit {
-                    message_count: 2,
-                    time_window_minutes: 60,
-                },
+                condition: ModerationCondition::AuthorHitsModerationRateLimit(
+                    AuthorHitsModerationRateLimit {
+                        message_count: 2,
+                        time_window_minutes: 60,
+                    },
+                ),
             },
         },
         OwnedModerationRule {
             id: 2,
             rule: ModerationRule {
                 actions: vec![ModerationAction::ModerateMessage],
-                condition: ModerationCondition::ContainsWords {
+                condition: ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["spam".to_string()],
-                },
+                }),
             },
         },
     ];
@@ -2937,19 +2969,21 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
                 actions: vec![ModerationAction::KickAuthor {
                     delete_all_messages: false,
                 }],
-                condition: ModerationCondition::AuthorHitsModerationRateLimit {
-                    message_count: 5,
-                    time_window_minutes: 30,
-                },
+                condition: ModerationCondition::AuthorHitsModerationRateLimit(
+                    AuthorHitsModerationRateLimit {
+                        message_count: 5,
+                        time_window_minutes: 30,
+                    },
+                ),
             },
         },
         OwnedModerationRule {
             id: 2,
             rule: ModerationRule {
                 actions: vec![ModerationAction::ModerateMessage],
-                condition: ModerationCondition::ContainsWords {
+                condition: ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["badword".to_string()],
-                },
+                }),
             },
         },
     ];
@@ -3037,9 +3071,9 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["badword".to_string()],
-            },
+            }),
         },
     }];
 
@@ -3134,10 +3168,12 @@ async fn test_editing_one_message_does_not_hit_the_message_rate_limit() {
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit {
-                message_count: 3,
-                time_window_minutes: 1,
-            },
+            condition: ModerationCondition::AuthorHitsMessageRateLimit(
+                AuthorHitsMessageRateLimit {
+                    message_count: 3,
+                    time_window_minutes: 1,
+                },
+            ),
         },
     };
 
@@ -3186,9 +3222,9 @@ async fn test_edit_is_still_moderated_by_a_content_rule() {
         id: 1,
         rule: ModerationRule {
             actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::ContainsWords {
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["badword".to_string()],
-            },
+            }),
         },
     };
 
@@ -3230,31 +3266,35 @@ async fn test_edit_feeds_none_of_the_traffic_counters() {
             id: 1,
             rule: ModerationRule {
                 actions: vec![ModerationAction::ModerateMessage],
-                condition: ModerationCondition::AuthorHitsMessageRateLimit {
-                    message_count: 5,
-                    time_window_minutes: 1,
-                },
+                condition: ModerationCondition::AuthorHitsMessageRateLimit(
+                    AuthorHitsMessageRateLimit {
+                        message_count: 5,
+                        time_window_minutes: 1,
+                    },
+                ),
             },
         },
         OwnedModerationRule {
             id: 2,
             rule: ModerationRule {
                 actions: vec![ModerationAction::ModerateMessage],
-                condition: ModerationCondition::AuthorHitsCharacterRateLimit {
-                    character_count: 2000,
-                    time_window_minutes: 1,
-                },
+                condition: ModerationCondition::AuthorHitsCharacterRateLimit(
+                    AuthorHitsCharacterRateLimit {
+                        character_count: 2000,
+                        time_window_minutes: 1,
+                    },
+                ),
             },
         },
         OwnedModerationRule {
             id: 3,
             rule: ModerationRule {
                 actions: vec![ModerationAction::ModerateMessage],
-                condition: ModerationCondition::AuthorHitsLineRateLimit {
+                condition: ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
                     line_count: 30,
                     time_window_minutes: 1,
                     chars_per_line: 40,
-                },
+                }),
             },
         },
     ];
@@ -3318,19 +3358,21 @@ async fn test_moderating_an_edit_does_not_join_the_moderated_tally() {
                 actions: vec![ModerationAction::KickAuthor {
                     delete_all_messages: false,
                 }],
-                condition: ModerationCondition::AuthorHitsModerationRateLimit {
-                    message_count: 5,
-                    time_window_minutes: 30,
-                },
+                condition: ModerationCondition::AuthorHitsModerationRateLimit(
+                    AuthorHitsModerationRateLimit {
+                        message_count: 5,
+                        time_window_minutes: 30,
+                    },
+                ),
             },
         },
         OwnedModerationRule {
             id: 2,
             rule: ModerationRule {
                 actions: vec![ModerationAction::ModerateMessage],
-                condition: ModerationCondition::ContainsWords {
+                condition: ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["badword".to_string()],
-                },
+                }),
             },
         },
     ];
@@ -3392,9 +3434,9 @@ fn app_with_observer_rule(
                 id: 1,
                 rule: ModerationRule {
                     actions: vec![ModerationAction::SetAuthorObserver { duration_minutes }],
-                    condition: ModerationCondition::ContainsWords {
+                    condition: ModerationCondition::ContainsWords(ContainsWords {
                         keywords: vec!["danger".to_string()],
-                    },
+                    }),
                 },
             }],
         }),
@@ -3479,9 +3521,9 @@ async fn test_dry_mode_schedules_nothing() {
                     actions: vec![ModerationAction::SetAuthorObserver {
                         duration_minutes: 15,
                     }],
-                    condition: ModerationCondition::ContainsWords {
+                    condition: ModerationCondition::ContainsWords(ContainsWords {
                         keywords: vec!["danger".to_string()],
-                    },
+                    }),
                 },
             }],
         }),
@@ -3526,9 +3568,9 @@ async fn test_kicking_the_author_cancels_a_scheduled_restore() {
                     actions: vec![ModerationAction::KickAuthor {
                         delete_all_messages: false,
                     }],
-                    condition: ModerationCondition::ContainsWords {
+                    condition: ModerationCondition::ContainsWords(ContainsWords {
                         keywords: vec!["danger".to_string()],
-                    },
+                    }),
                 },
             }],
         }),
@@ -3580,9 +3622,9 @@ async fn test_failed_restore_bookkeeping_still_moderates_and_notifies() {
                         },
                         ModerationAction::ModerateMessage,
                     ],
-                    condition: ModerationCondition::ContainsWords {
+                    condition: ModerationCondition::ContainsWords(ContainsWords {
                         keywords: vec!["danger".to_string()],
-                    },
+                    }),
                 },
             }],
         }),
@@ -3727,11 +3769,13 @@ fn app_with_openai_rule(
                 id: 1,
                 rule: ModerationRule {
                     actions: vec![ModerationAction::ModerateMessage],
-                    condition: ModerationCondition::FlaggedByOmniModeration {
-                        retry: Default::default(),
-                        api_key: "sk-owner".to_string(),
-                        triggers,
-                    },
+                    condition: ModerationCondition::FlaggedByOmniModeration(
+                        FlaggedByOmniModeration {
+                            retry: Default::default(),
+                            api_key: "sk-owner".to_string(),
+                            triggers,
+                        },
+                    ),
                 },
             }],
         }),
@@ -3844,13 +3888,15 @@ async fn test_a_message_a_model_says_matches_the_instruction_is_deleted() {
                 id: 1,
                 rule: ModerationRule {
                     actions: vec![ModerationAction::ModerateMessage],
-                    condition: ModerationCondition::FlaggedByOpenRouterInstruction {
-                        retry: Default::default(),
-                        api_key: "sk-owner".to_string(),
-                        model: "openai/gpt-4o-mini".to_string(),
-                        instruction: "Block crypto ads.".to_string(),
-                        context_messages: 0,
-                    },
+                    condition: ModerationCondition::FlaggedByOpenRouterInstruction(
+                        FlaggedByOpenRouterInstruction {
+                            retry: Default::default(),
+                            api_key: "sk-owner".to_string(),
+                            model: "openai/gpt-4o-mini".to_string(),
+                            instruction: "Block crypto ads.".to_string(),
+                            context_messages: 0,
+                        },
+                    ),
                 },
             }],
         }),
@@ -3948,13 +3994,15 @@ fn history_app(
                 id: 1,
                 rule: ModerationRule {
                     actions: vec![ModerationAction::ModerateMessage],
-                    condition: ModerationCondition::FlaggedByOpenRouterInstruction {
-                        retry: Default::default(),
-                        api_key: "sk-owner".to_string(),
-                        model: "openai/gpt-4o-mini".to_string(),
-                        instruction: "Block spam.".to_string(),
-                        context_messages,
-                    },
+                    condition: ModerationCondition::FlaggedByOpenRouterInstruction(
+                        FlaggedByOpenRouterInstruction {
+                            retry: Default::default(),
+                            api_key: "sk-owner".to_string(),
+                            model: "openai/gpt-4o-mini".to_string(),
+                            instruction: "Block spam.".to_string(),
+                            context_messages,
+                        },
+                    ),
                 },
             }],
         }),
@@ -4137,10 +4185,10 @@ async fn test_group_message_rate_limit_counts_every_member() {
     let user_messages = Arc::new(InMemoryUserMessageActivityRepository::new());
     let deleted = Arc::new(Mutex::new(Vec::new()));
     let app = group_rate_limit_app(
-        ModerationCondition::GroupHitsMessageRateLimit {
+        ModerationCondition::GroupHitsMessageRateLimit(GroupHitsMessageRateLimit {
             message_count: 3,
             time_window_minutes: 1,
-        },
+        }),
         &counters,
         user_messages.clone(),
         deleted.clone(),
@@ -4176,10 +4224,10 @@ async fn test_group_character_rate_limit_counts_every_member() {
     let counters = GroupCounters::default();
     let deleted = Arc::new(Mutex::new(Vec::new()));
     let app = group_rate_limit_app(
-        ModerationCondition::GroupHitsCharacterRateLimit {
+        ModerationCondition::GroupHitsCharacterRateLimit(GroupHitsCharacterRateLimit {
             character_count: 10,
             time_window_minutes: 1,
-        },
+        }),
         &counters,
         Arc::new(InMemoryUserMessageActivityRepository::new()),
         deleted.clone(),
@@ -4203,11 +4251,11 @@ async fn test_group_line_rate_limit_counts_every_member() {
     let counters = GroupCounters::default();
     let deleted = Arc::new(Mutex::new(Vec::new()));
     let app = group_rate_limit_app(
-        ModerationCondition::GroupHitsLineRateLimit {
+        ModerationCondition::GroupHitsLineRateLimit(GroupHitsLineRateLimit {
             line_count: 4,
             time_window_minutes: 1,
             chars_per_line: 40,
-        },
+        }),
         &counters,
         Arc::new(InMemoryUserMessageActivityRepository::new()),
         deleted.clone(),
@@ -4232,10 +4280,10 @@ async fn test_group_message_rate_limit_ignores_edits() {
     let counters = GroupCounters::default();
     let deleted = Arc::new(Mutex::new(Vec::new()));
     let app = group_rate_limit_app(
-        ModerationCondition::GroupHitsMessageRateLimit {
+        ModerationCondition::GroupHitsMessageRateLimit(GroupHitsMessageRateLimit {
             message_count: 2,
             time_window_minutes: 1,
-        },
+        }),
         &counters,
         Arc::new(InMemoryUserMessageActivityRepository::new()),
         deleted.clone(),
@@ -4260,10 +4308,10 @@ async fn test_group_message_rate_limit_ignores_edits() {
 async fn test_group_counters_not_written_without_a_group_rate_limit_rule() {
     let counters = GroupCounters::default();
     let app = group_rate_limit_app(
-        ModerationCondition::AuthorHitsMessageRateLimit {
+        ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
             message_count: 5,
             time_window_minutes: 1,
-        },
+        }),
         &counters,
         Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(Mutex::new(Vec::new())),

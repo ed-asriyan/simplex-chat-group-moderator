@@ -1,4 +1,7 @@
 use super::{should_moderate_characters, should_moderate_lines, should_moderate_words};
+use crate::domain::moderator::ports::conditions::{
+    ExceedsMaxCharacters, ExceedsMaxLines, ExceedsMaxWords, IsBlank,
+};
 
 fn some(reason: &str) -> Option<String> {
     Some(reason.to_string())
@@ -242,15 +245,15 @@ async fn test_integration_with_rule_evaluation() {
         actions: vec![ModerationAction::ModerateMessage],
         condition: ModerationCondition::Any {
             conditions: vec![
-                ModerationCondition::IsBlank,
-                ModerationCondition::ExceedsMaxCharacters {
+                ModerationCondition::IsBlank(IsBlank {}),
+                ModerationCondition::ExceedsMaxCharacters(ExceedsMaxCharacters {
                     max_characters: 100,
-                },
-                ModerationCondition::ExceedsMaxWords { max_words: 10 },
-                ModerationCondition::ExceedsMaxLines {
+                }),
+                ModerationCondition::ExceedsMaxWords(ExceedsMaxWords { max_words: 10 }),
+                ModerationCondition::ExceedsMaxLines(ExceedsMaxLines {
                     max_lines: 5,
                     chars_per_line: 40,
-                },
+                }),
             ],
         },
     }];
@@ -291,9 +294,9 @@ async fn test_integration_with_rule_evaluation() {
     // Without IsBlank, a short blank message matches nothing
     let length_only = vec![ModerationRule {
         actions: vec![ModerationAction::ModerateMessage],
-        condition: ModerationCondition::ExceedsMaxCharacters {
+        condition: ModerationCondition::ExceedsMaxCharacters(ExceedsMaxCharacters {
             max_characters: 100,
-        },
+        }),
     }];
     assert!(!matches("   ", &length_only).await);
 }
