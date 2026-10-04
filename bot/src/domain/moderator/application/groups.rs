@@ -2,10 +2,12 @@ use async_trait::async_trait;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use crate::domain::moderator::rules::KeyUse;
+
 use crate::domain::moderator::ports::{
     Err, Group, GroupAdministration, GroupId, GroupInvitation, GroupModerator, KeyCheck,
-    MessengerGroupId, ModerationCondition, ModerationRepository, ModerationRule, OpenAi,
-    OpenRouter, OwnedModerationRule, UserId,
+    MessengerGroupId, ModerationRepository, ModerationRule, OpenAi, OpenRouter,
+    OwnedModerationRule, UserId,
 };
 
 #[cfg(test)]
@@ -51,22 +53,16 @@ impl GroupAdministrationApplication {
     /// model a key is to ask. The first check that does not pass stops the
     /// save.
     async fn verify_api_keys(&self, rules: &[ModerationRule]) -> Result<(), Err> {
-        let mut checks = BTreeSet::new();
-        for rule in rules {
-            rule.condition.walk(&mut |condition| match condition {
-                ModerationCondition::FlaggedByOmniModeration { api_key, .. } => {
-                    checks.insert(KeyUse::Moderation(api_key.clone()));
-                }
-                ModerationCondition::FlaggedByOpenRouterInstruction { api_key, model, .. } => {
-                    checks.insert(KeyUse::Model(api_key.clone(), model.clone()));
-                }
-                _ => {}
-            });
-        }
+        let checks: BTreeSet<KeyUse> = rules
+            .iter()
+            .flat_map(|rule| rule.condition.key_uses())
+            .collect();
         for key_use in &checks {
             let check = match key_use {
-                KeyUse::Moderation(key) => self.openai.verify(key).await,
-                KeyUse::Model(key, model) => self.openrouter.verify_model(key, model).await,
+                KeyUse::OpenAiModeration { api_key } => self.openai.verify(api_key).await,
+                KeyUse::OpenRouterModel { api_key, model } => {
+                    self.openrouter.verify_model(api_key, model).await
+                }
             };
             if check != KeyCheck::Valid {
                 return Err(key_check_error(key_use, check).into());
@@ -76,21 +72,12 @@ impl GroupAdministrationApplication {
     }
 }
 
-/// One thing a key is saved to do.
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
-enum KeyUse {
-    /// An OpenAI key, for the moderation endpoint.
-    Moderation(String),
-    /// An OpenRouter key, for a model.
-    Model(String, String),
-}
-
 /// What to tell the owner about a key the provider did not accept. The key is
 /// named by its last characters only: the message goes to the chat and the
 /// logs.
 fn key_check_error(key_use: &KeyUse, check: KeyCheck) -> String {
     let key = match key_use {
-        KeyUse::Moderation(key) | KeyUse::Model(key, _) => key,
+        KeyUse::OpenAiModeration { api_key } | KeyUse::OpenRouterModel { api_key, .. } => api_key,
     };
     let tail: String = {
         let mut tail: Vec<char> = key.chars().rev().take(4).collect();
@@ -99,8 +86,8 @@ fn key_check_error(key_use: &KeyUse, check: KeyCheck) -> String {
     };
     let key = format!("…{tail}");
     match key_use {
-        KeyUse::Moderation(_) => openai_key_check_error(&key, check),
-        KeyUse::Model(_, model) => openrouter_key_check_error(&key, model, check),
+        KeyUse::OpenAiModeration { .. } => openai_key_check_error(&key, check),
+        KeyUse::OpenRouterModel { model, .. } => openrouter_key_check_error(&key, model, check),
     }
 }
 

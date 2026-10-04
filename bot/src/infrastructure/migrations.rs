@@ -71,6 +71,17 @@ fn apply_through(conn: &mut Connection, target: usize) -> Result<(), Err> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::moderator::ports::actions::{
+        KickAuthor, ModerateMessage, SetAuthorObserver,
+    };
+    use crate::domain::moderator::ports::conditions::{
+        AuthorHitsMessageRateLimit, AuthorHitsModerationRateLimit, AuthorJoinedRecently,
+        ContainsInvisibleCharacters, ContainsLinksInList, ContainsLinksOutsideList,
+        ContainsLinksOutsideTop100, ContainsRepeatedSequence, ContainsWords, ExceedsMaxCharacters,
+        ExceedsMaxLines, ExceedsMaxWords, FlaggedByOmniModeration, FlaggedByOpenRouterInstruction,
+        GroupHitsCharacterRateLimit, GroupHitsLineRateLimit, GroupHitsMessageRateLimit, IsBlank,
+        MatchesExactMessage, MatchesRegex,
+    };
 
     #[tokio::test]
     async fn test_migrations_apply_successfully() {
@@ -143,26 +154,28 @@ mod tests {
             loaded,
             vec![
                 ModerationRule {
-                    actions: vec![ModerationAction::ModerateMessage],
-                    condition: ModerationCondition::ContainsWords {
+                    actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                    condition: ModerationCondition::ContainsWords(ContainsWords {
                         keywords: vec!["alpha".to_string(), "beta".to_string()],
-                    },
+                    }),
                 },
                 ModerationRule {
-                    actions: vec![ModerationAction::KickAuthor {
+                    actions: vec![ModerationAction::KickAuthor(KickAuthor {
                         delete_all_messages: true,
-                    }],
-                    condition: ModerationCondition::MatchesExactMessage {
+                    })],
+                    condition: ModerationCondition::MatchesExactMessage(MatchesExactMessage {
                         messages: vec!["spam".to_string()],
                         case_sensitive: true,
-                    },
+                    }),
                 },
                 ModerationRule {
-                    actions: vec![ModerationAction::ModerateMessage],
-                    condition: ModerationCondition::AuthorHitsMessageRateLimit {
-                        message_count: 5,
-                        time_window_minutes: 3,
-                    },
+                    actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                    condition: ModerationCondition::AuthorHitsMessageRateLimit(
+                        AuthorHitsMessageRateLimit {
+                            message_count: 5,
+                            time_window_minutes: 3,
+                        }
+                    ),
                 },
             ]
         );
@@ -295,64 +308,64 @@ mod tests {
         assert_eq!(
             loaded,
             vec![
-                C::ContainsWords {
+                C::ContainsWords(ContainsWords {
                     keywords: strings(&["alpha", "beta"]),
-                },
-                C::ContainsLinksInList {
+                }),
+                C::ContainsLinksInList(ContainsLinksInList {
                     domains: strings(&["spam.com"]),
-                },
-                C::ContainsLinksOutsideList {
+                }),
+                C::ContainsLinksOutsideList(ContainsLinksOutsideList {
                     domains: strings(&["ok.com"]),
-                },
-                C::ContainsLinksOutsideTop100 {
+                }),
+                C::ContainsLinksOutsideTop100(ContainsLinksOutsideTop100 {
                     domains: strings(&["extra.com"]),
-                },
-                C::AuthorHitsMessageRateLimit {
+                }),
+                C::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
                     message_count: 5,
                     time_window_minutes: 2,
-                },
-                C::AuthorHitsModerationRateLimit {
+                }),
+                C::AuthorHitsModerationRateLimit(AuthorHitsModerationRateLimit {
                     message_count: 3,
                     time_window_minutes: 60,
-                },
-                C::AuthorJoinedRecently {
+                }),
+                C::AuthorJoinedRecently(AuthorJoinedRecently {
                     time_window_minutes: 30,
-                },
+                }),
                 C::Any {
                     conditions: vec![
-                        C::IsBlank,
-                        C::ContainsInvisibleCharacters,
-                        C::ExceedsMaxCharacters {
+                        C::IsBlank(IsBlank {}),
+                        C::ContainsInvisibleCharacters(ContainsInvisibleCharacters {}),
+                        C::ExceedsMaxCharacters(ExceedsMaxCharacters {
                             max_characters: 100,
-                        },
-                        C::ExceedsMaxWords { max_words: 20 },
-                        C::ExceedsMaxLines {
+                        }),
+                        C::ExceedsMaxWords(ExceedsMaxWords { max_words: 20 }),
+                        C::ExceedsMaxLines(ExceedsMaxLines {
                             max_lines: 5,
                             chars_per_line: 35,
-                        },
+                        }),
                     ],
                 },
                 C::All {
                     conditions: vec![
-                        C::ContainsWords {
+                        C::ContainsWords(ContainsWords {
                             keywords: strings(&["gamma"]),
-                        },
-                        C::ExceedsMaxLines {
+                        }),
+                        C::ExceedsMaxLines(ExceedsMaxLines {
                             max_lines: 3,
                             chars_per_line: 0,
-                        },
+                        }),
                     ],
                 },
                 C::Not {
                     condition: Box::new(C::Any {
                         conditions: vec![
-                            C::ContainsInvisibleCharacters,
-                            C::ExceedsMaxWords { max_words: 7 },
+                            C::ContainsInvisibleCharacters(ContainsInvisibleCharacters {}),
+                            C::ExceedsMaxWords(ExceedsMaxWords { max_words: 7 }),
                         ],
                     }),
                 },
                 C::Any { conditions: vec![] },
-                C::IsBlank,
+                C::IsBlank(IsBlank {}),
             ]
         );
 
@@ -454,47 +467,46 @@ mod tests {
         let actions: Vec<Vec<ModerationAction>> =
             loaded.into_iter().map(|owned| owned.rule.actions).collect();
 
-        use ModerationAction::*;
         assert_eq!(
             actions,
             vec![
-                // ModerateMessage is unchanged.
-                vec![ModerateMessage],
+                // ModerationAction::ModerateMessage(ModerateMessage {}) is unchanged.
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
                 // KickAuthor / None: nothing happens to the messages.
-                vec![KickAuthor {
+                vec![ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: false
-                }],
+                })],
                 // KickAuthor / TriggeredMessage: the message deletion becomes its
                 // own action, running before the kick.
                 vec![
-                    ModerateMessage,
-                    KickAuthor {
+                    ModerationAction::ModerateMessage(ModerateMessage {}),
+                    ModerationAction::KickAuthor(KickAuthor {
                         delete_all_messages: false
-                    }
+                    })
                 ],
                 // KickAuthor / AllMessages: the kick keeps doing the deleting.
-                vec![KickAuthor {
+                vec![ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: true
-                }],
+                })],
                 // SetAuthorObserver / None.
-                vec![SetAuthorObserver {
+                vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                     duration_minutes: 0
-                }],
+                })],
                 // SetAuthorObserver / TriggeredMessage: observer first, then the
                 // message is moderated.
                 vec![
-                    SetAuthorObserver {
+                    ModerationAction::SetAuthorObserver(SetAuthorObserver {
                         duration_minutes: 0
-                    },
-                    ModerateMessage
+                    }),
+                    ModerationAction::ModerateMessage(ModerateMessage {})
                 ],
                 // An out-of-range setting keeps the meaning the old reader gave
                 // it, which was the same as TriggeredMessage.
                 vec![
-                    ModerateMessage,
-                    KickAuthor {
+                    ModerationAction::ModerateMessage(ModerateMessage {}),
+                    ModerationAction::KickAuthor(KickAuthor {
                         delete_all_messages: false
-                    }
+                    })
                 ],
             ]
         );
@@ -550,37 +562,39 @@ mod tests {
         repo.set_group_rules(
             &group_id,
             &[ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage],
+                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
                 condition: ModerationCondition::All {
                     conditions: vec![
-                        ModerationCondition::ContainsWords {
+                        ModerationCondition::ContainsWords(ContainsWords {
                             keywords: vec!["alpha".to_string()],
-                        },
+                        }),
                         ModerationCondition::Not {
-                            condition: Box::new(ModerationCondition::MatchesRegex {
+                            condition: Box::new(ModerationCondition::MatchesRegex(MatchesRegex {
                                 patterns: vec!["z".to_string()],
-                            }),
+                            })),
                         },
-                        ModerationCondition::ContainsRepeatedSequence {
+                        ModerationCondition::ContainsRepeatedSequence(ContainsRepeatedSequence {
                             min_repeats: 5,
                             min_length: 1,
-                        },
-                        ModerationCondition::AuthorJoinedRecently {
+                        }),
+                        ModerationCondition::AuthorJoinedRecently(AuthorJoinedRecently {
                             time_window_minutes: 10,
-                        },
-                        ModerationCondition::GroupHitsMessageRateLimit {
+                        }),
+                        ModerationCondition::GroupHitsMessageRateLimit(GroupHitsMessageRateLimit {
                             message_count: 50,
                             time_window_minutes: 1,
-                        },
-                        ModerationCondition::GroupHitsCharacterRateLimit {
-                            character_count: 5000,
-                            time_window_minutes: 1,
-                        },
-                        ModerationCondition::GroupHitsLineRateLimit {
+                        }),
+                        ModerationCondition::GroupHitsCharacterRateLimit(
+                            GroupHitsCharacterRateLimit {
+                                character_count: 5000,
+                                time_window_minutes: 1,
+                            },
+                        ),
+                        ModerationCondition::GroupHitsLineRateLimit(GroupHitsLineRateLimit {
                             line_count: 100,
                             time_window_minutes: 1,
                             chars_per_line: 40,
-                        },
+                        }),
                     ],
                 },
             }],
@@ -667,7 +681,7 @@ mod tests {
         let rules = repo.get_group_rules(&7).await.unwrap();
         assert_eq!(
             rules[0].rule.condition,
-            ModerationCondition::FlaggedByOmniModeration {
+            ModerationCondition::FlaggedByOmniModeration(FlaggedByOmniModeration {
                 retry: Default::default(),
                 api_key: "sk-proj-abc".to_string(),
                 triggers: OpenAiCategoryTriggers {
@@ -675,7 +689,7 @@ mod tests {
                     violence: CategoryTrigger::MinScorePercent(80),
                     ..Default::default()
                 },
-            }
+            })
         );
 
         // Deleting the group still reaches the renamed tables.
@@ -730,7 +744,7 @@ mod tests {
         let rules = repo.get_group_rules(&8).await.unwrap();
         assert_eq!(
             rules[0].rule.condition,
-            ModerationCondition::FlaggedByOpenRouterInstruction {
+            ModerationCondition::FlaggedByOpenRouterInstruction(FlaggedByOpenRouterInstruction {
                 api_key: "sk-proj-abc".to_string(),
                 model: "openai/gpt-4.1-mini".to_string(),
                 instruction: "Match ads.".to_string(),
@@ -739,7 +753,7 @@ mod tests {
                     max_attempts: 2,
                     retry_delay_seconds: 4,
                 },
-            }
+            })
         );
 
         // Deleting the group still reaches the renamed table.
@@ -789,9 +803,9 @@ mod tests {
         let loaded = repo.get_group_rules(&12).await.unwrap();
         assert_eq!(
             loaded[0].rule.actions,
-            vec![ModerationAction::SetAuthorObserver {
+            vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                 duration_minutes: 0
-            }]
+            })]
         );
     }
 }

@@ -3,12 +3,16 @@
 
 use super::GroupAdministrationApplication;
 use crate::domain::moderator::application::tests::{MockGroupModerator, MockModerationRepository};
-use crate::domain::moderator::message_filter::ModerationCondition;
+use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
+use crate::domain::moderator::ports::conditions::{
+    ContainsWords, FlaggedByOmniModeration, FlaggedByOpenRouterInstruction,
+};
 use crate::domain::moderator::ports::{
     CategoryTrigger, Err, Group, GroupAdministration, GroupId, KeyCheck, MessengerGroupId,
     ModerationAction, ModerationRepository, ModerationRule, OpenAi, OpenAiCategoryTriggers,
     OpenAiModerationResult, OpenRouter, OpenRouterInstructionVerdict, OwnedModerationRule, UserId,
 };
+use crate::domain::moderator::rules::ModerationCondition;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -79,10 +83,10 @@ async fn test_set_group_rules_rejects_invalid_condition() {
             100,
             10,
             vec![ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage],
-                condition: ModerationCondition::ContainsWords {
+                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                condition: ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["a".repeat(101)],
-                },
+                }),
             }],
         )
         .await
@@ -102,10 +106,10 @@ async fn test_set_group_rules_accepts_valid_conditions() {
         100,
         10,
         vec![ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage],
-            condition: ModerationCondition::ContainsWords {
+            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            condition: ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["badword".to_string()],
-            },
+            }),
         }],
     )
     .await
@@ -123,10 +127,10 @@ async fn test_set_group_rules_checks_ownership_before_validating() {
             999,
             10,
             vec![ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage],
-                condition: ModerationCondition::ContainsWords {
+                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                condition: ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["a".repeat(101)],
-                },
+                }),
             }],
         )
         .await
@@ -147,12 +151,12 @@ async fn test_set_group_rules_rejects_too_long_observer_duration() {
             100,
             10,
             vec![ModerationRule {
-                actions: vec![ModerationAction::SetAuthorObserver {
+                actions: vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                     duration_minutes: 43_201,
-                }],
-                condition: ModerationCondition::ContainsWords {
+                })],
+                condition: ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["badword".to_string()],
-                },
+                }),
             }],
         )
         .await
@@ -173,10 +177,12 @@ async fn test_set_group_rules_accepts_observer_durations_up_to_a_month() {
             100,
             10,
             vec![ModerationRule {
-                actions: vec![ModerationAction::SetAuthorObserver { duration_minutes }],
-                condition: ModerationCondition::ContainsWords {
+                actions: vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
+                    duration_minutes,
+                })],
+                condition: ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["badword".to_string()],
-                },
+                }),
             }],
         )
         .await
@@ -325,19 +331,19 @@ fn app_with(
 }
 
 fn openai_condition(api_key: &str) -> ModerationCondition {
-    ModerationCondition::FlaggedByOmniModeration {
+    ModerationCondition::FlaggedByOmniModeration(FlaggedByOmniModeration {
         retry: Default::default(),
         api_key: api_key.to_string(),
         triggers: OpenAiCategoryTriggers {
             hate: CategoryTrigger::OpenAiDecides,
             ..Default::default()
         },
-    }
+    })
 }
 
 fn moderate_when(condition: ModerationCondition) -> ModerationRule {
     ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage],
+        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
         condition,
     }
 }
@@ -396,18 +402,18 @@ async fn test_every_distinct_key_is_asked_about_once_wherever_it_sits() {
         moderate_when(openai_condition("sk-one")),
         moderate_when(ModerationCondition::All {
             conditions: vec![
-                ModerationCondition::ContainsWords {
+                ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["crypto".to_string()],
-                },
+                }),
                 ModerationCondition::Not {
                     condition: Box::new(openai_condition("sk-two")),
                 },
             ],
         }),
         ModerationRule {
-            actions: vec![ModerationAction::KickAuthor {
+            actions: vec![ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: false,
-            }],
+            })],
             condition: openai_condition("sk-one"),
         },
     ];
@@ -463,11 +469,12 @@ async fn test_the_key_is_checked_as_it_will_be_stored() {
 async fn test_a_malformed_condition_is_rejected_before_openai_is_asked() {
     let repository = Arc::new(SavingRepository::default());
     let verifier = FakeKeyVerifier::answering(&[]);
-    let every_category_off = ModerationCondition::FlaggedByOmniModeration {
-        retry: Default::default(),
-        api_key: "sk-good".to_string(),
-        triggers: OpenAiCategoryTriggers::default(),
-    };
+    let every_category_off =
+        ModerationCondition::FlaggedByOmniModeration(FlaggedByOmniModeration {
+            retry: Default::default(),
+            api_key: "sk-good".to_string(),
+            triggers: OpenAiCategoryTriggers::default(),
+        });
 
     let err = app_with(&repository, &verifier)
         .set_group_rules(100, 10, vec![moderate_when(every_category_off)])
@@ -492,9 +499,11 @@ async fn test_rules_without_a_key_never_ask_openai() {
         .set_group_rules(
             100,
             10,
-            vec![moderate_when(ModerationCondition::ContainsWords {
-                keywords: vec!["spam".to_string()],
-            })],
+            vec![moderate_when(ModerationCondition::ContainsWords(
+                ContainsWords {
+                    keywords: vec!["spam".to_string()],
+                },
+            ))],
         )
         .await
         .unwrap();
@@ -518,13 +527,13 @@ async fn test_a_non_owner_never_gets_openai_asked_about_a_key() {
 }
 
 fn instructed(api_key: &str, model: &str) -> ModerationCondition {
-    ModerationCondition::FlaggedByOpenRouterInstruction {
+    ModerationCondition::FlaggedByOpenRouterInstruction(FlaggedByOpenRouterInstruction {
         retry: Default::default(),
         api_key: api_key.to_string(),
         model: model.to_string(),
         instruction: "Block crypto ads.".to_string(),
         context_messages: 0,
-    }
+    })
 }
 
 #[tokio::test]
