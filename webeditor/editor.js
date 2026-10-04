@@ -2,12 +2,14 @@
  * Rules editor for the SimpleX Chat group moderator bot.
  *
  * SimpleX carries plain text only, so the whole round trip is one URL: the bot
- * sends `#bot_id=<id>&rules=<lz>`, this page edits the rules, writes them back
- * into the hash on every change, and the owner pastes the link into the chat.
- * Both hash parameters must always be present or the bot ignores the message.
+ * sends `#bot_id=<id>&config=<lz>`, where the config is the group's whole
+ * configuration — its settings (the mode) beside its rules. This page edits it,
+ * writes it back into the hash on every change, and the owner pastes the link
+ * into the chat. Both hash parameters must always be present or the bot ignores
+ * the message.
  *
- * Nothing here knows a single condition or action type by name. The registry is
- * derived from rules-schema.json, so adding a rule type is one `oneOf` entry in
+ * Nothing here knows a single condition or action type, or a single group
+ * setting, by name. The registry is derived from rules-schema.json, so adding a rule type is one `oneOf` entry in
  * that file and no change to this code. What the schema cannot express — the
  * one-line summary, the human phrase, the execution order of actions — lives in
  * optional `options` keys on the same entry (summary, phrase, execution_rank,
@@ -52,13 +54,15 @@ const UNDO_LIMIT = 20;
 
 const state = {
     rules: [],
-    /* Snapshots of `rules` before each change that actually changed something,
-       and the ones undone out of it, waiting to be redone. */
+    /* The group's settings: every property of the schema root but `rules`. */
+    settings: {},
+    /* Snapshots of the config before each change that actually changed
+       something, and the ones undone out of it, waiting to be redone. */
     history: [],
     future: [],
-    /* What the bot has stored: the rules as they arrived in the hash. Every diff
+    /* What the bot has stored: the config as it arrived in the hash. Every diff
        is measured against this, whoever made the change. */
-    baseline: [],
+    baseline: { rules: [] },
     botId: null,
     sel: 0,
     view: "list",
@@ -75,6 +79,7 @@ const state = {
 
 let C = {};   // condition registry, built from the schema
 let A = {};   // action registry
+let S = { p: [], def: {} };   // the group settings, from the schema root
 let SCHEMA = null;
 
 /* ------------------------------- helpers ------------------------------- */
@@ -98,12 +103,22 @@ const spec = (reg, type) => reg[type] || unknownSpec(type);
 
 const clone = (v) => structuredClone(v);
 
+/* Everything the link carries, settings and rules together: what undo
+   snapshots, what Apply diffs, what the bot stores. */
+const config = () => ({ ...state.settings, rules: state.rules });
+const snapshot = () => clone(config());
+function restore(c) {
+    const { rules, ...settings } = c;
+    state.rules = rules;
+    state.settings = settings;
+}
+
 /* Every change goes through one of the three DOM listeners below, so recording
    there catches all of them — including the ones that used to be silently
    destructive, like switching a condition's type. A handler that turns out to
    change nothing records nothing. */
 function recordUndo(before) {
-    if (canon(before) === canon(state.rules)) return;
+    if (canon(before) === canon(config())) return;
     state.history.push(before);
     if (state.history.length > UNDO_LIMIT) state.history.shift();
     /* Editing after undoing forks the history: what was undone is gone. */
@@ -115,8 +130,8 @@ function recordUndo(before) {
 function step(from, to, word) {
     const target = from.pop();
     if (!target) return;
-    to.push(clone(state.rules));
-    state.rules = target;
+    to.push(snapshot());
+    restore(target);
     state.sel = Math.min(state.sel, Math.max(0, state.rules.length - 1));
     state.focus = null;
     state.menu = null;
@@ -234,6 +249,60 @@ function choiceSummary(fields, v) {
         .join(" · ");
 }
 
+/* One parameter's control, read off its schema property. */
+function fieldOf([k, pr]) {
+    const { choices, num } = choiceParts(pr);
+    return {
+        k,
+        kind: kindOf(pr),
+        label: (pr.options && pr.options.label) || pr.title || k,
+        hint: pr.description ? md(pr.description) : "",
+        min: pr.minimum ?? (num && num.minimum),
+        max: pr.maximum ?? (num && num.maximum),
+        maxItems: pr.maxItems,
+        maxLength: pr.items ? pr.items.maxLength : pr.maxLength,
+        choices,
+        num,
+        unit: (num && num.options && num.options.unit) || "",
+    };
+}
+
+/* The group settings are the schema root's properties other than `rules`, so
+   a new one is a property there and no code here. */
+function buildSettings(root) {
+    const fields = Object.entries(root.properties).filter(([k]) => k !== "rules");
+    return {
+        full: "Group settings",
+        help: "",
+        p: fields.map(fieldOf),
+        def: Object.fromEntries(fields.map(([k, pr]) => [k, defaultFor(pr)])),
+    };
+}
+
+/* A settings object from outside — the hash, an import — checked field by
+   field against the schema. Returns the errors, or the settings with every
+   missing field at its default. */
+function validateSettings(obj) {
+    const errors = [], out = clone(S.def);
+    for (const k of Object.keys(obj)) if (!S.p.some((f) => f.k === k)) errors.push(`There is no setting “${k}”.`);
+    for (const f of S.p) {
+        if (!(f.k in obj)) continue;
+        const v = obj[f.k];
+        const ok =
+            f.kind === "choice" ? f.choices.some((c) => c.v === v) || (f.num && Number.isInteger(v))
+                : f.kind === "bool" ? typeof v === "boolean"
+                    : f.kind === "int" ? Number.isInteger(v)
+                        : typeof v === "string";
+        if (ok) out[f.k] = v;
+        else errors.push(`${f.label}: “${JSON.stringify(v)}” is not a value it can take.`);
+    }
+    return errors.length ? { errors } : { settings: out };
+}
+
+/* The fields behind a `data-p` path: the settings' own, or the condition's or
+   action's that the path ends at. */
+const fieldsAt = (p) => (p === "settings" ? S.p : [...spec(C, at(p).type).p, ...spec(A, at(p).type).p]);
+
 function buildRegistry(entries) {
     const reg = {};
     for (const e of entries) {
@@ -250,22 +319,7 @@ function buildRegistry(entries) {
             t: o.short || rest.replace(/^(Message|Author|This Condition)\s+/, ""),
             rank: o.execution_rank || 0,
             coveredBy: o.covered_by || [],
-            p: fields.map(([k, pr]) => {
-                const { choices, num } = choiceParts(pr);
-                return {
-                    k,
-                    kind: kindOf(pr),
-                    label: (pr.options && pr.options.label) || pr.title || k,
-                    hint: pr.description ? md(pr.description) : "",
-                    min: pr.minimum ?? (num && num.minimum),
-                    max: pr.maximum ?? (num && num.maximum),
-                    maxItems: pr.maxItems,
-                    maxLength: pr.items ? pr.items.maxLength : pr.maxLength,
-                    choices,
-                    num,
-                    unit: (num && num.options && num.options.unit) || "",
-                };
-            }),
+            p: fields.map(fieldOf),
             def: Object.fromEntries(fields.map(([k, pr]) => [k, defaultFor(pr)])),
         };
         entry.sum = (v) =>
@@ -336,8 +390,8 @@ const newRule = () => ({ actions: [{ type: "ModerateMessage" }], condition: newC
 /* The hash is the transport: it is rewritten on every change so the address
    bar (and therefore the copied link) is always what the bot would store. */
 function syncHash() {
-    const compressed = LZString.compressToEncodedURIComponent(JSON.stringify(state.rules));
-    const parts = (state.botId ? `bot_id=${state.botId}&` : "") + `rules=${compressed}`;
+    const compressed = LZString.compressToEncodedURIComponent(JSON.stringify(config()));
+    const parts = (state.botId ? `bot_id=${state.botId}&` : "") + `config=${compressed}`;
     /* Keep whatever navigation state this entry carries: on a phone the list and
        an open rule are two screens, and they live in the history. */
     history.replaceState(history.state, "", "#" + parts);
@@ -362,9 +416,9 @@ window.addEventListener("popstate", (e) => {
 });
 
 /* The draft lives only in this tab: the link in the chat still holds the old
-   rules until the owner sends a new one. */
+   config until the owner sends a new one. */
 window.addEventListener("beforeunload", (e) => {
-    if (canon(state.baseline) !== canon(state.rules)) e.preventDefault();
+    if (canon(state.baseline) !== canon(config())) e.preventDefault();
 });
 
 function parseHash() {
@@ -601,7 +655,7 @@ function renderDetail() {
 
     const nodes = nodesOf(r.condition), depth = depthOf(r.condition);
     const over = nodes > state.limits.nodes || depth > state.limits.depth;
-    const condDef = SCHEMA.definitions.condition, actDef = SCHEMA.items.properties.actions;
+    const condDef = SCHEMA.definitions.condition, actDef = SCHEMA.properties.rules.items.properties.actions;
 
     const crumbs = focused
         ? `<span class="crumbs"><button data-op="tolist" class="back">&lsaquo; Rules</button>
@@ -643,12 +697,26 @@ function renderDetail() {
     </div>`;
 }
 
+/* The group's settings sit above its rules: they apply to every one of them. */
+function renderSettings() {
+    const host = document.getElementById("gsettings");
+    if (!S.p.length) {
+        host.innerHTML = "";
+        return;
+    }
+    host.innerHTML = `<div class="pane-head"><h2>${esc(S.full)}</h2>
+      <button class="ico" data-op="help" data-p="settings" aria-pressed="${state.helped.has("settings")}" title="What these do">ⓘ</button></div>
+    ${state.helped.has("settings") ? helpBox(S) : ""}
+    <div class="params">${params(S, state.settings, "settings")}</div>`;
+}
+
 function render() {
     document.getElementById("app").dataset.view = state.view;
     /* Hidden rather than greyed out: a control that can do nothing is noise, and
        the phone's action bar has room for three buttons, not five. */
     document.getElementById("undo").hidden = !state.history.length;
     document.getElementById("redo").hidden = !state.future.length;
+    renderSettings();
     renderList();
     renderDetail();
     syncHash();
@@ -665,7 +733,7 @@ document.addEventListener("click", (e) => {
         return;
     }
     const op = b.dataset.op, p = b.dataset.p;
-    const before = clone(state.rules);
+    const before = snapshot();
 
     switch (op) {
         case "undo":
@@ -825,10 +893,10 @@ document.addEventListener("change", (e) => {
     const b = e.target.closest("[data-op]");
     if (!b) return;
     const op = b.dataset.op, p = b.dataset.p, key = b.dataset.k;
-    const before = clone(state.rules);
+    const before = snapshot();
 
     if (op === "num") {
-        const f = [...spec(C, at(p).type).p, ...spec(A, at(p).type).p].find((x) => x.k === key) || {};
+        const f = fieldsAt(p).find((x) => x.k === key) || {};
         let v = Math.round(+b.value || 0);
         if (f.min != null) v = Math.max(f.min, v);
         if (f.max != null) v = Math.min(f.max, v);
@@ -850,7 +918,7 @@ document.addEventListener("change", (e) => {
         return;
     }
     if (op === "choice") {
-        const f = [...spec(C, at(p).type).p, ...spec(A, at(p).type).p].find((x) => x.k === key) || {};
+        const f = fieldsAt(p).find((x) => x.k === key) || {};
         const cur = at(p)[key];
         if (b.value === "n") {
             /* Switching to a number starts from the branch's default. */
@@ -918,7 +986,7 @@ document.addEventListener("keydown", (e) => {
         toast("That entry is already in the list.");
         return;
     }
-    const before = clone(state.rules);
+    const before = snapshot();
     list.push(v);
     /* A filter that hides the entry just added looks like nothing happened. */
     const key = `${b.dataset.p}.${b.dataset.k}`;
@@ -1209,7 +1277,7 @@ function ruleLine(r) {
    the failure surfaces in the chat with no hint of the cause. */
 function linkWarning() {
     const limit = (SCHEMA.options && SCHEMA.options.message_max_bytes) || 15000;
-    const bytes = new TextEncoder().encode(`[Rules for group ${state.botId}](${location.href})`).length;
+    const bytes = new TextEncoder().encode(linkMessage()).length;
     if (bytes <= limit * 0.7) return "";
     const pct = Math.round((bytes / limit) * 100);
     return bytes > limit
@@ -1219,17 +1287,40 @@ function linkWarning() {
        Once it passes ${limit.toLocaleString()}, the bot will no longer be able to read it.</div>`;
 }
 
+/* How a setting's value reads in the diff. */
+function settingText(f, v) {
+    if (f.kind === "choice") return choiceText(f, v);
+    if (f.kind === "bool") return v ? "on" : "off";
+    return String(v);
+}
+
+/* The message the owner sends: the bot finds the URL anywhere in it and stops
+   at ")" or a space, which is why a markdown link is safe to paste. */
+const linkMessage = () => `[Settings for group ${state.botId}](${location.href})`;
+
 function openApplyDialog() {
-    const d = diffRules(state.baseline, state.rules);
+    const d = diffRules(state.baseline.rules, state.rules);
     const body = document.getElementById("applydlg-body");
     const foot = document.getElementById("applydlg-foot");
     document.getElementById("applydlg-meta").textContent =
-        `${state.baseline.length} → ${state.rules.length} rules`;
+        `${state.baseline.rules.length} → ${state.rules.length} rules`;
 
     const shown = d.rows.filter((r) => r.status !== "same");
     const same = d.rows.filter((r) => r.status === "same").map((r) => r.index + 1);
+    /* A setting is one value, so its change is one line, above the rules it
+       applies to. */
+    const settings = S.p
+        .filter((f) => canon(state.baseline[f.k]) !== canon(state.settings[f.k]))
+        .map(
+            (f) => `<div class="drow">
+        <span class="idx"></span>
+        <span class="st changed">changed</span>
+        <span class="txt">${esc(f.label)}: ${esc(settingText(f, state.baseline[f.k]))} → <b>${esc(settingText(f, state.settings[f.k]))}</b></span>
+      </div>`
+        )
+        .join("");
 
-    body.innerHTML = linkWarning() + (shown.length
+    body.innerHTML = linkWarning() + settings + (shown.length
         ? shown
             .map(
                 (r) => `<div class="drow">
@@ -1240,8 +1331,10 @@ function openApplyDialog() {
                     }${(r.details || []).map(detailHtml).join("")}</span>
       </div>`
             )
-            .join("") + (same.length ? `<div class="dquiet">Unchanged: ${same.join(", ")}</div>` : "")
-        : `<div class="dempty">Nothing has changed since you opened this page. You can still copy the link and send it again.</div>`);
+            .join("") + (same.length ? `<div class="dquiet">Unchanged rules: ${same.join(", ")}</div>` : "")
+        : settings
+            ? ""
+            : `<div class="dempty">Nothing has changed since you opened this page. You can still copy the link and send it again.</div>`);
 
     foot.innerHTML = `<button class="btn" id="applydlg-cancel" type="button">Cancel</button>
     <button class="btn primary" id="applydlg-ok" type="button">Copy the link</button>`;
@@ -1251,11 +1344,8 @@ function openApplyDialog() {
 /* Copying is the last step of the flow, so it is also where the baseline moves:
    what the owner just sent becomes the new "before". */
 function copyEditorLink() {
-    /* The bot finds this URL anywhere in the message and stops at ")" or a
-       space, which is why a markdown link is safe to paste. */
-    const link = `[Rules for group ${state.botId}](${location.href})`;
-    return navigator.clipboard.writeText(link).then(() => {
-        state.baseline = clone(state.rules);
+    return navigator.clipboard.writeText(linkMessage()).then(() => {
+        state.baseline = snapshot();
     });
 }
 
@@ -1270,7 +1360,7 @@ dlg.addEventListener("click", (e) => {
         copyEditorLink()
             .then(() => {
                 document.getElementById("applydlg-body").innerHTML =
-                    `<div class="dsuccess"><b>Link copied.</b>Paste it into your chat with the bot and send it — that is what applies the rules.</div>`;
+                    `<div class="dsuccess"><b>Link copied.</b>Paste it into your chat with the bot and send it — that is what applies the changes.</div>`;
                 document.getElementById("applydlg-meta").textContent = "";
                 document.getElementById("applydlg-foot").innerHTML =
                     `<button class="btn primary" id="applydlg-cancel" type="button">Close</button>`;
@@ -1305,22 +1395,27 @@ async function init() {
 
     C = buildRegistry(SCHEMA.definitions.condition.oneOf);
     A = buildRegistry(SCHEMA.definitions.action.oneOf);
+    S = buildSettings(SCHEMA);
+    state.settings = clone(S.def);
     const lim = SCHEMA.definitions.condition.options || {};
     state.limits = { depth: lim.max_depth || 8, nodes: lim.max_nodes || 64 };
 
-    const { bot_id, rules } = parseHash();
+    const { bot_id, config: packed } = parseHash();
     state.botId = bot_id || null;
-    if (rules) {
+    if (packed) {
         try {
-            const parsed = JSON.parse(LZString.decompressFromEncodedURIComponent(rules));
-            if (Array.isArray(parsed)) state.rules = parsed;
+            const { rules, ...settings } = JSON.parse(LZString.decompressFromEncodedURIComponent(packed));
+            const checked = validateSettings(settings);
+            if (!Array.isArray(rules) || checked.errors) throw new Error((checked.errors || ["no rules"]).join(" "));
+            state.rules = rules;
+            state.settings = checked.settings;
         } catch (err) {
-            console.warn("Could not restore rules from the URL hash:", err);
-            toast("The rules in this link could not be read. Starting from an empty list.");
+            console.warn("Could not restore the config from the URL hash:", err);
+            toast("The settings in this link could not be read. Starting from scratch.");
         }
     }
 
-    state.baseline = clone(state.rules);
+    state.baseline = snapshot();
 
     renderHeader();
     document.getElementById("boot").hidden = true;

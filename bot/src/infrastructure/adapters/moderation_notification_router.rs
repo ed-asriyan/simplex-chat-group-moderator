@@ -51,8 +51,6 @@ impl ModerationNotifier for ModerationNotificationRouter {
         let bot_dm_group = BotDmGroup {
             id: group.id,
             name: group.name.clone(),
-            notifications_enabled: group.notifications_enabled,
-            dry_mode_enabled: group.dry_mode_enabled,
         };
         let bot_dm_actions: Vec<BotDmAction> = actions
             .iter()
@@ -71,7 +69,14 @@ impl ModerationNotifier for ModerationNotificationRouter {
             })
             .collect();
         receiver
-            .send_moderation_notification(user_id, &bot_dm_group, &bot_dm_actions, message, reasons)
+            .send_moderation_notification(
+                user_id,
+                &bot_dm_group,
+                &bot_dm_actions,
+                group.mode.executes_actions(),
+                message,
+                reasons,
+            )
             .await
             .map_err(|e| -> ModErr { e.to_string().into() })
     }

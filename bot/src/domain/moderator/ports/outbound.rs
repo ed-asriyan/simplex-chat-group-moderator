@@ -7,13 +7,14 @@ use chrono::{DateTime, Utc};
 use std::time::Duration;
 
 use super::types::{
-    ApiRetry, Err, Group, GroupId, GroupMemberRole, InstructionContextMessage, KeyCheck, MessageId,
-    MessengerGroupId, ModerationAction, ModerationRule, OpenAiModerationResult,
-    OpenRouterInstructionVerdict, OwnedModerationRule, RecentGroupMessage, ScheduledMemberRestore,
-    UserId,
+    ApiRetry, Err, Group, GroupConfig, GroupId, GroupMemberRole, GroupMode,
+    InstructionContextMessage, KeyCheck, MessageId, MessengerGroupId, ModerationAction,
+    OpenAiModerationResult, OpenRouterInstructionVerdict, OwnedModerationRule, RecentGroupMessage,
+    ScheduledMemberRestore, UserId,
 };
 
-/// Outbound port: notify a group owner that moderation actions were performed.
+/// Outbound port: notify a group owner of the actions a message called for —
+/// carried out, or only reported, as the group's mode says.
 #[async_trait]
 pub trait ModerationNotifier: Send + Sync {
     async fn notify_moderation_action(
@@ -83,12 +84,13 @@ pub trait MemberRestoreRepository: Send + Sync {
 /// Outbound port: persistence for moderator state.
 #[async_trait]
 pub trait ModerationRepository: Send + Sync {
-    /// Register a new group and return the generated `group_id`.
+    /// Register a new group in `mode` and return the generated `group_id`.
     async fn save_owner(
         &self,
         messenger_group_id: &MessengerGroupId,
         name: &str,
         owner_id: &UserId,
+        mode: GroupMode,
     ) -> Result<GroupId, Err>;
 
     async fn get_owner_by_messenger_id(
@@ -106,18 +108,16 @@ pub trait ModerationRepository: Send + Sync {
         name: &str,
     ) -> Result<(), Err>;
 
-    async fn get_group_rules(&self, group_id: &GroupId) -> Result<Vec<OwnedModerationRule>, Err>;
+    /// The group's mode and rules. The group must be registered.
+    async fn get_group_config(&self, group_id: &GroupId) -> Result<GroupConfig, Err>;
 
     async fn get_group_rules_by_messenger_id(
         &self,
         messenger_group_id: &MessengerGroupId,
     ) -> Result<Vec<OwnedModerationRule>, Err>;
 
-    async fn set_group_rules(
-        &self,
-        group_id: &GroupId,
-        rules: &[ModerationRule],
-    ) -> Result<(), Err>;
+    /// Replace the group's mode and rules in one transaction.
+    async fn set_group_config(&self, group_id: &GroupId, config: &GroupConfig) -> Result<(), Err>;
 
     async fn delete_group_data(&self, messenger_group_id: &MessengerGroupId) -> Result<(), Err>;
 
@@ -125,11 +125,6 @@ pub trait ModerationRepository: Send + Sync {
         &self,
         messenger_group_id: &MessengerGroupId,
     ) -> Result<Option<Group>, Err>;
-
-    async fn set_notifications_enabled(&self, group_id: &GroupId, enabled: bool)
-    -> Result<(), Err>;
-
-    async fn set_dry_mode_enabled(&self, group_id: &GroupId, enabled: bool) -> Result<(), Err>;
 }
 
 /// Outbound port: persistence for user activity and rate limit state.

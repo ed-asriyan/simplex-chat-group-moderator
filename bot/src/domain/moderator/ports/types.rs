@@ -23,20 +23,63 @@ pub struct Group {
     pub id: GroupId,
     pub owner_id: UserId,
     pub name: String,
-    pub notifications_enabled: bool,
-    pub dry_mode_enabled: bool,
+    pub mode: GroupMode,
+}
+
+/// How the bot treats a match in a group: whether it carries out the rule's
+/// actions, and whether it tells the owner.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GroupMode {
+    /// Checks every message and tells the owner what it would have done, but
+    /// does nothing in the group.
+    Dry,
+    /// Carries out the actions without telling the owner.
+    Silent,
+    /// Carries out the actions and tells the owner about each one.
+    #[default]
+    Notifications,
+}
+
+impl GroupMode {
+    pub fn executes_actions(self) -> bool {
+        self != Self::Dry
+    }
+
+    pub fn notifies_owner(self) -> bool {
+        self != Self::Silent
+    }
+
+    /// The name used in the group's JSON and in the database.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Dry => "dry",
+            Self::Silent => "silent",
+            Self::Notifications => "notifications",
+        }
+    }
+
+    /// The mode whose [`Self::name`] is `name`, if any.
+    pub fn from_name(name: &str) -> Option<Self> {
+        [Self::Dry, Self::Silent, Self::Notifications]
+            .into_iter()
+            .find(|mode| mode.name() == name)
+    }
+}
+
+/// Everything an owner configures about a group, saved and loaded as one: the
+/// mode and the rules.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GroupConfig {
+    pub mode: GroupMode,
+    pub rules: Vec<ModerationRule>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct MessengerGroup {
     pub id: MessengerGroupId,
     pub name: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct GroupInvitation {
-    pub group: MessengerGroup,
-    pub is_moderator: bool,
 }
 
 /// What a message carries besides its text. The messenger sends one attachment

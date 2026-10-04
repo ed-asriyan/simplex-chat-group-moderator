@@ -5,9 +5,7 @@ use crate::domain::bot_dm::ports::{
     Err as BotDmErr, Group, GroupId as BotDmGroupId, GroupInvitation as BotDmGroupInvitation,
     GroupOperations, JoinError, UserId as BotDmUserId,
 };
-use crate::domain::moderator::ports::{
-    GroupAdministration, GroupInvitation as ModGroupInvitation, MessengerGroup, ModerationRule,
-};
+use crate::domain::moderator::ports::{GroupAdministration, GroupConfig, MessengerGroup};
 
 /// Bridges the `bot_dm` bounded context to the `moderator` bounded context by
 /// implementing `bot_dm::GroupOperations` on top of `moderator::GroupAdministration`.
@@ -30,23 +28,18 @@ impl GroupOperations for CrossDomainRouter {
         user_id: BotDmUserId,
         invitation: &BotDmGroupInvitation,
     ) -> Result<Group, JoinError> {
-        let mod_invitation = ModGroupInvitation {
-            group: MessengerGroup {
-                id: invitation.group.id,
-                name: invitation.group.name.clone(),
-            },
-            is_moderator: invitation.is_moderator,
+        let invited = MessengerGroup {
+            id: invitation.group_id,
+            name: invitation.group_name.clone(),
         };
-        let group_id = self
+        let group = self
             .group_administration
-            .try_join_group(user_id, &mod_invitation)
+            .try_join_group(user_id, &invited)
             .await
             .map_err(|e| -> JoinError { e.to_string().into() })?;
         Ok(Group {
-            id: group_id,
-            name: invitation.group.name.clone(),
-            notifications_enabled: true,
-            dry_mode_enabled: false,
+            id: group.id,
+            name: group.name,
         })
     }
 
@@ -61,65 +54,35 @@ impl GroupOperations for CrossDomainRouter {
                     .map(|group| Group {
                         id: group.id,
                         name: group.name,
-                        notifications_enabled: group.notifications_enabled,
-                        dry_mode_enabled: group.dry_mode_enabled,
                     })
                     .collect()
             })
     }
 
-    async fn set_rules_json(
+    async fn set_config_json(
         &self,
         user_id: BotDmUserId,
         group_id: BotDmGroupId,
         json: &str,
     ) -> Result<(), BotDmErr> {
-        let rules: Vec<ModerationRule> =
+        let config: GroupConfig =
             serde_json::from_str(json).map_err(|e| -> BotDmErr { e.to_string().into() })?;
         self.group_administration
-            .set_group_rules(user_id, group_id, rules)
+            .set_group_config(user_id, group_id, config)
             .await
             .map_err(|e| -> BotDmErr { e.to_string().into() })
     }
 
-    async fn get_rules_json(
+    async fn get_config_json(
         &self,
         user_id: BotDmUserId,
         group_id: BotDmGroupId,
-    ) -> Result<Option<String>, BotDmErr> {
-        let rules = self
+    ) -> Result<String, BotDmErr> {
+        let config = self
             .group_administration
-            .get_group_rules(user_id, group_id)
+            .get_group_config(user_id, group_id)
             .await
             .map_err(|e| -> BotDmErr { e.to_string().into() })?;
-
-        let rules_list: Vec<ModerationRule> = rules.into_iter().map(|o| o.rule).collect();
-        let json =
-            serde_json::to_string(&rules_list).map_err(|e| -> BotDmErr { e.to_string().into() })?;
-        Ok(Some(json))
-    }
-
-    async fn set_notifications(
-        &self,
-        user_id: BotDmUserId,
-        group_id: BotDmGroupId,
-        enabled: bool,
-    ) -> Result<(), BotDmErr> {
-        self.group_administration
-            .set_notifications(user_id, group_id, enabled)
-            .await
-            .map_err(|e| -> BotDmErr { e.to_string().into() })
-    }
-
-    async fn set_dry_mode(
-        &self,
-        user_id: BotDmUserId,
-        group_id: BotDmGroupId,
-        enabled: bool,
-    ) -> Result<(), BotDmErr> {
-        self.group_administration
-            .set_dry_mode(user_id, group_id, enabled)
-            .await
-            .map_err(|e| -> BotDmErr { e.to_string().into() })
+        serde_json::to_string(&config).map_err(|e| -> BotDmErr { e.to_string().into() })
     }
 }

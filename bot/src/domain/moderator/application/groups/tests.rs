@@ -1,4 +1,4 @@
-//! Rule saving: conditions are validated, and API keys checked with their
+//! Saving a group's configuration: conditions are validated, and API keys checked with their
 //! provider (OpenAI or OpenRouter), before anything reaches the repository.
 
 use super::GroupAdministrationApplication;
@@ -8,14 +8,43 @@ use crate::domain::moderator::ports::conditions::{
     ContainsWords, FlaggedByOmniModeration, FlaggedByOpenRouterInstruction,
 };
 use crate::domain::moderator::ports::{
-    CategoryTrigger, Err, Group, GroupAdministration, GroupId, KeyCheck, MessengerGroupId,
-    ModerationAction, ModerationRepository, ModerationRule, OpenAi, OpenAiCategoryTriggers,
-    OpenAiModerationResult, OpenRouter, OpenRouterInstructionVerdict, OwnedModerationRule, UserId,
+    CategoryTrigger, Err, Group, GroupAdministration, GroupConfig, GroupId, GroupMode, KeyCheck,
+    MessengerGroup, MessengerGroupId, ModerationAction, ModerationRepository, ModerationRule,
+    OpenAi, OpenAiCategoryTriggers, OpenAiModerationResult, OpenRouter,
+    OpenRouterInstructionVerdict, OwnedModerationRule, UserId,
 };
 use crate::domain::moderator::rules::ModerationCondition;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+/// Most tests here are about the rules alone, so they save them under the
+/// default mode.
+#[async_trait]
+trait SaveRules {
+    async fn save_rules(
+        &self,
+        user_id: UserId,
+        group_id: GroupId,
+        rules: Vec<ModerationRule>,
+    ) -> Result<(), Err>;
+}
+
+#[async_trait]
+impl<T: GroupAdministration> SaveRules for T {
+    async fn save_rules(
+        &self,
+        user_id: UserId,
+        group_id: GroupId,
+        rules: Vec<ModerationRule>,
+    ) -> Result<(), Err> {
+        let config = GroupConfig {
+            mode: GroupMode::default(),
+            rules,
+        };
+        self.set_group_config(user_id, group_id, config).await
+    }
+}
 
 /// The verifier for rule sets without an API key: being asked is the bug.
 struct UnusedKeyVerifier;
@@ -63,8 +92,7 @@ fn app_owning_group(group_id: GroupId, owner_id: UserId) -> GroupAdministrationA
                 id: group_id,
                 owner_id,
                 name: "Test Group".to_string(),
-                notifications_enabled: true,
-                dry_mode_enabled: false,
+                mode: GroupMode::Notifications,
             }),
             rules: vec![],
         }),
@@ -75,11 +103,11 @@ fn app_owning_group(group_id: GroupId, owner_id: UserId) -> GroupAdministrationA
 }
 
 #[tokio::test]
-async fn test_set_group_rules_rejects_invalid_condition() {
+async fn test_save_rules_rejects_invalid_condition() {
     let app = app_owning_group(10, 100);
 
     let err = app
-        .set_group_rules(
+        .save_rules(
             100,
             10,
             vec![ModerationRule {
@@ -99,10 +127,10 @@ async fn test_set_group_rules_rejects_invalid_condition() {
 }
 
 #[tokio::test]
-async fn test_set_group_rules_accepts_valid_conditions() {
+async fn test_save_rules_accepts_valid_conditions() {
     let app = app_owning_group(10, 100);
 
-    app.set_group_rules(
+    app.save_rules(
         100,
         10,
         vec![ModerationRule {
@@ -117,13 +145,13 @@ async fn test_set_group_rules_accepts_valid_conditions() {
 }
 
 #[tokio::test]
-async fn test_set_group_rules_checks_ownership_before_validating() {
+async fn test_save_rules_checks_ownership_before_validating() {
     let app = app_owning_group(10, 100);
 
     // User 999 does not own the group; the invalid keyword must not be what is
     // reported, so that rule contents are never validated for a non-owner.
     let err = app
-        .set_group_rules(
+        .save_rules(
             999,
             10,
             vec![ModerationRule {
@@ -143,11 +171,11 @@ async fn test_set_group_rules_checks_ownership_before_validating() {
 }
 
 #[tokio::test]
-async fn test_set_group_rules_rejects_too_long_observer_duration() {
+async fn test_save_rules_rejects_too_long_observer_duration() {
     let app = app_owning_group(10, 100);
 
     let err = app
-        .set_group_rules(
+        .save_rules(
             100,
             10,
             vec![ModerationRule {
@@ -169,11 +197,11 @@ async fn test_set_group_rules_rejects_too_long_observer_duration() {
 }
 
 #[tokio::test]
-async fn test_set_group_rules_accepts_observer_durations_up_to_a_month() {
+async fn test_save_rules_accepts_observer_durations_up_to_a_month() {
     let app = app_owning_group(10, 100);
 
     for duration_minutes in [0, 1, 43_200] {
-        app.set_group_rules(
+        app.save_rules(
             100,
             10,
             vec![ModerationRule {
@@ -262,21 +290,31 @@ impl OpenRouter for FakeKeyVerifier {
     }
 }
 
-/// Owns group 10 for user 100 and keeps whatever rules were last saved.
+/// Owns group 10 for user 100 and keeps whatever configuration was last saved.
 #[derive(Default)]
 struct SavingRepository {
-    saved: Mutex<Option<Vec<ModerationRule>>>,
+    saved: Mutex<Option<GroupConfig>>,
 }
 
 impl SavingRepository {
     fn saved(&self) -> Option<Vec<ModerationRule>> {
+        self.saved_config().map(|config| config.rules)
+    }
+
+    fn saved_config(&self) -> Option<GroupConfig> {
         self.saved.lock().unwrap().clone()
     }
 }
 
 #[async_trait]
 impl ModerationRepository for SavingRepository {
-    async fn save_owner(&self, _: &MessengerGroupId, _: &str, _: &UserId) -> Result<GroupId, Err> {
+    async fn save_owner(
+        &self,
+        _: &MessengerGroupId,
+        _: &str,
+        _: &UserId,
+        _: GroupMode,
+    ) -> Result<GroupId, Err> {
         Ok(10)
     }
     async fn get_owner_by_messenger_id(&self, _: &MessengerGroupId) -> Result<Option<UserId>, Err> {
@@ -291,8 +329,11 @@ impl ModerationRepository for SavingRepository {
     async fn set_group_name(&self, _: &MessengerGroupId, _: &str) -> Result<(), Err> {
         Ok(())
     }
-    async fn get_group_rules(&self, _: &GroupId) -> Result<Vec<OwnedModerationRule>, Err> {
-        Ok(vec![])
+    async fn get_group_config(&self, _: &GroupId) -> Result<GroupConfig, Err> {
+        Ok(self.saved_config().unwrap_or(GroupConfig {
+            mode: GroupMode::default(),
+            rules: vec![],
+        }))
     }
     async fn get_group_rules_by_messenger_id(
         &self,
@@ -300,8 +341,8 @@ impl ModerationRepository for SavingRepository {
     ) -> Result<Vec<OwnedModerationRule>, Err> {
         Ok(vec![])
     }
-    async fn set_group_rules(&self, _: &GroupId, rules: &[ModerationRule]) -> Result<(), Err> {
-        *self.saved.lock().unwrap() = Some(rules.to_vec());
+    async fn set_group_config(&self, _: &GroupId, config: &GroupConfig) -> Result<(), Err> {
+        *self.saved.lock().unwrap() = Some(config.clone());
         Ok(())
     }
     async fn delete_group_data(&self, _: &MessengerGroupId) -> Result<(), Err> {
@@ -309,12 +350,6 @@ impl ModerationRepository for SavingRepository {
     }
     async fn get_group_by_messenger_id(&self, _: &MessengerGroupId) -> Result<Option<Group>, Err> {
         Ok(None)
-    }
-    async fn set_notifications_enabled(&self, _: &GroupId, _: bool) -> Result<(), Err> {
-        Ok(())
-    }
-    async fn set_dry_mode_enabled(&self, _: &GroupId, _: bool) -> Result<(), Err> {
-        Ok(())
     }
 }
 
@@ -349,13 +384,67 @@ fn moderate_when(condition: ModerationCondition) -> ModerationRule {
 }
 
 #[tokio::test]
+async fn test_the_mode_is_saved_with_the_rules() {
+    let repository = Arc::new(SavingRepository::default());
+    let verifier = FakeKeyVerifier::answering(&[]);
+    let app = app_with(&repository, &verifier);
+    let rules = vec![moderate_when(ModerationCondition::ContainsWords(
+        ContainsWords {
+            keywords: vec!["badword".to_string()],
+        },
+    ))];
+
+    for mode in [GroupMode::Dry, GroupMode::Silent, GroupMode::Notifications] {
+        app.set_group_config(
+            100,
+            10,
+            GroupConfig {
+                mode,
+                rules: rules.clone(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let saved = repository.saved_config().unwrap();
+        assert_eq!(saved.mode, mode);
+        assert_eq!(saved.rules, rules);
+        assert_eq!(app.get_group_config(100, 10).await.unwrap().mode, mode);
+    }
+}
+
+#[tokio::test]
+async fn test_an_invalid_rule_keeps_the_mode_from_being_saved() {
+    let repository = Arc::new(SavingRepository::default());
+    let verifier = FakeKeyVerifier::answering(&[]);
+
+    app_with(&repository, &verifier)
+        .set_group_config(
+            100,
+            10,
+            GroupConfig {
+                mode: GroupMode::Dry,
+                rules: vec![moderate_when(ModerationCondition::ContainsWords(
+                    ContainsWords {
+                        keywords: vec!["a".repeat(101)],
+                    },
+                ))],
+            },
+        )
+        .await
+        .expect_err("an over-long keyword should be rejected");
+
+    assert!(repository.saved_config().is_none());
+}
+
+#[tokio::test]
 async fn test_a_key_openai_accepts_is_saved() {
     let repository = Arc::new(SavingRepository::default());
     let verifier = FakeKeyVerifier::answering(&[]);
     let rules = vec![moderate_when(openai_condition("sk-good"))];
 
     app_with(&repository, &verifier)
-        .set_group_rules(100, 10, rules.clone())
+        .save_rules(100, 10, rules.clone())
         .await
         .unwrap();
 
@@ -377,7 +466,7 @@ async fn test_a_key_openai_does_not_accept_is_not_saved_and_the_owner_is_told_wh
         let verifier = FakeKeyVerifier::answering(&[(key, check)]);
 
         let err = app_with(&repository, &verifier)
-            .set_group_rules(100, 10, vec![moderate_when(openai_condition(key))])
+            .save_rules(100, 10, vec![moderate_when(openai_condition(key))])
             .await
             .expect_err("the rules must not be saved")
             .to_string();
@@ -419,7 +508,7 @@ async fn test_every_distinct_key_is_asked_about_once_wherever_it_sits() {
     ];
 
     app_with(&repository, &verifier)
-        .set_group_rules(100, 10, rules)
+        .save_rules(100, 10, rules)
         .await
         .unwrap();
 
@@ -437,7 +526,7 @@ async fn test_one_bad_key_keeps_the_whole_rule_set_from_being_saved() {
 
     assert!(
         app_with(&repository, &verifier)
-            .set_group_rules(100, 10, rules)
+            .save_rules(100, 10, rules)
             .await
             .is_err()
     );
@@ -450,7 +539,7 @@ async fn test_the_key_is_checked_as_it_will_be_stored() {
     let verifier = FakeKeyVerifier::answering(&[]);
 
     app_with(&repository, &verifier)
-        .set_group_rules(
+        .save_rules(
             100,
             10,
             vec![moderate_when(openai_condition("  sk-good \n"))],
@@ -477,7 +566,7 @@ async fn test_a_malformed_condition_is_rejected_before_openai_is_asked() {
         });
 
     let err = app_with(&repository, &verifier)
-        .set_group_rules(100, 10, vec![moderate_when(every_category_off)])
+        .save_rules(100, 10, vec![moderate_when(every_category_off)])
         .await
         .expect_err("a condition that can never match is rejected")
         .to_string();
@@ -496,7 +585,7 @@ async fn test_rules_without_a_key_never_ask_openai() {
     let verifier = FakeKeyVerifier::answering(&[]);
 
     app_with(&repository, &verifier)
-        .set_group_rules(
+        .save_rules(
             100,
             10,
             vec![moderate_when(ModerationCondition::ContainsWords(
@@ -519,7 +608,7 @@ async fn test_a_non_owner_never_gets_openai_asked_about_a_key() {
 
     assert!(
         app_with(&repository, &verifier)
-            .set_group_rules(999, 10, vec![moderate_when(openai_condition("sk-good"))])
+            .save_rules(999, 10, vec![moderate_when(openai_condition("sk-good"))])
             .await
             .is_err()
     );
@@ -543,7 +632,7 @@ async fn test_a_model_key_is_checked_with_its_model() {
     let rules = vec![moderate_when(instructed("sk-good", "openai/gpt-4o-mini"))];
 
     app_with(&repository, &verifier)
-        .set_group_rules(100, 10, rules.clone())
+        .save_rules(100, 10, rules.clone())
         .await
         .unwrap();
 
@@ -567,7 +656,7 @@ async fn test_each_distinct_key_and_model_pair_is_checked_once() {
     ];
 
     app_with(&repository, &verifier)
-        .set_group_rules(100, 10, rules)
+        .save_rules(100, 10, rules)
         .await
         .unwrap();
 
@@ -599,7 +688,7 @@ async fn test_a_model_the_key_cannot_use_is_not_saved_and_the_owner_is_told_whic
         let verifier = FakeKeyVerifier::answering(&[(&format!("{key}@openai/gpt-4.1"), check)]);
 
         let err = app_with(&repository, &verifier)
-            .set_group_rules(
+            .save_rules(
                 100,
                 10,
                 vec![moderate_when(instructed(key, "openai/gpt-4.1"))],
@@ -623,7 +712,7 @@ async fn test_an_unlisted_model_is_rejected_before_openrouter_is_asked() {
     let verifier = FakeKeyVerifier::answering(&[]);
 
     let err = app_with(&repository, &verifier)
-        .set_group_rules(
+        .save_rules(
             100,
             10,
             vec![moderate_when(instructed("sk-good", "openai/gpt-5"))],
@@ -634,4 +723,27 @@ async fn test_an_unlisted_model_is_rejected_before_openrouter_is_asked() {
 
     assert!(err.contains("cannot use the model 'openai/gpt-5'"), "{err}");
     assert!(verifier.asked().is_empty());
+}
+
+#[tokio::test]
+async fn test_a_joined_group_starts_out_notifying_its_owner() {
+    let app = GroupAdministrationApplication::new(
+        Arc::new(MockModerationRepository {
+            group: None,
+            rules: vec![],
+        }),
+        Arc::new(MockGroupModerator::default()),
+        Arc::new(UnusedKeyVerifier),
+        Arc::new(UnusedKeyVerifier),
+    );
+    let invited = MessengerGroup {
+        id: 700,
+        name: "New Group".to_string(),
+    };
+
+    let group = app.try_join_group(100, &invited).await.unwrap();
+
+    assert_eq!(group.owner_id, 100);
+    assert_eq!(group.name, "New Group");
+    assert_eq!(group.mode, GroupMode::Notifications);
 }

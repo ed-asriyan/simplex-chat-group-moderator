@@ -92,7 +92,61 @@ mod tests {
         let version: i64 = guard
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 35);
+        assert_eq!(version, 36);
+    }
+
+    /// 0036 folds the two toggles into one mode. Dry mode used to switch
+    /// notifications on, but the owner could switch them off again; such a
+    /// group stays dry, since doing nothing is what its owner asked for.
+    #[tokio::test]
+    async fn test_0036_folds_the_toggles_into_a_mode() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        apply_through(&mut conn, 35).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO moderation_groups
+                  (group_id, messenger_group_id, owner_id, group_name, notifications_enabled, dry_mode_enabled)
+             VALUES (1, 100, 10, 'Notified', 1, 0),
+                    (2, 200, 10, 'Silent', 0, 0),
+                    (3, 300, 10, 'Dry', 1, 1),
+                    (4, 400, 10, 'Dry, unnotified', 0, 1);",
+        )
+        .unwrap();
+        apply(&mut conn).unwrap();
+
+        let modes: Vec<(i64, String)> = conn
+            .prepare("SELECT group_id, mode FROM moderation_groups ORDER BY group_id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            modes,
+            vec![
+                (1, "notifications".to_string()),
+                (2, "silent".to_string()),
+                (3, "dry".to_string()),
+                (4, "dry".to_string()),
+            ]
+        );
+
+        // A group registered from now on starts out notifying its owner.
+        conn.execute(
+            "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name)
+             VALUES (5, 500, 10, 'New')",
+            [],
+        )
+        .unwrap();
+        let mode: String = conn
+            .query_row(
+                "SELECT mode FROM moderation_groups WHERE group_id = 5",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(mode, "notifications");
     }
 
     /// 0022 rebuilds every rule as a `moderation_rules` row plus a condition
@@ -145,10 +199,9 @@ mod tests {
                 conn.clone(),
             );
         let loaded = repo.get_group_rules(&7).await.unwrap();
-        let loaded: Vec<_> = loaded.into_iter().map(|owned| owned.rule).collect();
 
         use crate::domain::moderator::ports::{
-            ModerationAction, ModerationCondition, ModerationRepository, ModerationRule,
+            ModerationAction, ModerationCondition, ModerationRule,
         };
         assert_eq!(
             loaded,
@@ -290,7 +343,7 @@ mod tests {
 
         apply(&mut conn).unwrap();
 
-        use crate::domain::moderator::ports::{ModerationCondition as C, ModerationRepository};
+        use crate::domain::moderator::ports::ModerationCondition as C;
         let conn = Arc::new(Mutex::new(conn));
         let repo =
             crate::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository::new(
@@ -301,7 +354,7 @@ mod tests {
             .await
             .unwrap()
             .into_iter()
-            .map(|owned| owned.rule.condition)
+            .map(|rule| rule.condition)
             .collect();
 
         let strings = |values: &[&str]| values.iter().map(|v| v.to_string()).collect();
@@ -462,10 +515,10 @@ mod tests {
             crate::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository::new(
                 conn.clone(),
             );
-        use crate::domain::moderator::ports::{ModerationAction, ModerationRepository};
+        use crate::domain::moderator::ports::ModerationAction;
         let loaded = repo.get_group_rules(&11).await.unwrap();
         let actions: Vec<Vec<ModerationAction>> =
-            loaded.into_iter().map(|owned| owned.rule.actions).collect();
+            loaded.into_iter().map(|rule| rule.actions).collect();
 
         assert_eq!(
             actions,
@@ -556,9 +609,12 @@ mod tests {
                 conn.clone(),
             );
         use crate::domain::moderator::ports::{
-            ModerationAction, ModerationCondition, ModerationRepository, ModerationRule,
+            GroupMode, ModerationAction, ModerationCondition, ModerationRepository, ModerationRule,
         };
-        let group_id = repo.save_owner(&800, "Cascade Group", &80).await.unwrap();
+        let group_id = repo
+            .save_owner(&800, "Cascade Group", &80, GroupMode::default())
+            .await
+            .unwrap();
         repo.set_group_rules(
             &group_id,
             &[ModerationRule {
@@ -676,11 +732,11 @@ mod tests {
                 conn.clone(),
             );
         use crate::domain::moderator::ports::{
-            CategoryTrigger, ModerationCondition, ModerationRepository, OpenAiCategoryTriggers,
+            CategoryTrigger, ModerationCondition, OpenAiCategoryTriggers,
         };
         let rules = repo.get_group_rules(&7).await.unwrap();
         assert_eq!(
-            rules[0].rule.condition,
+            rules[0].condition,
             ModerationCondition::FlaggedByOmniModeration(FlaggedByOmniModeration {
                 retry: Default::default(),
                 api_key: "sk-proj-abc".to_string(),
@@ -738,12 +794,10 @@ mod tests {
             crate::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository::new(
                 conn.clone(),
             );
-        use crate::domain::moderator::ports::{
-            ApiRetry, ModerationCondition, ModerationRepository,
-        };
+        use crate::domain::moderator::ports::{ApiRetry, ModerationCondition};
         let rules = repo.get_group_rules(&8).await.unwrap();
         assert_eq!(
-            rules[0].rule.condition,
+            rules[0].condition,
             ModerationCondition::FlaggedByOpenRouterInstruction(FlaggedByOpenRouterInstruction {
                 api_key: "sk-proj-abc".to_string(),
                 model: "openai/gpt-4.1-mini".to_string(),
@@ -799,10 +853,10 @@ mod tests {
             crate::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository::new(
                 conn.clone(),
             );
-        use crate::domain::moderator::ports::{ModerationAction, ModerationRepository};
+        use crate::domain::moderator::ports::ModerationAction;
         let loaded = repo.get_group_rules(&12).await.unwrap();
         assert_eq!(
-            loaded[0].rule.actions,
+            loaded[0].actions,
             vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                 duration_minutes: 0
             })]

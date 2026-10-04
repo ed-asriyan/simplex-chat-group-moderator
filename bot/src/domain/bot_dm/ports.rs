@@ -27,13 +27,14 @@ pub struct Message {
 pub struct Group {
     pub id: GroupId,
     pub name: String,
-    pub notifications_enabled: bool,
-    pub dry_mode_enabled: bool,
 }
 
+/// An invitation to a group the bot has not joined yet: it has no settings of
+/// its own until the moderator registers it.
 pub struct GroupInvitation {
-    pub group: Group,
-    pub is_moderator: bool,
+    /// The messenger's id of the group.
+    pub group_id: GroupId,
+    pub group_name: String,
 }
 
 /// Inbound port: entry point for direct messages addressed to the bot.
@@ -55,7 +56,8 @@ pub trait BotMessenger: Send + Sync {
 }
 
 /// Inbound port: deliver a notification to a group owner that the bot performed
-/// moderation actions in their group.
+/// moderation actions in their group — or, when `performed` is false, would
+/// have.
 #[async_trait]
 pub trait ModerationNotificationReceiver: Send + Sync {
     async fn send_moderation_notification(
@@ -63,6 +65,7 @@ pub trait ModerationNotificationReceiver: Send + Sync {
         user_id: UserId,
         group: &Group,
         actions: &[ModerationAction],
+        performed: bool,
         message: &str,
         reasons: &[String],
     ) -> Result<(), Err>;
@@ -80,30 +83,15 @@ pub trait GroupOperations: Send + Sync {
 
     async fn get_groups(&self, user_id: UserId) -> Result<Vec<Group>, Err>;
 
-    async fn set_rules_json(
+    /// Replace the group's whole configuration — its mode and its rules —
+    /// with the one in `json`.
+    async fn set_config_json(
         &self,
         user_id: UserId,
         group_id: GroupId,
         json: &str,
     ) -> Result<(), Err>;
 
-    async fn get_rules_json(
-        &self,
-        user_id: UserId,
-        group_id: GroupId,
-    ) -> Result<Option<String>, Err>;
-
-    async fn set_notifications(
-        &self,
-        user_id: UserId,
-        group_id: GroupId,
-        enabled: bool,
-    ) -> Result<(), Err>;
-
-    async fn set_dry_mode(
-        &self,
-        user_id: UserId,
-        group_id: GroupId,
-        enabled: bool,
-    ) -> Result<(), Err>;
+    /// The group's whole configuration as JSON.
+    async fn get_config_json(&self, user_id: UserId, group_id: GroupId) -> Result<String, Err>;
 }

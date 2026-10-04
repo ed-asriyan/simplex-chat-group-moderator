@@ -1,5 +1,10 @@
-use super::describe_actions;
-use crate::domain::bot_dm::ports::ModerationAction;
+use super::{BotDmApplication, describe_actions, lz_compress};
+use crate::domain::bot_dm::ports::{
+    BotDmReceiver, BotMessenger, Err, Group, GroupId, GroupInvitation, GroupOperations, JoinError,
+    Message, ModerationAction, UserId,
+};
+use async_trait::async_trait;
+use std::sync::{Arc, Mutex};
 
 const KICK: ModerationAction = ModerationAction::KickAuthor {
     delete_all_messages: false,
@@ -83,4 +88,130 @@ fn test_describes_a_timed_observer_restriction() {
         ),
         "🛡 I would set the author as observer for 1 minute"
     );
+}
+
+const EDITOR: &str = "https://editor.example";
+const CONFIG: &str = r#"{"mode":"dry","rules":[]}"#;
+
+#[derive(Default)]
+struct RecordingMessenger {
+    sent: Mutex<Vec<String>>,
+}
+
+impl RecordingMessenger {
+    fn sent(&self) -> Vec<String> {
+        self.sent.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl BotMessenger for RecordingMessenger {
+    async fn send_dm(&self, _user_id: &UserId, text: &str) -> Result<(), Err> {
+        self.sent.lock().unwrap().push(text.to_string());
+        Ok(())
+    }
+}
+
+/// One group, 5, whose configuration is [`CONFIG`]; remembers every
+/// configuration it is handed.
+#[derive(Default)]
+struct OneGroup {
+    saved: Mutex<Vec<(GroupId, String)>>,
+}
+
+#[async_trait]
+impl GroupOperations for OneGroup {
+    async fn try_join_group(
+        &self,
+        _user_id: UserId,
+        _invitation: &GroupInvitation,
+    ) -> Result<Group, JoinError> {
+        Err("not in these tests".into())
+    }
+
+    async fn get_groups(&self, _user_id: UserId) -> Result<Vec<Group>, Err> {
+        Ok(vec![Group {
+            id: 5,
+            name: "Test Group".to_string(),
+        }])
+    }
+
+    async fn set_config_json(
+        &self,
+        _user_id: UserId,
+        group_id: GroupId,
+        json: &str,
+    ) -> Result<(), Err> {
+        self.saved
+            .lock()
+            .unwrap()
+            .push((group_id, json.to_string()));
+        Ok(())
+    }
+
+    async fn get_config_json(&self, _user_id: UserId, _group_id: GroupId) -> Result<String, Err> {
+        Ok(CONFIG.to_string())
+    }
+}
+
+async fn send(text: &str) -> (Vec<String>, Vec<(GroupId, String)>) {
+    let messenger = Arc::new(RecordingMessenger::default());
+    let groups = Arc::new(OneGroup::default());
+    let app = BotDmApplication::new(messenger.clone(), groups.clone(), EDITOR.to_string());
+    let message = Message {
+        text: text.to_string(),
+        reply_to_message: None,
+    };
+    app.handle_dm(1, &message).await.unwrap();
+    let saved = groups.saved.lock().unwrap().clone();
+    (messenger.sent(), saved)
+}
+
+#[tokio::test]
+async fn test_a_sent_editor_link_saves_the_whole_config() {
+    let link = format!(
+        "[Settings]({EDITOR}#bot_id=5&config={})",
+        lz_compress(CONFIG)
+    );
+
+    let (sent, saved) = send(&link).await;
+
+    assert_eq!(saved, vec![(5, CONFIG.to_string())]);
+    assert_eq!(sent, vec!["Group settings updated successfully."]);
+}
+
+#[tokio::test]
+async fn test_a_link_without_a_config_saves_nothing() {
+    let link = format!("{EDITOR}#bot_id=5&rules={}", lz_compress("[]"));
+
+    let (sent, saved) = send(&link).await;
+
+    assert!(saved.is_empty());
+    assert_eq!(
+        sent,
+        vec!["Unknown command. Send /help to see what I can do."]
+    );
+}
+
+#[tokio::test]
+async fn test_the_mode_is_no_longer_a_command() {
+    for command in ["/dry_on_5", "/dry_off_5", "/notify_on_5", "/notify_off_5"] {
+        let (sent, saved) = send(command).await;
+
+        assert!(saved.is_empty(), "{command}");
+        assert_eq!(
+            sent,
+            vec!["Unknown command. Send /help to see what I can do."],
+            "{command}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_groups_links_the_whole_config() {
+    let (sent, _) = send("/groups").await;
+
+    assert_eq!(sent.len(), 1);
+    let link = format!("{EDITOR}#bot_id=5&config={}", lz_compress(CONFIG));
+    assert!(sent[0].contains(&link), "{}", sent[0]);
 }

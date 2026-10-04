@@ -203,6 +203,24 @@ button {
     color: var(--ink-2);
 }
 
+/* group settings, above the rule list */
+.gsettings {
+    border-bottom: 1px solid var(--line);
+}
+
+.gsettings .help {
+    margin: 10px 14px 0
+}
+
+.gsettings .params {
+    margin: 0;
+    padding: 10px 14px 12px
+}
+
+.gsettings .fld select {
+    max-width: 100%
+}
+
 /* rule list */
 .rlist {
     display: flex;

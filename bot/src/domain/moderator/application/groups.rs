@@ -5,9 +5,9 @@ use std::sync::Arc;
 use crate::domain::moderator::rules::KeyUse;
 
 use crate::domain::moderator::ports::{
-    Err, Group, GroupAdministration, GroupId, GroupInvitation, GroupModerator, KeyCheck,
-    MessengerGroupId, ModerationRepository, ModerationRule, OpenAi, OpenRouter,
-    OwnedModerationRule, UserId,
+    Err, Group, GroupAdministration, GroupConfig, GroupId, GroupMode, GroupModerator, KeyCheck,
+    MessengerGroup, MessengerGroupId, ModerationRepository, ModerationRule, OpenAi, OpenRouter,
+    UserId,
 };
 
 #[cfg(test)]
@@ -135,12 +135,8 @@ fn openrouter_key_check_error(key: &str, model: &str, check: KeyCheck) -> String
 
 #[async_trait]
 impl GroupAdministration for GroupAdministrationApplication {
-    async fn try_join_group(
-        &self,
-        owner_id: UserId,
-        invitation: &GroupInvitation,
-    ) -> Result<GroupId, Err> {
-        let messenger_group_id = invitation.group.id;
+    async fn try_join_group(&self, owner_id: UserId, group: &MessengerGroup) -> Result<Group, Err> {
+        let messenger_group_id = group.id;
         let existing_owner = self
             .repository
             .get_owner_by_messenger_id(&messenger_group_id)
@@ -148,12 +144,20 @@ impl GroupAdministration for GroupAdministrationApplication {
         if existing_owner.is_some() {
             return Err(format!("Group {} is already registered", messenger_group_id).into());
         }
-        self.group_moderator.join_group(invitation.group.id).await?;
+        self.group_moderator.join_group(group.id).await?;
+        // A group the owner has not configured yet notifies them of every
+        // action, so nothing the bot does goes unseen.
+        let mode = GroupMode::default();
         let group_id = self
             .repository
-            .save_owner(&messenger_group_id, &invitation.group.name, &owner_id)
+            .save_owner(&messenger_group_id, &group.name, &owner_id, mode)
             .await?;
-        Ok(group_id)
+        Ok(Group {
+            id: group_id,
+            owner_id,
+            name: group.name.clone(),
+            mode,
+        })
     }
 
     async fn remove_group(&self, messenger_group_id: MessengerGroupId) -> Result<(), Err> {
@@ -164,62 +168,29 @@ impl GroupAdministration for GroupAdministrationApplication {
         self.repository.get_groups_by_owner_id(owner_id).await
     }
 
-    async fn get_group_rules(
+    async fn get_group_config(
         &self,
         user_id: UserId,
         group_id: GroupId,
-    ) -> Result<Vec<OwnedModerationRule>, Err> {
+    ) -> Result<GroupConfig, Err> {
         self.check_ownership(user_id, group_id).await?;
-        self.repository.get_group_rules(&group_id).await
+        self.repository.get_group_config(&group_id).await
     }
 
-    async fn set_group_rules(
+    async fn set_group_config(
         &self,
         user_id: UserId,
         group_id: GroupId,
-        rules: Vec<ModerationRule>,
+        config: GroupConfig,
     ) -> Result<(), Err> {
         self.check_ownership(user_id, group_id).await?;
 
-        let mut rules = rules;
-        for rule in &mut rules {
+        let mut config = config;
+        for rule in &mut config.rules {
             rule.normalize_and_validate()?;
         }
-        self.verify_api_keys(&rules).await?;
+        self.verify_api_keys(&config.rules).await?;
 
-        self.repository.set_group_rules(&group_id, &rules).await?;
-        Ok(())
-    }
-
-    async fn set_notifications(
-        &self,
-        user_id: UserId,
-        group_id: GroupId,
-        enabled: bool,
-    ) -> Result<(), Err> {
-        self.check_ownership(user_id, group_id).await?;
-        self.repository
-            .set_notifications_enabled(&group_id, enabled)
-            .await
-    }
-
-    async fn set_dry_mode(
-        &self,
-        user_id: UserId,
-        group_id: GroupId,
-        enabled: bool,
-    ) -> Result<(), Err> {
-        self.check_ownership(user_id, group_id).await?;
-        self.repository
-            .set_dry_mode_enabled(&group_id, enabled)
-            .await?;
-        // Turning dry mode on also enables notifications so the owner can
-        // see what the bot *would* have moderated.
-        if enabled {
-            self.repository
-                .set_notifications_enabled(&group_id, true)
-                .await?;
-        }
-        Ok(())
+        self.repository.set_group_config(&group_id, &config).await
     }
 }

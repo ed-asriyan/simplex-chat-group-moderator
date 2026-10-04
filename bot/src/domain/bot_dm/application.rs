@@ -27,7 +27,7 @@ const HELP: &str = "\
    • Moderator — to delete violating messages.
    • Admin — to also set violators as observers.
    • Owner — to also kick violators out of the group.
-2. Once I join, use /groups to list your groups and open the visual rules editor.
+2. Once I join, use /groups to list your groups and open the visual editor.
 3. I will automatically monitor the chat and take action according to your rules.
 
 *If you want me to stop moderating a group, just kick me from it.*
@@ -40,11 +40,11 @@ const HELP: &str = "\
   /issue   - Report a bug or unexpected moderation behaviour.
   /feature - Request a new moderation rule type or feature.
 
-*Notifications:*
-For each group you can turn moderation notifications on or off (use /groups to get the links). When enabled, I'll DM you whenever I take a moderation action.
-
-*Dry mode:*
-You can also enable dry mode for a group. In dry mode I run all checks and notify you about what I would moderate, but I don't actually delete anything or kick anyone. Use /groups to get the links.
+*Modes:*
+Each group has a mode, set in the same editor as its rules (use /groups to get the link):
+  • Notifications — I take action and DM you every time I do.
+  • Silent — I take action without telling you.
+  • Dry — I run all checks and DM you what I would have done, but I don't actually delete anything or kick anyone.
 ";
 
 const ISSUE_URL: &str = "https://github.com/ed-asriyan/simplex-chat-group-moderator/issues/new?template=moderation-rule-bug.yml";
@@ -73,7 +73,7 @@ Hi! I'm an *automated moderation* bot for SimpleX groups.
    • Owner — if you also want me to 🚪 kick users.
 2. Once I join, use /groups to configure your moderation rules in the visual editor.
 
-Use /help anytime for commands and extra features (like Dry Mode and notifications).
+Use /help anytime for commands and extra features (like dry mode).
 
 My code [available on GitHub](https://github.com/ed-asriyan/simplex-chat-group-moderator).
 ";
@@ -101,10 +101,11 @@ impl BotDmApplication {
 enum ParsedDm {
     Start,
     Help,
-    SetRules { group_id: GroupId, yaml: String },
+    SetConfig {
+        group_id: GroupId,
+        compressed: String,
+    },
     GetGroups,
-    SetNotifications { group_id: GroupId, enabled: bool },
-    SetDryMode { group_id: GroupId, enabled: bool },
     Source,
     Issue,
     Feature,
@@ -124,18 +125,18 @@ fn parse(message: &Message, base_url: &str) -> ParsedDm {
         let url = &rest[..end];
         if let Some(fragment) = url.split_once('#').map(|(_, f)| f) {
             let mut bot_id: Option<GroupId> = None;
-            let mut rules_hash: Option<String> = None;
+            let mut config: Option<String> = None;
             for param in fragment.split('&') {
                 if let Some(v) = param.strip_prefix("bot_id=") {
                     bot_id = v.parse().ok();
-                } else if let Some(v) = param.strip_prefix("rules=") {
-                    rules_hash = Some(v.to_string());
+                } else if let Some(v) = param.strip_prefix("config=") {
+                    config = Some(v.to_string());
                 }
             }
-            if let (Some(group_id), Some(hash)) = (bot_id, rules_hash) {
-                return ParsedDm::SetRules {
+            if let (Some(group_id), Some(compressed)) = (bot_id, config) {
+                return ParsedDm::SetConfig {
                     group_id,
-                    yaml: hash,
+                    compressed,
                 };
             }
         }
@@ -151,53 +152,29 @@ fn parse(message: &Message, base_url: &str) -> ParsedDm {
         "/issue" => ParsedDm::Issue,
         "/feature" => ParsedDm::Feature,
         "/groups" => ParsedDm::GetGroups,
-        _ if let Some(id_str) = text.strip_prefix("/notify_on_") => match id_str.trim().parse() {
-            Ok(group_id) => ParsedDm::SetNotifications {
-                group_id,
-                enabled: true,
-            },
-            Err(_) => ParsedDm::Unknown,
-        },
-        _ if let Some(id_str) = text.strip_prefix("/notify_off_") => match id_str.trim().parse() {
-            Ok(group_id) => ParsedDm::SetNotifications {
-                group_id,
-                enabled: false,
-            },
-            Err(_) => ParsedDm::Unknown,
-        },
-        _ if let Some(id_str) = text.strip_prefix("/dry_on_") => match id_str.trim().parse() {
-            Ok(group_id) => ParsedDm::SetDryMode {
-                group_id,
-                enabled: true,
-            },
-            Err(_) => ParsedDm::Unknown,
-        },
-        _ if let Some(id_str) = text.strip_prefix("/dry_off_") => match id_str.trim().parse() {
-            Ok(group_id) => ParsedDm::SetDryMode {
-                group_id,
-                enabled: false,
-            },
-            Err(_) => ParsedDm::Unknown,
-        },
         _ => ParsedDm::Unknown,
     }
 }
 
-fn render_group(group: &Group, rules_url: &str) -> String {
-    let notifications_command = if group.notifications_enabled {
-        format!("Stop notifying me on delete: /notify_off_{}", group.id)
-    } else {
-        format!("Notify me on delete: /notify_on_{}", group.id)
-    };
-    let dry_mode_command = if group.dry_mode_enabled {
-        format!("Disable dry mode: /dry_off_{}", group.id)
-    } else {
-        format!("Enable dry mode: /dry_on_{}", group.id)
-    };
-    format!(
-        "*{}*\n[View and Edit Rules]({})\n{}\n{}",
-        group.name, rules_url, notifications_command, dry_mode_command,
-    )
+fn render_group(group: &Group, editor_url: &str) -> String {
+    format!("*{}*\n[View and Edit Settings]({})", group.name, editor_url)
+}
+
+impl BotDmApplication {
+    /// The editor link for a group: its whole configuration, compressed into
+    /// the hash.
+    async fn editor_url(&self, user_id: UserId, group_id: GroupId) -> Result<String, Err> {
+        let json = self
+            .group_operator
+            .get_config_json(user_id, group_id)
+            .await?;
+        Ok(format!(
+            "{}#bot_id={}&config={}",
+            self.webeditor_base_url.trim_end_matches('/'),
+            group_id,
+            lz_compress(&json)
+        ))
+    }
 }
 
 #[async_trait]
@@ -210,17 +187,17 @@ impl BotDmReceiver for BotDmApplication {
             ParsedDm::Help => {
                 self.messenger.send_dm(&user_id, HELP).await?;
             }
-            ParsedDm::SetRules {
+            ParsedDm::SetConfig {
                 group_id,
-                yaml: rules_hash,
+                compressed,
             } => {
-                let result = match lz_decompress(&rules_hash) {
+                let result = match lz_decompress(&compressed) {
                     Some(json) => {
                         self.group_operator
-                            .set_rules_json(user_id, group_id, &json)
+                            .set_config_json(user_id, group_id, &json)
                             .await
                     }
-                    None => Err("Could not decompress rules from the URL. \
+                    None => Err("Could not decompress the settings from the URL. \
                         Open the editor link again, make your changes, \
                         and send back the updated URL."
                         .into()),
@@ -228,12 +205,12 @@ impl BotDmReceiver for BotDmApplication {
                 match result {
                     Ok(()) => {
                         self.messenger
-                            .send_dm(&user_id, "Rules updated successfully.")
+                            .send_dm(&user_id, "Group settings updated successfully.")
                             .await?;
                     }
                     Err(e) => {
                         self.messenger
-                            .send_dm(&user_id, &format!("Failed to update rules: {}", e))
+                            .send_dm(&user_id, &format!("Failed to update group settings: {}", e))
                             .await?;
                     }
                 }
@@ -246,66 +223,9 @@ impl BotDmReceiver for BotDmApplication {
                         .await?;
                 } else {
                     for group in &groups {
-                        let rules_url = match self
-                            .group_operator
-                            .get_rules_json(user_id, group.id)
-                            .await?
-                        {
-                            Some(json) => {
-                                let hash = lz_compress(&json);
-                                format!(
-                                    "{}#bot_id={}&rules={}",
-                                    self.webeditor_base_url.trim_end_matches('/'),
-                                    group.id,
-                                    hash
-                                )
-                            }
-                            None => String::new(),
-                        };
+                        let editor_url = self.editor_url(user_id, group.id).await?;
                         self.messenger
-                            .send_dm(&user_id, &render_group(group, &rules_url))
-                            .await?;
-                    }
-                }
-            }
-            ParsedDm::SetNotifications { group_id, enabled } => {
-                match self
-                    .group_operator
-                    .set_notifications(user_id, group_id, enabled)
-                    .await
-                {
-                    Ok(()) => {
-                        let reply = if enabled {
-                            "Moderation notifications enabled. I'll DM you whenever I delete a message in this group."
-                        } else {
-                            "Moderation notifications disabled."
-                        };
-                        self.messenger.send_dm(&user_id, reply).await?;
-                    }
-                    Err(_) => {
-                        self.messenger
-                            .send_dm(&user_id, "Group not found or not managed by you.")
-                            .await?;
-                    }
-                }
-            }
-            ParsedDm::SetDryMode { group_id, enabled } => {
-                match self
-                    .group_operator
-                    .set_dry_mode(user_id, group_id, enabled)
-                    .await
-                {
-                    Ok(()) => {
-                        let reply = if enabled {
-                            "Dry mode enabled. I'll run all checks and notify you, but I won't actually delete any messages in this group. Notifications have been turned on."
-                        } else {
-                            "Dry mode disabled. I'll moderate messages in this group again."
-                        };
-                        self.messenger.send_dm(&user_id, reply).await?;
-                    }
-                    Err(_) => {
-                        self.messenger
-                            .send_dm(&user_id, "Group not found or not managed by you.")
+                            .send_dm(&user_id, &render_group(group, &editor_url))
                             .await?;
                     }
                 }
@@ -349,52 +269,28 @@ impl BotDmReceiver for BotDmApplication {
         user_id: UserId,
         invitation: &GroupInvitation,
     ) -> Result<(), Err> {
-        if invitation.is_moderator {
-            match self
-                .group_operator
-                .try_join_group(user_id, invitation)
-                .await
-            {
-                Ok(group) => {
-                    self.messenger
-                        .send_dm(&user_id, "Joined the group successfully!")
-                        .await?;
-                    let rules_url = match self
-                        .group_operator
-                        .get_rules_json(user_id, group.id)
-                        .await?
-                    {
-                        Some(json) => {
-                            let hash = lz_compress(&json);
-                            format!(
-                                "{}#bot_id={}&rules={}",
-                                self.webeditor_base_url.trim_end_matches('/'),
-                                group.id,
-                                hash
-                            )
-                        }
-                        None => String::new(),
-                    };
-                    self.messenger
-                        .send_dm(&user_id, &render_group(&group, &rules_url))
-                        .await?;
-                }
-                Err(_) => {
-                    self.messenger
-                        .send_dm(
-                            &user_id,
-                            "Failed to join the group. Check if the invite link is correct and I have the moderator or owner role.",
-                        )
-                        .await?;
-                }
+        match self
+            .group_operator
+            .try_join_group(user_id, invitation)
+            .await
+        {
+            Ok(group) => {
+                self.messenger
+                    .send_dm(&user_id, "Joined the group successfully!")
+                    .await?;
+                let editor_url = self.editor_url(user_id, group.id).await?;
+                self.messenger
+                    .send_dm(&user_id, &render_group(&group, &editor_url))
+                    .await?;
             }
-        } else {
-            self.messenger
-                .send_dm(
-                    &user_id,
-                    "I need to be added as a moderator (or owner) to join the group. Please update my permissions and send the invite again.",
-                )
-                .await?;
+            Err(_) => {
+                self.messenger
+                    .send_dm(
+                        &user_id,
+                        "Failed to join the group. Check that the invitation is still valid and send it again.",
+                    )
+                    .await?;
+            }
         }
         Ok(())
     }
@@ -478,6 +374,7 @@ impl ModerationNotificationReceiver for BotDmApplication {
         user_id: UserId,
         group: &Group,
         actions: &[ModerationAction],
+        performed: bool,
         message: &str,
         reasons: &[String],
     ) -> Result<(), Err> {
@@ -489,7 +386,7 @@ impl ModerationNotificationReceiver for BotDmApplication {
         } else {
             message.to_owned()
         };
-        let actions_text = describe_actions(actions, group.dry_mode_enabled);
+        let actions_text = describe_actions(actions, !performed);
         let reasons = reasons
             .iter()
             .map(|x| format!("• {}", x))

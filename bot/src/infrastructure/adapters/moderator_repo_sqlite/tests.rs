@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::moderator::ports::ModerationRule;
 use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
 use crate::domain::moderator::ports::conditions::{
     AuthorHitsCharacterRateLimit, AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit,
@@ -11,6 +12,29 @@ use crate::domain::moderator::ports::conditions::{
 };
 use crate::infrastructure::migrations;
 
+/// Most tests of the repository, here and in the migrations, are about the
+/// rules alone, so they save them under the default mode.
+impl SqliteModerationRepository {
+    pub(crate) async fn set_group_rules(
+        &self,
+        group_id: &GroupId,
+        rules: &[ModerationRule],
+    ) -> Result<(), Err> {
+        let config = GroupConfig {
+            mode: GroupMode::default(),
+            rules: rules.to_vec(),
+        };
+        self.set_group_config(group_id, &config).await
+    }
+
+    pub(crate) async fn get_group_rules(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<Vec<ModerationRule>, Err> {
+        Ok(self.get_group_config(group_id).await?.rules)
+    }
+}
+
 #[tokio::test]
 async fn test_delete_group_data_removes_all_conditions_and_actions() {
     let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
@@ -20,7 +44,12 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
     let messenger_group_id = 999;
     let owner_id = 123;
     let group_id = repo
-        .save_owner(&messenger_group_id, "Test Group", &owner_id)
+        .save_owner(
+            &messenger_group_id,
+            "Test Group",
+            &owner_id,
+            GroupMode::default(),
+        )
         .await
         .unwrap();
 
@@ -169,7 +198,12 @@ async fn test_save_and_load_rate_limit_rules() {
     let messenger_group_id = 1001;
     let owner_id = 456;
     let group_id = repo
-        .save_owner(&messenger_group_id, "Rate Limit Test Group", &owner_id)
+        .save_owner(
+            &messenger_group_id,
+            "Rate Limit Test Group",
+            &owner_id,
+            GroupMode::default(),
+        )
         .await
         .unwrap();
 
@@ -203,8 +237,8 @@ async fn test_save_and_load_rate_limit_rules() {
 
     let loaded = repo.get_group_rules(&group_id).await.unwrap();
     assert_eq!(loaded.len(), 2);
-    assert_eq!(loaded[0].rule, rules[0]);
-    assert_eq!(loaded[1].rule, rules[1]);
+    assert_eq!(loaded[0], rules[0]);
+    assert_eq!(loaded[1], rules[1]);
 }
 
 /// The line rate limit carries a third setting, the wrap width, which must come
@@ -216,7 +250,7 @@ async fn test_round_trips_line_rate_limit_settings() {
 
     let repo = SqliteModerationRepository::new(conn.clone());
     let group_id = repo
-        .save_owner(&1002, "Line Rate Limit Group", &456)
+        .save_owner(&1002, "Line Rate Limit Group", &456, GroupMode::default())
         .await
         .unwrap();
 
@@ -246,7 +280,7 @@ async fn test_round_trips_line_rate_limit_settings() {
 
     let loaded = repo.get_group_rules(&group_id).await.unwrap();
     assert_eq!(loaded.len(), 1);
-    assert_eq!(loaded[0].rule, rules[0]);
+    assert_eq!(loaded[0], rules[0]);
 }
 
 /// The group-wide rate limits have tables of their own, apart from the
@@ -258,7 +292,7 @@ async fn test_round_trips_group_rate_limit_settings() {
 
     let repo = SqliteModerationRepository::new(conn.clone());
     let group_id = repo
-        .save_owner(&1003, "Group Rate Limit Group", &456)
+        .save_owner(&1003, "Group Rate Limit Group", &456, GroupMode::default())
         .await
         .unwrap();
 
@@ -292,8 +326,8 @@ async fn test_round_trips_group_rate_limit_settings() {
 
     let loaded = repo.get_group_rules(&group_id).await.unwrap();
     assert_eq!(loaded.len(), 2);
-    assert_eq!(loaded[0].rule, rules[0]);
-    assert_eq!(loaded[1].rule, rules[1]);
+    assert_eq!(loaded[0], rules[0]);
+    assert_eq!(loaded[1], rules[1]);
 }
 
 // ---------------------------------------------------------------------------
@@ -309,7 +343,12 @@ async fn repo_with_group(messenger_group_id: i64) -> (SqliteModerationRepository
     migrations::run(conn.clone()).await.unwrap();
     let repo = SqliteModerationRepository::new(conn);
     let group_id = repo
-        .save_owner(&messenger_group_id, "Round Trip Test Group", &42)
+        .save_owner(
+            &messenger_group_id,
+            "Round Trip Test Group",
+            &42,
+            GroupMode::default(),
+        )
         .await
         .unwrap();
     (repo, group_id)
@@ -326,7 +365,7 @@ async fn assert_round_trips(messenger_group_id: i64, condition: ModerationCondit
 
     let loaded = repo.get_group_rules(&group_id).await.unwrap();
     assert_eq!(loaded.len(), 1);
-    assert_eq!(loaded[0].rule, rules[0]);
+    assert_eq!(loaded[0], rules[0]);
 }
 
 #[tokio::test]
@@ -554,6 +593,39 @@ async fn test_preserves_sibling_order_within_a_composite() {
 }
 
 #[tokio::test]
+async fn test_round_trips_the_mode_with_the_rules() {
+    let (repo, group_id) = repo_with_group(2010).await;
+    let rules = vec![ModerationRule {
+        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        condition: ModerationCondition::IsBlank(IsBlank {}),
+    }];
+
+    // A new group notifies its owner until told otherwise.
+    assert_eq!(
+        repo.get_group_config(&group_id).await.unwrap().mode,
+        GroupMode::Notifications
+    );
+
+    for mode in [GroupMode::Dry, GroupMode::Silent, GroupMode::Notifications] {
+        let config = GroupConfig {
+            mode,
+            rules: rules.clone(),
+        };
+        repo.set_group_config(&group_id, &config).await.unwrap();
+
+        let loaded = repo.get_group_config(&group_id).await.unwrap();
+        assert_eq!(loaded.mode, mode);
+        assert_eq!(loaded.rules, rules);
+        let group = repo
+            .get_group_by_messenger_id(&2010)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(group.mode, mode);
+    }
+}
+
+#[tokio::test]
 async fn test_preserves_rule_order() {
     let (repo, group_id) = repo_with_group(2006).await;
     let rules: Vec<ModerationRule> = ["first", "second", "third", "fourth"]
@@ -569,7 +641,6 @@ async fn test_preserves_rule_order() {
     repo.set_group_rules(&group_id, &rules).await.unwrap();
 
     let loaded = repo.get_group_rules(&group_id).await.unwrap();
-    let loaded: Vec<ModerationRule> = loaded.into_iter().map(|owned| owned.rule).collect();
     assert_eq!(loaded, rules);
 }
 
@@ -597,7 +668,7 @@ async fn test_preserves_action_order_within_a_rule() {
     assert_eq!(loaded.len(), 1);
     // The rank column, not the insertion order of the rows, is what restores
     // the order the actions are executed in.
-    assert_eq!(loaded[0].rule, rules[0]);
+    assert_eq!(loaded[0], rules[0]);
 }
 
 #[tokio::test]
@@ -652,7 +723,7 @@ async fn test_round_trips_observer_duration() {
     repo.set_group_rules(&group_id, &rules).await.unwrap();
 
     let loaded = repo.get_group_rules(&group_id).await.unwrap();
-    let actions: Vec<Vec<ModerationAction>> = loaded.into_iter().map(|r| r.rule.actions).collect();
+    let actions: Vec<Vec<ModerationAction>> = loaded.into_iter().map(|r| r.actions).collect();
     assert_eq!(
         actions,
         vec![
@@ -693,7 +764,12 @@ async fn openai_repo(
     migrations::run(conn.clone()).await.unwrap();
     let repo = SqliteModerationRepository::new(conn.clone());
     let group_id = repo
-        .save_owner(&messenger_group_id, "OpenAI Group", &42)
+        .save_owner(
+            &messenger_group_id,
+            "OpenAI Group",
+            &42,
+            GroupMode::default(),
+        )
         .await
         .unwrap();
     (conn, repo, group_id)

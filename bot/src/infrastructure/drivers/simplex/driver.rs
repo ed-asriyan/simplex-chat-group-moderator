@@ -82,7 +82,6 @@ pub enum SimplexEvent {
         user_id: UserId,
         group_id: GroupId,
         group_name: String,
-        is_moderator: bool,
     },
 }
 pub struct SimpleXConfig {
@@ -448,21 +447,13 @@ async fn handle_event(
                                     }),
                             })
                     } else if let CIContent::RcvGroupInvitation {
-                        group_invitation,
-                        member_role,
-                        ..
+                        group_invitation, ..
                     } = &chat_item.chat_item.content
                     {
                         Some(SimplexEvent::GroupInvitation {
                             user_id: contact.contact_id,
                             group_id: group_invitation.group_id,
                             group_name: group_invitation.group_profile.display_name.clone(),
-                            is_moderator: matches!(
-                                member_role,
-                                GroupMemberRole::Moderator
-                                    | GroupMemberRole::Admin
-                                    | GroupMemberRole::Owner
-                            ),
                         })
                     } else {
                         None

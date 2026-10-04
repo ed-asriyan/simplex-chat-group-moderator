@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Group Moderator — Rules Editor</title>
+    <title>Group Moderator — Group Settings</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet"
@@ -16,8 +16,8 @@
     <div class="wrap">
         <header class="phead">
             <div>
-                <div class="eyebrow">Rules editor</div>
-                <h1>Moderation rules for <a
+                <div class="eyebrow">Group settings</div>
+                <h1>Moderation settings for <a
                         href="https://simplex-directory.asriyan.me/#/bots/63d110f4-9f70-4128-b0e7-5a8958299f96"
                         target="_blank" rel="noopener">Moderator Bot</a></h1>
                 <p class="sub" id="instructions"></p>
@@ -44,8 +44,10 @@
         <div class="boot" id="boot">Loading editor…</div>
 
         <div class="app" id="app" data-view="list" hidden>
-            <!-- Every rule at a glance; one tap opens it. On a phone this is the first screen. -->
+            <!-- The group's settings, then every rule at a glance; one tap opens a
+                 rule. On a phone this is the first screen. -->
             <section class="pane master" aria-label="Rules">
+                <div class="gsettings" id="gsettings"></div>
                 <div class="pane-head">
                     <h2>Rules</h2>
                     <span class="eyebrow tnum" id="count"></span>
@@ -64,14 +66,14 @@
 
     <dialog id="impdlg" aria-labelledby="impdlg-title">
         <div class="dlg-head">
-            <b id="impdlg-title">Import rules from JSON</b>
+            <b id="impdlg-title">Import settings from JSON</b>
             <button class="dlg-x" id="impdlg-x" type="button" aria-label="Close">&times;</button>
         </div>
         <div class="dlg-body imp-body">
             <label class="sbody" for="imp-text">
-                <span class="eyebrow">Paste a rules array</span>
+                <span class="eyebrow">Paste the group's settings: its mode and its rules</span>
                 <textarea id="imp-text" rows="10" spellcheck="false"
-                    placeholder='[{"actions":[{"type":"ModerateMessage"}],"condition":{"type":"IsBlank"}}]'></textarea>
+                    placeholder='{"mode":"notifications","rules":[{"actions":[{"type":"ModerateMessage"}],"condition":{"type":"IsBlank"}}]}'></textarea>
             </label>
             <div class="imp-file-row">
                 <input id="imp-file" type="file" accept=".json,application/json" hidden>
@@ -81,13 +83,13 @@
         </div>
         <div class="dlg-foot">
             <button class="btn" id="impdlg-close" type="button">Cancel</button>
-            <button class="btn primary" id="imp-load" type="button">Load rules</button>
+            <button class="btn primary" id="imp-load" type="button">Load settings</button>
         </div>
     </dialog>
 
     <dialog id="expdlg" aria-labelledby="expdlg-title">
         <div class="dlg-head">
-            <b id="expdlg-title">Export rules as JSON</b>
+            <b id="expdlg-title">Export settings as JSON</b>
             <button class="dlg-x" id="expdlg-x" type="button" aria-label="Close">&times;</button>
         </div>
         <div class="dlg-body exp-body">

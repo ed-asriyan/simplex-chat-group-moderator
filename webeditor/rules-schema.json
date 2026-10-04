@@ -1,7 +1,7 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "Moderation Rules",
-    "description": "**1️⃣ Pick a rule in the list, or add a new one. 2️⃣ For each rule set the 🔎 Condition — what to detect — and the ⚡ Actions — what the bot does when a message matches. 3️⃣ When you're done, press \"Apply changes\" and send the copied link back to the bot.**",
+    "title": "Group Settings",
+    "description": "**1️⃣ Choose the group's mode. 2️⃣ Pick a rule in the list, or add a new one, and for each rule set the 🔎 Condition — what to detect — and the ⚡ Actions — what the bot does when a message matches. 3️⃣ When you're done, press \"Apply changes\" and send the copied link back to the bot.**",
     "definitions": {
         "action": {
             "type": "object",
@@ -1572,39 +1572,68 @@
             ]
         }
     },
-    "type": "array",
-    "format": "tabs",
+    "type": "object",
+    "required": [
+        "mode",
+        "rules"
+    ],
+    "additionalProperties": false,
     "options": {
-        "disable_collapse": true,
         "message_max_bytes": 15000
     },
-    "items": {
-        "type": "object",
-        "title": "Rule",
-        "headerTemplate": "{{ i1 }}. {{ self.condition.type }}",
-        "required": [
-            "actions",
-            "condition"
-        ],
-        "additionalProperties": false,
-        "options": {
-            "disable_collapse": true
+    "properties": {
+        "mode": {
+            "type": "string",
+            "title": "🛡 Mode",
+            "description": "What the bot does when a message matches a rule. **Notifications** — carries out the rule's actions and DMs you about each one. **Silent** — carries out the actions without telling you. **Dry** — does nothing in the group and DMs you what it would have done, which is how to try out new rules safely.",
+            "default": "notifications",
+            "oneOf": [
+                {
+                    "const": "notifications",
+                    "title": "Notifications — act and tell me"
+                },
+                {
+                    "const": "silent",
+                    "title": "Silent — act without telling me"
+                },
+                {
+                    "const": "dry",
+                    "title": "Dry — only tell me what it would do"
+                }
+            ]
         },
-        "properties": {
-            "actions": {
-                "type": "array",
-                "title": "⚡ Actions",
-                "description": "Everything the bot does when this rule matches. Add one entry per action — for example *Moderate the message* **and** *Kick the author*. The bot performs them in a safe order (observer role, then moderation, then kick) whatever order they are listed in, and skips an action that another one already covers.",
+        "rules": {
+            "type": "array",
+            "title": "Rules",
+            "items": {
+                "type": "object",
+                "title": "Rule",
+                "headerTemplate": "{{ i1 }}. {{ self.condition.type }}",
+                "required": [
+                    "actions",
+                    "condition"
+                ],
+                "additionalProperties": false,
                 "options": {
                     "disable_collapse": true
                 },
-                "minItems": 1,
-                "items": {
-                    "$ref": "#/definitions/action"
+                "properties": {
+                    "actions": {
+                        "type": "array",
+                        "title": "⚡ Actions",
+                        "description": "Everything the bot does when this rule matches. Add one entry per action — for example *Moderate the message* **and** *Kick the author*. The bot performs them in a safe order (observer role, then moderation, then kick) whatever order they are listed in, and skips an action that another one already covers.",
+                        "options": {
+                            "disable_collapse": true
+                        },
+                        "minItems": 1,
+                        "items": {
+                            "$ref": "#/definitions/action"
+                        }
+                    },
+                    "condition": {
+                        "$ref": "#/definitions/condition"
+                    }
                 }
-            },
-            "condition": {
-                "$ref": "#/definitions/condition"
             }
         }
     }

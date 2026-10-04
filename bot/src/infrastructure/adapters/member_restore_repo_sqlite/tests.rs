@@ -1,5 +1,5 @@
 use super::*;
-use crate::domain::moderator::ports::ModerationRepository;
+use crate::domain::moderator::ports::{GroupMode, ModerationRepository};
 use crate::infrastructure::adapters::moderator_repo_sqlite::SqliteModerationRepository;
 use crate::infrastructure::migrations;
 use chrono::TimeZone;
@@ -15,7 +15,7 @@ async fn repo_with_group() -> SqliteMemberRestoreRepository {
     let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
     migrations::run(conn.clone()).await.unwrap();
     SqliteModerationRepository::new(conn.clone())
-        .save_owner(&900, "Restore Group", &90)
+        .save_owner(&900, "Restore Group", &90, GroupMode::default())
         .await
         .unwrap();
     SqliteMemberRestoreRepository::new(conn)

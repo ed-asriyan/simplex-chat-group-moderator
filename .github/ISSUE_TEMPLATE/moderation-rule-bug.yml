@@ -93,25 +93,27 @@ body:
   - type: textarea
     id: rule-config
     attributes:
-      label: The rule configuration (JSON)
+      label: The group configuration (JSON)
       description: >
-        Open the rules-editor link the bot sent you in a direct message. At the
-        **bottom of that page** there is a block called **"JSON sent to the
-        bot"** — press its **Copy JSON** button and paste the result here,
-        inside a ```json code block. It holds every rule of that group, which is
-        what lets us reproduce the bug exactly. If you cannot open the editor,
-        paste the `rules=...` part of the link instead.
+        Open the editor link the bot sent you in a direct message, press
+        **Export JSON** and then **Copy JSON** (keep "Clear secret values"
+        ticked), and paste the result here, inside a ```json code block. It
+        holds the group's mode and every rule, which is what lets us reproduce
+        the bug exactly.
       placeholder: |
         ```json
-        [
-          {
-            "actions": [{ "type": "ModerateMessage" }],
-            "condition": {
-              "type": "ContainsLinksOutsideTop100",
-              "domains": ["asriyan.me"]
+        {
+          "mode": "notifications",
+          "rules": [
+            {
+              "actions": [{ "type": "ModerateMessage" }],
+              "condition": {
+                "type": "ContainsLinksOutsideTop100",
+                "domains": ["asriyan.me"]
+              }
             }
-          }
-        ]
+          ]
+        }
         ```
     validations:
       required: true

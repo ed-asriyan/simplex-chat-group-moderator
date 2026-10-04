@@ -5,9 +5,9 @@ use chrono::{DateTime, Utc};
 use std::sync::{Arc, Mutex};
 
 use crate::domain::moderator::ports::{
-    Err, Group, GroupId, GroupMemberRole, GroupModerator, MemberRestoreRepository, MessageId,
-    MessengerGroupId, ModerationAction, ModerationRepository, ModerationRule, OwnedModerationRule,
-    ScheduledMemberRestore, UserId,
+    Err, Group, GroupConfig, GroupId, GroupMemberRole, GroupMode, GroupModerator,
+    MemberRestoreRepository, MessageId, MessengerGroupId, ModerationAction, ModerationRepository,
+    OwnedModerationRule, ScheduledMemberRestore, UserId,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -109,6 +109,7 @@ impl ModerationRepository for MockModerationRepository {
         _m_gid: &MessengerGroupId,
         _name: &str,
         _owner_id: &UserId,
+        _mode: GroupMode,
     ) -> Result<GroupId, Err> {
         Ok(1)
     }
@@ -127,8 +128,11 @@ impl ModerationRepository for MockModerationRepository {
     async fn set_group_name(&self, _m_gid: &MessengerGroupId, _name: &str) -> Result<(), Err> {
         Ok(())
     }
-    async fn get_group_rules(&self, _group_id: &GroupId) -> Result<Vec<OwnedModerationRule>, Err> {
-        Ok(self.rules.clone())
+    async fn get_group_config(&self, _group_id: &GroupId) -> Result<GroupConfig, Err> {
+        Ok(GroupConfig {
+            mode: self.group.as_ref().map(|g| g.mode).unwrap_or_default(),
+            rules: self.rules.iter().map(|owned| owned.rule.clone()).collect(),
+        })
     }
     async fn get_group_rules_by_messenger_id(
         &self,
@@ -136,10 +140,10 @@ impl ModerationRepository for MockModerationRepository {
     ) -> Result<Vec<OwnedModerationRule>, Err> {
         Ok(self.rules.clone())
     }
-    async fn set_group_rules(
+    async fn set_group_config(
         &self,
         _group_id: &GroupId,
-        _rules: &[ModerationRule],
+        _config: &GroupConfig,
     ) -> Result<(), Err> {
         Ok(())
     }
@@ -151,16 +155,6 @@ impl ModerationRepository for MockModerationRepository {
         _m_gid: &MessengerGroupId,
     ) -> Result<Option<Group>, Err> {
         Ok(self.group.clone())
-    }
-    async fn set_notifications_enabled(
-        &self,
-        _group_id: &GroupId,
-        _enabled: bool,
-    ) -> Result<(), Err> {
-        Ok(())
-    }
-    async fn set_dry_mode_enabled(&self, _group_id: &GroupId, _enabled: bool) -> Result<(), Err> {
-        Ok(())
     }
 }
 

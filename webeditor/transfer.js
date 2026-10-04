@@ -1,7 +1,8 @@
-/* Export and import of the rules as plain JSON, for owners who keep rules in a
-   file or write them by hand. Import goes through the same strict validation as
-   a pasted AI reply and lands on the editor's undo stack; the write path to the
-   bot is still `Apply changes`. */
+/* Export and import of the group's whole config — its settings and its rules —
+   as plain JSON, for owners who keep it in a file or write it by hand. The rules
+   go through the same strict validation as a pasted AI reply, the settings
+   through the schema's, and the result lands on the editor's undo stack; the
+   write path to the bot is still `Apply changes`. */
 
 function setupTransfer() {
     const dlg = document.getElementById("impdlg");
@@ -26,7 +27,7 @@ function setupTransfer() {
                 out[key] = clearSecrets && secretField(value, key) ? "" : walk(child);
             return out;
         };
-        return JSON.stringify(walk(state.rules), null, 2);
+        return JSON.stringify(walk(config()), null, 2);
     };
 
     document.getElementById("exp-btn").addEventListener("click", () => exportDlg.showModal());
@@ -37,17 +38,17 @@ function setupTransfer() {
         const blob = new Blob([exportJson()], { type: "application/json" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = "moderation-rules.json";
+        a.download = "moderation-settings.json";
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 1000);
         exportDlg.close();
-        toast("Rules exported.");
+        toast("Settings exported.");
     });
 
     document.getElementById("exp-copy").addEventListener("click", () => {
         navigator.clipboard.writeText(exportJson()).then(() => {
             exportDlg.close();
-            toast("Rules copied as JSON.");
+            toast("Settings copied as JSON.");
         }).catch(() => toast("Could not copy JSON to the clipboard."));
     });
 
@@ -79,18 +80,25 @@ function setupTransfer() {
         if (parsed === null || parsed === undefined)
             return show("bad", "That is not valid JSON.");
 
-        const { rules, errors } = validateRules(parsed, { allowSecretValues: true });
-        if (errors)
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+            return show("bad", "Expected an object with the group's settings and its <code>rules</code> list.");
+        const { rules: given, ...givenSettings } = parsed;
+        if (!Array.isArray(given)) return show("bad", "The <code>rules</code> list is missing.");
+        const checked = validateSettings(givenSettings);
+        const { rules, errors: ruleErrors } = validateRules(given, { allowSecretValues: true });
+        const errors = [...(checked.errors || []), ...(ruleErrors || [])];
+        if (errors.length)
             return show(
                 "bad",
-                `<b>Not loaded — the rules have problems:</b><ul>${errors
+                `<b>Not loaded — the settings have problems:</b><ul>${errors
                     .slice(0, 6)
                     .map((e) => `<li>${esc(e)}</li>`)
                     .join("")}</ul>${errors.length > 6 ? `<p>…and ${errors.length - 6} more.</p>` : ""}`
             );
 
-        const before = clone(state.rules);
+        const before = snapshot();
         state.rules = rules;
+        state.settings = checked.settings;
         state.sel = Math.min(state.sel, Math.max(0, rules.length - 1));
         state.focus = null;
         state.collapsed = new Set();
@@ -98,7 +106,7 @@ function setupTransfer() {
         text.value = "";
         render();
         dlg.close();
-        toast(`Loaded ${rules.length} rule${rules.length === 1 ? "" : "s"}. Press Apply changes to send.`);
+        toast(`Loaded the settings and ${rules.length} rule${rules.length === 1 ? "" : "s"}. Press Apply changes to send.`);
     });
 }
 

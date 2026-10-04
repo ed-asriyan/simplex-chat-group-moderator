@@ -1,4 +1,4 @@
-use super::{CategoryTrigger, OpenAiCategory, OpenAiCategoryTriggers};
+use super::{CategoryTrigger, GroupConfig, GroupMode, OpenAiCategory, OpenAiCategoryTriggers};
 
 fn only(category: OpenAiCategory, trigger: CategoryTrigger) -> OpenAiCategoryTriggers {
     let mut triggers = OpenAiCategoryTriggers::default();
@@ -146,4 +146,39 @@ fn test_missing_category_field_is_off() {
     let triggers: OpenAiCategoryTriggers = serde_json::from_str(r#"{ "hate": "openai" }"#).unwrap();
     assert_eq!(triggers.hate, CategoryTrigger::OpenAiDecides);
     assert_eq!(triggers.violence, CategoryTrigger::Off);
+}
+
+/// The editor writes and reads this exact shape: the hash, the schema root and
+/// `GroupConfig` must agree on it.
+#[test]
+fn test_group_config_json_is_the_mode_beside_the_rules() {
+    let config: GroupConfig = serde_json::from_str(r#"{"mode":"dry","rules":[]}"#).unwrap();
+    assert_eq!(config.mode, GroupMode::Dry);
+    assert!(config.rules.is_empty());
+    assert_eq!(
+        serde_json::to_string(&config).unwrap(),
+        r#"{"mode":"dry","rules":[]}"#
+    );
+
+    for json in [
+        r#"{"rules":[]}"#,
+        r#"{"mode":"loud","rules":[]}"#,
+        r#"{"mode":"dry"}"#,
+        r#"{"mode":"dry","rules":[],"notifications":true}"#,
+        r#"[]"#,
+    ] {
+        assert!(serde_json::from_str::<GroupConfig>(json).is_err(), "{json}");
+    }
+}
+
+#[test]
+fn test_group_mode_names_round_trip() {
+    for mode in [GroupMode::Dry, GroupMode::Silent, GroupMode::Notifications] {
+        assert_eq!(GroupMode::from_name(mode.name()), Some(mode));
+        assert_eq!(
+            serde_json::to_string(&mode).unwrap(),
+            format!("\"{}\"", mode.name())
+        );
+    }
+    assert_eq!(GroupMode::from_name("loud"), None);
 }

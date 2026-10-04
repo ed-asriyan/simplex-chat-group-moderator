@@ -7,8 +7,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
 use super::types::{
-    Err, Group, GroupId, GroupInvitation, GroupMessage, MessengerGroupId, ModerationRule,
-    OwnedModerationRule, UserId,
+    Err, Group, GroupConfig, GroupId, GroupMessage, MessengerGroup, MessengerGroupId, UserId,
 };
 
 /// Inbound port: moderate a message posted in a group the bot has joined.
@@ -29,40 +28,25 @@ pub trait MemberRestoreRunner: Send + Sync {
 /// Inbound port: manage an owner's groups and their moderation configuration.
 #[async_trait]
 pub trait GroupAdministration: Send + Sync {
-    async fn try_join_group(
-        &self,
-        owner_id: UserId,
-        invitation: &GroupInvitation,
-    ) -> Result<GroupId, Err>;
+    async fn try_join_group(&self, owner_id: UserId, group: &MessengerGroup) -> Result<Group, Err>;
 
     async fn remove_group(&self, messenger_group_id: MessengerGroupId) -> Result<(), Err>;
 
     async fn get_groups_by_owner_id(&self, owner_id: &UserId) -> Result<Vec<Group>, Err>;
 
-    async fn get_group_rules(
+    /// The group's whole configuration, as the owner last saved it.
+    async fn get_group_config(
         &self,
         user_id: UserId,
         group_id: GroupId,
-    ) -> Result<Vec<OwnedModerationRule>, Err>;
+    ) -> Result<GroupConfig, Err>;
 
-    async fn set_group_rules(
+    /// Replace the group's whole configuration at once: nothing of it is
+    /// stored unless all of it is valid.
+    async fn set_group_config(
         &self,
         user_id: UserId,
         group_id: GroupId,
-        rules: Vec<ModerationRule>,
-    ) -> Result<(), Err>;
-
-    async fn set_notifications(
-        &self,
-        user_id: UserId,
-        group_id: GroupId,
-        enabled: bool,
-    ) -> Result<(), Err>;
-
-    async fn set_dry_mode(
-        &self,
-        user_id: UserId,
-        group_id: GroupId,
-        enabled: bool,
+        config: GroupConfig,
     ) -> Result<(), Err>;
 }

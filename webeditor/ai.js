@@ -618,7 +618,7 @@ function setupAi() {
 
         /* Loading an AI's answer is an edit like any other, so it goes on the
            editor's own undo stack instead of carrying a second Undo button. */
-        const before = clone(state.rules);
+        const before = snapshot();
         state.rules = rules;
         state.sel = Math.min(state.sel, Math.max(0, rules.length - 1));
         state.focus = null;
@@ -632,7 +632,7 @@ function setupAi() {
         clearBtn.hidden = true;
         render();
 
-        const d = diffRules(before, state.rules);
+        const d = diffRules(before.rules, state.rules);
         const parts = [];
         for (const [k, label] of [["changed", "changed"], ["added", "added"], ["removed", "removed"], ["moved", "moved"]])
             if (d.counts[k]) parts.push(`${d.counts[k]} ${label}`);

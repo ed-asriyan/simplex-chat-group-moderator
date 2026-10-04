@@ -117,9 +117,7 @@ impl ModerationEngine for MessageModerationApplication {
                 .get_group_by_messenger_id(&group_message.group.id)
                 .await?;
 
-            let dry_mode = group.as_ref().is_some_and(|g| g.dry_mode_enabled);
-
-            if !dry_mode {
+            if group.as_ref().is_none_or(|g| g.mode.executes_actions()) {
                 let outcome =
                     execute_actions(&group_message, &matched.actions, &self.action_ports()).await?;
                 deleted = outcome.message_deleted;
@@ -130,7 +128,7 @@ impl ModerationEngine for MessageModerationApplication {
             }
 
             if let Some(group) = group
-                && group.notifications_enabled
+                && group.mode.notifies_owner()
             {
                 // Best-effort: a failed notification must not undo moderation.
                 let _ = self

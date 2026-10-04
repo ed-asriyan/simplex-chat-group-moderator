@@ -10,8 +10,8 @@ use crate::domain::moderator::ports::conditions::{
     GroupHitsMessageRateLimit,
 };
 use crate::domain::moderator::ports::{
-    CategoryTrigger, Err, Group, GroupId, GroupMessage, GroupMessageActivityRepository, KeyCheck,
-    MessageAttachment, MessageId, MessengerGroup, MessengerGroupId, ModerationAction,
+    CategoryTrigger, Err, Group, GroupId, GroupMessage, GroupMessageActivityRepository, GroupMode,
+    KeyCheck, MessageAttachment, MessageId, MessengerGroup, MessengerGroupId, ModerationAction,
     ModerationEngine, ModerationNotifier, ModerationRule, OpenAi, OpenAiCategory,
     OpenAiCategoryTriggers, OpenAiModerationResult, OpenRouter, OpenRouterInstructionVerdict,
     OwnedModerationRule, UserCharacterActivityRepository, UserId, UserLineActivityRepository,
@@ -210,8 +210,7 @@ async fn test_process_group_message_moderate_message_action() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -292,8 +291,7 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -382,8 +380,7 @@ async fn test_process_group_message_kick_author_without_deleting_messages() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -466,8 +463,7 @@ async fn test_process_group_message_kick_author_deleting_all_messages() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -550,8 +546,7 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: true,
+        mode: GroupMode::Dry,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -629,8 +624,7 @@ async fn test_process_group_message_no_match_does_nothing() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -701,8 +695,7 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     // Rule 1: ModerateMessage on "first"
     // Rule 2: KickAuthor on "second"
@@ -802,8 +795,7 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -904,8 +896,7 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -999,8 +990,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: true,
+        mode: GroupMode::Dry,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -1083,8 +1073,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: true,
+        mode: GroupMode::Dry,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -1160,8 +1149,7 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: false,
-        dry_mode_enabled: false,
+        mode: GroupMode::Silent,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -1239,8 +1227,7 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -1329,8 +1316,7 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule1 = OwnedModerationRule {
         id: 1,
@@ -1426,8 +1412,7 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule1 = OwnedModerationRule {
         id: 1,
@@ -1525,8 +1510,7 @@ async fn test_process_group_message_message_rate_limit_triggers_on_threshold() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -1617,8 +1601,7 @@ async fn test_process_group_message_message_rate_limit_kick_author() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -1707,8 +1690,7 @@ async fn test_process_group_message_message_rate_limit_dry_mode() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: true,
+        mode: GroupMode::Dry,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -1790,8 +1772,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -1901,8 +1882,7 @@ async fn test_track_user_message_called_when_message_rate_limit_rule_configured(
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -1981,8 +1961,7 @@ async fn test_track_user_message_uses_max_window_across_multiple_message_rate_li
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rules = vec![
         OwnedModerationRule {
@@ -2065,8 +2044,7 @@ async fn test_track_characters_called_when_character_rate_limit_rule_configured(
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -2148,8 +2126,7 @@ async fn test_track_characters_not_called_without_a_character_rate_limit_rule() 
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -2218,8 +2195,7 @@ async fn test_track_lines_called_when_line_rate_limit_rule_configured() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -2304,8 +2280,7 @@ async fn test_track_lines_uses_the_widest_configured_wrap() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rules = vec![
         OwnedModerationRule {
@@ -2388,8 +2363,7 @@ async fn test_track_lines_counts_nothing_for_a_captionless_attachment() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -2453,8 +2427,7 @@ async fn test_track_lines_not_called_without_a_line_rate_limit_rule() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -2519,8 +2492,7 @@ async fn test_track_characters_not_called_when_window_is_zero() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -2582,8 +2554,7 @@ async fn test_track_user_message_not_called_when_no_message_rate_limit_rules() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rules = vec![
         OwnedModerationRule {
@@ -2658,8 +2629,7 @@ async fn test_track_user_message_not_called_when_group_has_empty_rules() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
 
     let recorder = Arc::new(MockActivityRecorder::default());
@@ -2712,8 +2682,7 @@ async fn test_track_user_message_not_called_when_message_rate_limit_window_is_ze
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rules = vec![OwnedModerationRule {
         id: 1,
@@ -2778,8 +2747,7 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rules = vec![OwnedModerationRule {
         id: 1,
@@ -2847,8 +2815,7 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rules = vec![
         OwnedModerationRule {
@@ -2966,8 +2933,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     let rules = vec![
         OwnedModerationRule {
@@ -3070,8 +3036,7 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     };
     // Group only has keyword rules, no AuthorHitsModerationRateLimit rules
     let rules = vec![OwnedModerationRule {
@@ -3147,8 +3112,7 @@ fn edit_test_group() -> Group {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        notifications_enabled: true,
-        dry_mode_enabled: false,
+        mode: GroupMode::Notifications,
     }
 }
 
@@ -3434,8 +3398,7 @@ fn app_with_observer_rule(
                 id: 10,
                 owner_id: 100,
                 name: "Test Group".to_string(),
-                notifications_enabled: false,
-                dry_mode_enabled: false,
+                mode: GroupMode::Silent,
             }),
             rules: vec![OwnedModerationRule {
                 id: 1,
@@ -3521,8 +3484,7 @@ async fn test_dry_mode_schedules_nothing() {
                 id: 10,
                 owner_id: 100,
                 name: "Test Group".to_string(),
-                notifications_enabled: false,
-                dry_mode_enabled: true,
+                mode: GroupMode::Dry,
             }),
             rules: vec![OwnedModerationRule {
                 id: 1,
@@ -3568,8 +3530,7 @@ async fn test_kicking_the_author_cancels_a_scheduled_restore() {
                 id: 10,
                 owner_id: 100,
                 name: "Test Group".to_string(),
-                notifications_enabled: false,
-                dry_mode_enabled: false,
+                mode: GroupMode::Silent,
             }),
             rules: vec![OwnedModerationRule {
                 id: 1,
@@ -3619,8 +3580,7 @@ async fn test_failed_restore_bookkeeping_still_moderates_and_notifies() {
                 id: 10,
                 owner_id: 100,
                 name: "Test Group".to_string(),
-                notifications_enabled: true,
-                dry_mode_enabled: false,
+                mode: GroupMode::Notifications,
             }),
             rules: vec![OwnedModerationRule {
                 id: 1,
@@ -3989,14 +3949,14 @@ impl OpenRouter for SpamModel {
 
 fn history_app(
     context_messages: u32,
-    dry_mode_enabled: bool,
+    mode: GroupMode,
     history: Arc<InMemoryGroupMessageHistoryRepository>,
 ) -> MessageModerationApplication {
     let model = Arc::new(SpamModel);
     MessageModerationApplication::new(
         Arc::new(MockModerationRepository {
             group: Some(Group {
-                dry_mode_enabled,
+                mode,
                 ..edit_test_group()
             }),
             rules: vec![OwnedModerationRule {
@@ -4053,7 +4013,7 @@ async fn kept_texts(history: &InMemoryGroupMessageHistoryRepository) -> Vec<Stri
 #[tokio::test]
 async fn test_messages_left_standing_are_kept_and_deleted_ones_are_not() {
     let history = Arc::new(InMemoryGroupMessageHistoryRepository::new());
-    let app = history_app(2, false, history.clone());
+    let app = history_app(2, GroupMode::Notifications, history.clone());
 
     for (id, text) in [(1, "hello"), (2, "spam"), (3, "how are you"), (4, "fine")] {
         app.process_group_message(history_message(id, text, false))
@@ -4068,7 +4028,7 @@ async fn test_messages_left_standing_are_kept_and_deleted_ones_are_not() {
 #[tokio::test]
 async fn test_in_dry_mode_a_matching_message_stays_in_the_chat_and_in_the_history() {
     let history = Arc::new(InMemoryGroupMessageHistoryRepository::new());
-    let app = history_app(5, true, history.clone());
+    let app = history_app(5, GroupMode::Dry, history.clone());
 
     for (id, text) in [(1, "hello"), (2, "spam")] {
         app.process_group_message(history_message(id, text, false))
@@ -4082,7 +4042,7 @@ async fn test_in_dry_mode_a_matching_message_stays_in_the_chat_and_in_the_histor
 #[tokio::test]
 async fn test_an_edit_replaces_the_kept_text_and_an_edit_deleted_is_forgotten() {
     let history = Arc::new(InMemoryGroupMessageHistoryRepository::new());
-    let app = history_app(5, false, history.clone());
+    let app = history_app(5, GroupMode::Notifications, history.clone());
 
     for message in [
         history_message(1, "hello", false),
@@ -4099,7 +4059,7 @@ async fn test_an_edit_replaces_the_kept_text_and_an_edit_deleted_is_forgotten() 
 #[tokio::test]
 async fn test_nothing_is_kept_while_no_rule_reads_earlier_messages() {
     let history = Arc::new(InMemoryGroupMessageHistoryRepository::new());
-    let app = history_app(0, false, history.clone());
+    let app = history_app(0, GroupMode::Notifications, history.clone());
 
     app.process_group_message(history_message(1, "hello", false))
         .await
@@ -4133,8 +4093,7 @@ fn group_rate_limit_app(
                 id: 10,
                 owner_id: 100,
                 name: "Test Group".to_string(),
-                notifications_enabled: false,
-                dry_mode_enabled: false,
+                mode: GroupMode::Silent,
             }),
             rules: vec![OwnedModerationRule {
                 id: 1,
