@@ -820,62 +820,6 @@ button {
     margin-top: 8px
 }
 
-details.json {
-    margin-top: 16px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 12px 14px;
-}
-
-details.json>summary {
-    cursor: pointer;
-    font: 600 11px/1 var(--cond);
-    letter-spacing: .13em;
-    text-transform: uppercase;
-    color: var(--ink-3);
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-items: baseline;
-    list-style: none;
-    /* flex already drops the native marker in
-                                       most browsers; this covers the rest */
-}
-
-details.json>summary::-webkit-details-marker {
-    display: none
-}
-
-/* Same ▸ / ▾ the condition rows use, so one glyph means "open me" everywhere. */
-details.json>summary::before {
-    content: "▸";
-    font-size: 12px;
-    letter-spacing: 0;
-    color: var(--ink-3);
-}
-
-details.json[open]>summary::before {
-    content: "▾"
-}
-
-details.json .jcopy {
-    margin-left: auto;
-    letter-spacing: 0;
-    text-transform: none;
-    font-weight: 500;
-}
-
-details.json pre {
-    margin: 10px 0 0;
-    max-height: 420px;
-    overflow: auto;
-    background: var(--sunken);
-    border-radius: var(--r);
-    padding: 10px;
-    font: 400 12px/1.5 var(--mono);
-}
-
 .toast {
     position: fixed;
     left: 50%;
@@ -1129,7 +1073,9 @@ details.json pre {
 
 /* ---------------- apply dialog ---------------- */
 #applydlg,
-#aidlg {
+#aidlg,
+#impdlg,
+#expdlg {
     border: 1px solid var(--line);
     border-radius: 12px;
     padding: 0;
@@ -1144,8 +1090,18 @@ details.json pre {
     width: min(660px, calc(100vw - 32px))
 }
 
+#impdlg {
+    width: min(660px, calc(100vw - 32px))
+}
+
+#expdlg {
+    width: min(480px, calc(100vw - 32px))
+}
+
 #applydlg::backdrop,
-#aidlg::backdrop {
+#aidlg::backdrop,
+#impdlg::backdrop,
+#expdlg::backdrop {
     background: rgb(16 22 34 / .38)
 }
 
@@ -1191,6 +1147,44 @@ details.json pre {
 
 #aidlg .dlg-body {
     max-height: none
+}
+
+#impdlg .dlg-body {
+    padding: 14px 15px;
+}
+
+#imp-text {
+    display: block;
+    width: 100%;
+    min-height: 180px;
+    margin-top: 7px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: var(--r);
+    padding: 8px;
+    font: 400 12.5px/1.5 var(--mono);
+    resize: vertical;
+}
+
+.imp-file-row {
+    margin-top: 9px;
+}
+
+#expdlg .dlg-body {
+    padding: 16px;
+}
+
+.exp-secret {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 13.5px;
+}
+
+.exp-secret input {
+    width: 17px;
+    height: 17px;
+    accent-color: var(--accent);
 }
 
 .dlg-foot {

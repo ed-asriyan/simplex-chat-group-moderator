@@ -204,9 +204,8 @@ AFTER THAT
 - If I ask for a change, reply with: one sentence on what you changed, then the line
   "MODERATION RULES - paste this back into the editor:", then the complete new rule list as a single
   \`\`\`json code block. No other code block in that reply.
-${
-    elided.length
-        ? `
+${elided.length
+            ? `
 ABBREVIATED LISTS
 Long lists are replaced below with a marker, like ["${sample}"]. The editor puts the real entries back
 when I paste your answer in.
@@ -218,11 +217,10 @@ when I paste your answer in.
   marker. Say so, and tell me to copy the prompt again with that list included - there is a checkbox
   for it under "Long lists" in the editor's AI panel.
 `
-        : ""
-}
-${
-    hasSecretFields
-        ? `SECRETS
+            : ""
+        }
+${hasSecretFields
+            ? `SECRETS
 Some fields are secret strings (API keys). The editor never shows them to you: a stored one appears
 below as a marker, like "${SECRET_MARKER(1)}", and the editor puts the real value back when I paste
 your answer in.
@@ -231,17 +229,16 @@ your answer in.
   needs a secret gets an empty string "" there; I will type the value into the editor myself.
 
 `
-        : ""
-}CONSTRAINTS ON THE JSON YOU PRODUCE
+            : ""
+        }CONSTRAINTS ON THE JSON YOU PRODUCE
 - Output the complete list - every rule I have, with your change applied. Never a fragment, never a diff.
 - Use only the types and field names from the catalogue below, spelled exactly as written there.
   Never invent a type, a field, or an extra key.
 - Every rule needs at least one action.
 - One rule may hold at most ${lim.max_nodes || 64} conditions, nested at most ${lim.max_depth || 8} levels deep.
 - ${containers.join(" / ")} are containers and must stay canonical: never empty, and never holding
-  exactly one condition.${many.length ? ` ${many.join(" and ")} must not directly contain another container of the same kind, and no two conditions inside one of them may be identical.` : ""}${
-      one.length ? ` ${one.join(" / ")} must not wrap another ${one.join(" / ")}.` : ""
-  }
+  exactly one condition.${many.length ? ` ${many.join(" and ")} must not directly contain another container of the same kind, and no two conditions inside one of them may be identical.` : ""}${one.length ? ` ${one.join(" / ")} must not wrap another ${one.join(" / ")}.` : ""
+        }
 ${neverUnderNot.map((t) => `- ${t} must never sit anywhere under a ${containers[2]}.`).join("\n")}
 - Respect every minimum and maximum in the catalogue.
 
@@ -311,8 +308,7 @@ function expandList(values, where, errors, stats) {
         const id = +m[1], claimed = +m[2], stored = ai.lists.get(id);
         if (!stored) {
             errors.push(
-                `${where}: the marker “${item}” points at nothing — this prompt only abbreviated ${
-                    ai.lists.size ? `list${ai.lists.size > 1 ? "s" : ""} ${[...ai.lists.keys()].join(", ")}` : "no list"
+                `${where}: the marker “${item}” points at nothing — this prompt only abbreviated ${ai.lists.size ? `list${ai.lists.size > 1 ? "s" : ""} ${[...ai.lists.keys()].join(", ")}` : "no list"
                 }.`
             );
             return values;
@@ -362,7 +358,7 @@ function restoreSecret(v, key, where, errors) {
     return ai.secrets.get(+m[1]);
 }
 
-function validateCondition(node, where, errors, stats, depth) {
+function validateCondition(node, where, errors, stats, depth, allowSecretValues) {
     if (!node || typeof node !== "object" || Array.isArray(node)) {
         errors.push(`${where}: a condition is missing or is not an object.`);
         return { type: Object.keys(C)[0], ...clone(C[Object.keys(C)[0]].def) };
@@ -382,12 +378,12 @@ function validateCondition(node, where, errors, stats, depth) {
     for (const f of s.p) {
         const v = node[f.k];
         if (f.kind === "child") {
-            out[f.k] = validateCondition(v, where, errors, stats, depth + 1);
+            out[f.k] = validateCondition(v, where, errors, stats, depth + 1, allowSecretValues);
         } else if (f.kind === "children") {
             if (!Array.isArray(v) || v.length === 0) {
                 errors.push(`${where}: ${node.type} holds no conditions. A container must not be empty.`);
                 out[f.k] = [];
-            } else out[f.k] = v.map((x) => validateCondition(x, where, errors, stats, depth + 1));
+            } else out[f.k] = v.map((x) => validateCondition(x, where, errors, stats, depth + 1, allowSecretValues));
         } else if (f.kind === "strlist") {
             if (v === undefined) out[f.k] = [];
             else if (!Array.isArray(v)) {
@@ -411,7 +407,16 @@ function validateCondition(node, where, errors, stats, depth) {
         } else if (f.kind === "bool") {
             out[f.k] = v === undefined ? false : !!v;
         } else if (f.kind === "password") {
-            out[f.k] = restoreSecret(v, f.k, where, errors);
+            if (!allowSecretValues) {
+                out[f.k] = restoreSecret(v, f.k, where, errors);
+            } else if (typeof v !== "string") {
+                errors.push(`${where}: “${f.k}” should be text.`);
+                out[f.k] = "";
+            } else {
+                if (f.maxLength && v.length > f.maxLength)
+                    errors.push(`${where}: “${f.k}” is ${v.length} characters long, the maximum is ${f.maxLength}.`);
+                out[f.k] = v;
+            }
         } else if (f.kind === "text" || f.kind === "textarea") {
             if (typeof v !== "string") {
                 errors.push(`${where}: “${f.k}” should be text.`);
@@ -440,7 +445,7 @@ function validateCondition(node, where, errors, stats, depth) {
     return out;
 }
 
-function validateRules(parsed) {
+function validateRules(parsed, { allowSecretValues = false } = {}) {
     const errors = [], stats = { expanded: 0, duplicates: 0 };
     if (!Array.isArray(parsed)) {
         return { errors: ["That looks like a single rule, but the whole list is needed. Ask the AI to send every rule."] };
@@ -482,7 +487,7 @@ function validateRules(parsed) {
         });
 
         const st = { nodes: 0, depth: 1, expanded: 0, duplicates: 0 };
-        const condition = validateCondition(r.condition, where, errors, st, 1);
+        const condition = validateCondition(r.condition, where, errors, st, 1, allowSecretValues);
         stats.expanded += st.expanded;
         stats.duplicates += st.duplicates;
         if (st.nodes > maxNodes) errors.push(`${where}: ${st.nodes} conditions, the bot accepts at most ${maxNodes}.`);
@@ -634,8 +639,7 @@ function setupAi() {
         if (stats.duplicates) parts.push(`${stats.duplicates} duplicate${stats.duplicates > 1 ? "s" : ""} dropped`);
         setResult(
             "ok",
-            `<b>Loaded ${rules.length} rule${rules.length === 1 ? "" : "s"}${
-                parts.length ? ` — ${parts.join(", ")}` : ", nothing changed"
+            `<b>Loaded ${rules.length} rule${rules.length === 1 ? "" : "s"}${parts.length ? ` — ${parts.join(", ")}` : ", nothing changed"
             }.</b> Press <b>Apply changes</b> when you are ready; you will see exactly what changed before anything is sent.`
         );
     });

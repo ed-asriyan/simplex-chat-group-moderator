@@ -29,6 +29,8 @@
                     title="Undo the last change (Ctrl+Z)">Undo</button>
                 <button class="btn" id="redo" type="button" data-op="redo" hidden
                     title="Redo (Ctrl+Shift+Z)">Redo</button>
+                <button class="btn" id="imp-open" type="button">Import JSON</button>
+                <button class="btn" id="exp-btn" type="button">Export JSON</button>
                 <button class="btn primary" id="apply" hidden>Apply changes</button>
             </div>
         </header>
@@ -58,14 +60,48 @@
             <section class="pane detail" id="detail" aria-label="Rule"></section>
         </div>
 
-        <!-- What the link actually carries: every rule, not just the open one. -->
-        <details class="json" id="payload" hidden>
-            <summary>JSON sent to the bot
-                <button class="btn sm ghost jcopy" id="payload-copy" type="button">Copy JSON</button>
-            </summary>
-            <pre id="payload-json"></pre>
-        </details>
     </div>
+
+    <dialog id="impdlg" aria-labelledby="impdlg-title">
+        <div class="dlg-head">
+            <b id="impdlg-title">Import rules from JSON</b>
+            <button class="dlg-x" id="impdlg-x" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="dlg-body imp-body">
+            <label class="sbody" for="imp-text">
+                <span class="eyebrow">Paste a rules array</span>
+                <textarea id="imp-text" rows="10" spellcheck="false"
+                    placeholder='[{"actions":[{"type":"ModerateMessage"}],"condition":{"type":"IsBlank"}}]'></textarea>
+            </label>
+            <div class="imp-file-row">
+                <input id="imp-file" type="file" accept=".json,application/json" hidden>
+                <button class="btn" id="imp-file-btn" type="button">Choose JSON file</button>
+            </div>
+            <div class="airesult" id="imp-result" hidden></div>
+        </div>
+        <div class="dlg-foot">
+            <button class="btn" id="impdlg-close" type="button">Cancel</button>
+            <button class="btn primary" id="imp-load" type="button">Load rules</button>
+        </div>
+    </dialog>
+
+    <dialog id="expdlg" aria-labelledby="expdlg-title">
+        <div class="dlg-head">
+            <b id="expdlg-title">Export rules as JSON</b>
+            <button class="dlg-x" id="expdlg-x" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="dlg-body exp-body">
+            <label class="exp-secret">
+                <input id="exp-clear-secrets" type="checkbox" checked>
+                <span>Clear secret values (API keys)</span>
+            </label>
+        </div>
+        <div class="dlg-foot">
+            <button class="btn" id="expdlg-close" type="button">Cancel</button>
+            <button class="btn" id="exp-copy" type="button">Copy JSON</button>
+            <button class="btn primary" id="exp-download" type="button">Download JSON</button>
+        </div>
+    </dialog>
 
     <dialog id="aidlg" aria-labelledby="aidlg-title">
         <div class="dlg-head">
@@ -174,6 +210,7 @@
     <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
     <script src="editor.js"></script>
     <script src="ai.js"></script>
+    <script src="transfer.js"></script>
 </body>
 
 </html>

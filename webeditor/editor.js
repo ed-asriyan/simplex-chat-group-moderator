@@ -272,11 +272,11 @@ function buildRegistry(entries) {
             o.summary
                 ? tpl(o.summary, v)
                 : [
-                      ...entry.p.filter((f) => f.kind === "int").map((f) => `${f.k} ${v[f.k]}`),
-                      choiceSummary(entry.p.filter((f) => f.kind === "choice"), v),
-                  ]
-                      .filter(Boolean)
-                      .join(" · ");
+                    ...entry.p.filter((f) => f.kind === "int").map((f) => `${f.k} ${v[f.k]}`),
+                    choiceSummary(entry.p.filter((f) => f.kind === "choice"), v),
+                ]
+                    .filter(Boolean)
+                    .join(" · ");
         entry.say = (v) => (o.phrase ? tpl(o.phrase, v) : entry.t.toLowerCase());
         reg[key] = entry;
     }
@@ -455,13 +455,12 @@ function params(s, val, path) {
         <div class="choice"><select id="f-${path}-${f.k}" data-op="choice" data-p="${path}" data-k="${f.k}">
           ${f.choices.map((c, i) => `<option value="c${i}" ${cur === c.v ? "selected" : ""}>${esc(c.t)}</option>`).join("")}
           ${f.num ? `<option value="n" ${own ? "selected" : ""}>${esc(f.num.title || "Custom")}</option>` : ""}
-        </select>${
-            own
-                ? `<input type="number" id="f-${path}-${f.k}-n" value="${esc(cur)}"
+        </select>${own
+                        ? `<input type="number" id="f-${path}-${f.k}-n" value="${esc(cur)}"
           min="${f.min ?? 0}" ${f.max != null ? `max="${f.max}"` : ""}
           data-op="num" data-p="${path}" data-k="${f.k}">`
-                : ""
-        }</div></label>`;
+                        : ""
+                    }</div></label>`;
             }
 
             if (f.kind === "bool")
@@ -479,31 +478,28 @@ function params(s, val, path) {
           <span>${esc(f.label)} · ${n}<button class="lnk" data-op="bulk" data-key="${key}">chips</button></span>
           <textarea class="bulk" id="f-${key}-t" rows="9" spellcheck="false"
             data-op="bulktext" data-p="${path}" data-k="${f.k}">${esc(items.join("\n"))}</textarea>
-          <span class="fhint">One per line; applied when you click away — this is how a long list gets pasted in, or replaced wholesale.${
-              f.maxItems ? ` Up to ${f.maxItems} entries${f.maxLength ? `, ${f.maxLength} characters each` : ""}.` : ""
-          }</span></div>`;
+          <span class="fhint">One per line; applied when you click away — this is how a long list gets pasted in, or replaced wholesale.${f.maxItems ? ` Up to ${f.maxItems} entries${f.maxLength ? `, ${f.maxLength} characters each` : ""}.` : ""
+                    }</span></div>`;
 
             const q = (state.q[key] || "").toLowerCase();
             const shown = items.map((v, j) => [v, j]).filter(([v]) => !q || String(v).toLowerCase().includes(q));
             return `<div class="fld" style="flex:1 1 100%">
         <span>${esc(f.label)} · ${n}${q ? ` · ${shown.length} shown` : ""}<button class="lnk" data-op="bulk" data-key="${key}">bulk edit</button></span>
         <div class="listtools">
-        ${
-            big
-                ? `<input class="qbox" id="f-${key}-q" value="${esc(state.q[key] || "")}" placeholder="filter ${n} entries"
+        ${big
+                    ? `<input class="qbox" id="f-${key}-q" value="${esc(state.q[key] || "")}" placeholder="filter ${n} entries"
               data-op="q" data-key="${key}" aria-label="Filter ${esc(f.label)}">`
-                : ""
-        }
+                    : ""
+                }
         <input class="chipin" id="f-${path}-${f.k}" placeholder="add + Enter" data-op="chip" data-p="${path}" data-k="${f.k}"></div>
         <div class="chips ${big ? "cap" : ""}">
-        ${
-            shown
-                .map(
-                    ([v, j]) => `<span class="chip">${esc(v)}<button data-op="unchip" data-p="${path}" data-k="${f.k}"
+        ${shown
+                    .map(
+                        ([v, j]) => `<span class="chip">${esc(v)}<button data-op="unchip" data-p="${path}" data-k="${f.k}"
               data-j="${j}" aria-label="Remove ${esc(v)}">×</button></span>`
-                )
-                .join("") || `<span class="nores">nothing matches &ldquo;${esc(q)}&rdquo;</span>`
-        }</div></div>`;
+                    )
+                    .join("") || `<span class="nores">nothing matches &ldquo;${esc(q)}&rdquo;</span>`
+                }</div></div>`;
         })
         .join("");
 }
@@ -537,9 +533,8 @@ function node(n, path, d) {
            rail and borrows the tag from the type's title — "(AND)", "(OR)". */
         const tag = (s.full.match(/\(([^)]+)\)\s*$/) || [])[1];
         kids = `<div class="kids">${(n[many] || []).map((x, j) => node(x, `${path}.${many}.${j}`, d + 1)).join("")}
-      <div class="kidfoot"><button class="btn sm ghost" data-op="addchild" data-p="${path}">+ Add to ${
-          tag ? esc(tag) : "this"
-      }</button></div></div>`;
+      <div class="kidfoot"><button class="btn sm ghost" data-op="addchild" data-p="${path}">+ Add to ${tag ? esc(tag) : "this"
+            }</button></div></div>`;
     }
     if (!collapsed && one && n[one]) kids = `<div class="kids">${node(n[one], `${path}.${one}`, d + 1)}</div>`;
 
@@ -554,16 +549,15 @@ function node(n, path, d) {
       ${composite && d >= 2 ? `<button class="ico" data-op="focus" data-p="${path}" title="Focus this subtree">⤢</button>` : ""}
       <button class="ico" data-op="help" data-p="${path}" aria-pressed="${state.helped.has(path)}" title="What this detects">ⓘ</button>
       <div class="menu"><button class="ico" data-op="menu" data-p="${path}" title="More">⋮</button>
-        ${
-            state.menu === path
-                ? `<div class="pop">
+        ${state.menu === path
+            ? `<div class="pop">
           ${composite ? `<button data-op="unwrap" data-p="${path}">Unwrap</button>` : ""}
           <button data-op="wrap" data-p="${path}" data-t="Not">Wrap in NOT</button>
           <button data-op="wrap" data-p="${path}" data-t="All">Wrap in AND</button>
           <button data-op="move" data-p="${path}" data-d="-1">Move up</button>
           <button data-op="move" data-p="${path}" data-d="1">Move down</button><hr>
           <button class="del" data-op="del" data-p="${path}">Delete</button></div>`
-                : ""
+            : ""
         }</div>
     </div>
     ${state.helped.has(path) ? helpBox(s) : ""}
@@ -627,15 +621,13 @@ function renderDetail() {
         <span class="bname">${esc(condDef.title)}</span>
         <span class="tools">
           <button class="ico" data-op="help" data-p="block-if" aria-pressed="${state.helped.has("block-if")}" title="About conditions">ⓘ</button>
-          <button class="btn sm ghost" data-op="foldall">${
-              [...state.collapsed].some((x) => x.startsWith(root)) ? "Expand all" : "Collapse all"
-          }</button></span></div>
+          <button class="btn sm ghost" data-op="foldall">${[...state.collapsed].some((x) => x.startsWith(root)) ? "Expand all" : "Collapse all"
+        }</button></span></div>
       ${state.helped.has("block-if") ? `<div class="help">${md(condDef.description)}</div>` : ""}
-      ${
-          over
-              ? `<div class="help warn">This rule has ${nodes} conditions nested ${depth} levels deep. The bot accepts at most ${state.limits.nodes} conditions and ${state.limits.depth} levels, so simplify it before applying — otherwise the rules will be rejected.</div>`
-              : ""
-      }
+      ${over
+            ? `<div class="help warn">This rule has ${nodes} conditions nested ${depth} levels deep. The bot accepts at most ${state.limits.nodes} conditions and ${state.limits.depth} levels, so simplify it before applying — otherwise the rules will be rejected.</div>`
+            : ""
+        }
       ${node(shown, focused || root, 0)}
     </div>
 
@@ -651,29 +643,6 @@ function renderDetail() {
     </div>`;
 }
 
-/* The payload sits under both panes, because it belongs to the whole list:
-   this is the JSON the link carries, not the rule that happens to be open. */
-function renderPayload() {
-    const host = document.getElementById("payload");
-    /* Only fill it when it is open — the JSON of a long word list is big. */
-    host.querySelector("#payload-json").textContent = host.open
-        ? JSON.stringify(state.rules, null, 2)
-        : "";
-}
-
-document.getElementById("payload").addEventListener("toggle", renderPayload);
-
-/* The button lives inside <summary>, so swallow the click or it would toggle
-   the block as well. Copying works whether the JSON is shown or not. */
-document.getElementById("payload-copy").addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    navigator.clipboard
-        .writeText(JSON.stringify(state.rules, null, 2))
-        .then(() => toast("JSON copied to clipboard."))
-        .catch(() => toast("Could not copy — open the block and select the text."));
-});
-
 function render() {
     document.getElementById("app").dataset.view = state.view;
     /* Hidden rather than greyed out: a control that can do nothing is noise, and
@@ -683,7 +652,6 @@ function render() {
     renderList();
     renderDetail();
     syncHash();
-    renderPayload();
 }
 
 /* -------------------------------- events ------------------------------- */
@@ -1202,16 +1170,14 @@ function detailHtml(x) {
     if (!x.removed && !x.added) return `<span class="d${x.alarm ? " alarm" : ""}">${esc(x.text)}</span>`;
     return `<details class="dlist"><summary class="d${x.alarm ? " alarm" : ""}">${esc(x.text)}</summary>
     <div class="dlbody">
-      ${
-          x.removed.length
-              ? `<div class="dlgroup"><span class="dlk rm">removed</span><span class="dlchips">${chipList(x.removed, "rm")}</span></div>`
-              : ""
-      }
-      ${
-          x.added.length
-              ? `<div class="dlgroup"><span class="dlk ad">added</span><span class="dlchips">${chipList(x.added, "ad")}</span></div>`
-              : ""
-      }
+      ${x.removed.length
+            ? `<div class="dlgroup"><span class="dlk rm">removed</span><span class="dlchips">${chipList(x.removed, "rm")}</span></div>`
+            : ""
+        }
+      ${x.added.length
+            ? `<div class="dlgroup"><span class="dlk ad">added</span><span class="dlchips">${chipList(x.added, "ad")}</span></div>`
+            : ""
+        }
     </div></details>`;
 }
 
@@ -1265,18 +1231,16 @@ function openApplyDialog() {
 
     body.innerHTML = linkWarning() + (shown.length
         ? shown
-              .map(
-                  (r) => `<div class="drow">
+            .map(
+                (r) => `<div class="drow">
         <span class="idx">${r.index + 1}</span>
-        <span class="st ${r.status}">${
-            { changed: "changed", added: "added", removed: "removed", moved: "moved" }[r.status]
-        }</span>
-        <span class="txt">${ruleLine(r.rule)}${
-            r.status === "moved" ? `<span class="d">was rule ${r.from + 1}</span>` : ""
-        }${(r.details || []).map(detailHtml).join("")}</span>
+        <span class="st ${r.status}">${{ changed: "changed", added: "added", removed: "removed", moved: "moved" }[r.status]
+                    }</span>
+        <span class="txt">${ruleLine(r.rule)}${r.status === "moved" ? `<span class="d">was rule ${r.from + 1}</span>` : ""
+                    }${(r.details || []).map(detailHtml).join("")}</span>
       </div>`
-              )
-              .join("") + (same.length ? `<div class="dquiet">Unchanged: ${same.join(", ")}</div>` : "")
+            )
+            .join("") + (same.length ? `<div class="dquiet">Unchanged: ${same.join(", ")}</div>` : "")
         : `<div class="dempty">Nothing has changed since you opened this page. You can still copy the link and send it again.</div>`);
 
     foot.innerHTML = `<button class="btn" id="applydlg-cancel" type="button">Cancel</button>
@@ -1361,7 +1325,6 @@ async function init() {
     renderHeader();
     document.getElementById("boot").hidden = true;
     document.getElementById("app").hidden = false;
-    document.getElementById("payload").hidden = false;
     render();
     /* ai.js waits for this: the registry and the rules have to exist first. */
     document.dispatchEvent(new CustomEvent("editor:ready"));
