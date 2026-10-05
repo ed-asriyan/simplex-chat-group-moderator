@@ -273,7 +273,7 @@ impl BotDmReceiver for BotDmApplication {
             self.messenger
                 .send_dm(
                     &user_id,
-                    "I need to be added as a moderator (or owner) to join the group. Please update my permissions and send the invite again.",
+                    "The invitation must have the moderator role or higher.",
                 )
                 .await?;
             return Ok(());
