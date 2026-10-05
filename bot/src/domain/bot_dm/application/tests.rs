@@ -246,14 +246,14 @@ impl GroupOperations for CountingJoins {
     }
 }
 
-async fn invite(is_moderator: bool) -> (Vec<String>, u32) {
+async fn invite(is_moderator_or_higher: bool) -> (Vec<String>, u32) {
     let messenger = Arc::new(RecordingMessenger::default());
     let groups = Arc::new(CountingJoins::default());
     let app = BotDmApplication::new(messenger.clone(), groups.clone(), EDITOR.to_string());
     let invitation = GroupInvitation {
         group_id: 5,
         group_name: "Test Group".to_string(),
-        is_moderator,
+        is_moderator_or_higher,
     };
     app.handle_group_invitation(1, &invitation).await.unwrap();
     let attempts = *groups.attempts.lock().unwrap();

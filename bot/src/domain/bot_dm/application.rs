@@ -269,7 +269,7 @@ impl BotDmReceiver for BotDmApplication {
         user_id: UserId,
         invitation: &GroupInvitation,
     ) -> Result<(), Err> {
-        if !invitation.is_moderator {
+        if !invitation.is_moderator_or_higher {
             self.messenger
                 .send_dm(
                     &user_id,
