@@ -269,6 +269,15 @@ impl BotDmReceiver for BotDmApplication {
         user_id: UserId,
         invitation: &GroupInvitation,
     ) -> Result<(), Err> {
+        if !invitation.is_moderator {
+            self.messenger
+                .send_dm(
+                    &user_id,
+                    "I need to be added as a moderator (or owner) to join the group. Please update my permissions and send the invite again.",
+                )
+                .await?;
+            return Ok(());
+        }
         match self
             .group_operator
             .try_join_group(user_id, invitation)
