@@ -125,10 +125,12 @@ async fn handle_event(
             user_id,
             group_id,
             group_name,
+            is_moderator_or_higher,
         } => {
             let invitation = bot::domain::bot_dm::ports::GroupInvitation {
                 group_id,
                 group_name,
+                is_moderator_or_higher,
             };
             dm_receiver
                 .handle_group_invitation(user_id, &invitation)

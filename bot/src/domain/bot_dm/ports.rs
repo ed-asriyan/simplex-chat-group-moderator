@@ -35,6 +35,9 @@ pub struct GroupInvitation {
     /// The messenger's id of the group.
     pub group_id: GroupId,
     pub group_name: String,
+    /// Whether the bot was invited as a moderator or higher; it cannot delete
+    /// messages with less, so it does not join.
+    pub is_moderator_or_higher: bool,
 }
 
 /// Inbound port: entry point for direct messages addressed to the bot.

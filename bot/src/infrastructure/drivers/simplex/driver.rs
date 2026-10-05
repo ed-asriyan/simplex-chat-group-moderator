@@ -82,6 +82,7 @@ pub enum SimplexEvent {
         user_id: UserId,
         group_id: GroupId,
         group_name: String,
+        is_moderator_or_higher: bool,
     },
 }
 pub struct SimpleXConfig {
@@ -447,13 +448,21 @@ async fn handle_event(
                                     }),
                             })
                     } else if let CIContent::RcvGroupInvitation {
-                        group_invitation, ..
+                        group_invitation,
+                        member_role,
+                        ..
                     } = &chat_item.chat_item.content
                     {
                         Some(SimplexEvent::GroupInvitation {
                             user_id: contact.contact_id,
                             group_id: group_invitation.group_id,
                             group_name: group_invitation.group_profile.display_name.clone(),
+                            is_moderator_or_higher: matches!(
+                                member_role,
+                                GroupMemberRole::Moderator
+                                    | GroupMemberRole::Admin
+                                    | GroupMemberRole::Owner
+                            ),
                         })
                     } else {
                         None
@@ -506,7 +515,11 @@ async fn handle_event(
         Event::ChatItemUpdated(chat_item) => {
             if let CIContent::RcvMsgContent { msg_content, .. } =
                 &chat_item.chat_item.chat_item.content
-                && let ChatInfo::Group { group_info, group_chat_scope, .. } = &chat_item.chat_item.chat_info
+                && let ChatInfo::Group {
+                    group_info,
+                    group_chat_scope,
+                    ..
+                } = &chat_item.chat_item.chat_info
                 && let None = group_chat_scope
                 && let CIDirection::GroupRcv { group_member, .. } =
                     &chat_item.chat_item.chat_item.chat_dir

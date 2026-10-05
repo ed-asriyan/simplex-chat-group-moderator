@@ -215,3 +215,63 @@ async fn test_groups_links_the_whole_config() {
     let link = format!("{EDITOR}#bot_id=5&config={}", lz_compress(CONFIG));
     assert!(sent[0].contains(&link), "{}", sent[0]);
 }
+
+/// Counts join attempts; every attempt fails.
+#[derive(Default)]
+struct CountingJoins {
+    attempts: Mutex<u32>,
+}
+
+#[async_trait]
+impl GroupOperations for CountingJoins {
+    async fn try_join_group(
+        &self,
+        _user_id: UserId,
+        _invitation: &GroupInvitation,
+    ) -> Result<Group, JoinError> {
+        *self.attempts.lock().unwrap() += 1;
+        Err("refused".into())
+    }
+
+    async fn get_groups(&self, _user_id: UserId) -> Result<Vec<Group>, Err> {
+        Ok(vec![])
+    }
+
+    async fn set_config_json(&self, _: UserId, _: GroupId, _: &str) -> Result<(), Err> {
+        Ok(())
+    }
+
+    async fn get_config_json(&self, _: UserId, _: GroupId) -> Result<String, Err> {
+        Ok(CONFIG.to_string())
+    }
+}
+
+async fn invite(is_moderator_or_higher: bool) -> (Vec<String>, u32) {
+    let messenger = Arc::new(RecordingMessenger::default());
+    let groups = Arc::new(CountingJoins::default());
+    let app = BotDmApplication::new(messenger.clone(), groups.clone(), EDITOR.to_string());
+    let invitation = GroupInvitation {
+        group_id: 5,
+        group_name: "Test Group".to_string(),
+        is_moderator_or_higher,
+    };
+    app.handle_group_invitation(1, &invitation).await.unwrap();
+    let attempts = *groups.attempts.lock().unwrap();
+    (messenger.sent(), attempts)
+}
+
+#[tokio::test]
+async fn test_an_invitation_below_moderator_is_not_joined() {
+    let (sent, attempts) = invite(false).await;
+
+    assert_eq!(attempts, 0);
+    assert_eq!(sent.len(), 1);
+    assert!(sent[0].contains("moderator"));
+}
+
+#[tokio::test]
+async fn test_an_invitation_as_moderator_is_joined() {
+    let (_, attempts) = invite(true).await;
+
+    assert_eq!(attempts, 1);
+}

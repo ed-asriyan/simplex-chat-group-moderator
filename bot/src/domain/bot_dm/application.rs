@@ -269,6 +269,15 @@ impl BotDmReceiver for BotDmApplication {
         user_id: UserId,
         invitation: &GroupInvitation,
     ) -> Result<(), Err> {
+        if !invitation.is_moderator_or_higher {
+            self.messenger
+                .send_dm(
+                    &user_id,
+                    "The invitation must have the moderator role or higher.",
+                )
+                .await?;
+            return Ok(());
+        }
         match self
             .group_operator
             .try_join_group(user_id, invitation)
