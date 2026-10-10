@@ -26,4 +26,7 @@ jobs:
     uses: ed-asriyan/remote-docker-compose-deploy/.github/workflows/deploy.yml@v1
     with:
       compose-file: docker-compose.yml
-    secrets: inherit
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
