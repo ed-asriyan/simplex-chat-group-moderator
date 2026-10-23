@@ -1,7 +1,7 @@
-use super::{BotDmApplication, describe_actions, lz_compress};
+use super::{BotDmApplication, describe_actions, lz_compress, quote};
 use crate::domain::bot_dm::ports::{
     BotDmReceiver, BotMessenger, Err, Group, GroupId, GroupInvitation, GroupOperations, JoinError,
-    Message, ModerationAction, UserId,
+    Message, ModerationAction, ModerationNotificationReceiver, UserId,
 };
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
@@ -87,6 +87,15 @@ fn test_describes_a_timed_observer_restriction() {
             true
         ),
         "🛡 I would set the author as observer for 1 minute"
+    );
+}
+
+#[test]
+fn test_quote_keeps_every_line_inside_the_quote() {
+    assert_eq!(quote("one line"), "> one line");
+    assert_eq!(
+        quote("first\n\n# not a heading\nlast"),
+        "> first  \n>\n> # not a heading  \n> last"
     );
 }
 
@@ -177,7 +186,7 @@ async fn test_a_sent_editor_link_saves_the_whole_config() {
     let (sent, saved) = send(&link).await;
 
     assert_eq!(saved, vec![(5, CONFIG.to_string())]);
-    assert_eq!(sent, vec!["Group settings updated successfully."]);
+    assert_eq!(sent, vec!["✅ Group settings updated."]);
 }
 
 #[tokio::test]
@@ -274,4 +283,77 @@ async fn test_an_invitation_as_moderator_is_joined() {
     let (_, attempts) = invite(true).await;
 
     assert_eq!(attempts, 1);
+}
+
+#[tokio::test]
+async fn test_a_notification_quotes_the_message_and_lists_the_reasons() {
+    let messenger = Arc::new(RecordingMessenger::default());
+    let app = BotDmApplication::new(
+        messenger.clone(),
+        Arc::new(OneGroup::default()),
+        EDITOR.to_string(),
+    );
+    let group = Group {
+        id: 5,
+        name: "Test Group".to_string(),
+    };
+
+    app.send_moderation_notification(
+        1,
+        &group,
+        &[ModerationAction::ModerateMessage],
+        true,
+        "buy now\n- cheap",
+        &[
+            "contains word: 'buy'".to_string(),
+            "has more than 1 lines".to_string(),
+        ],
+    )
+    .await
+    .unwrap();
+
+    let sent = messenger.sent();
+    assert_eq!(sent.len(), 1);
+    assert!(
+        sent[0].starts_with("🛡 I moderated the message in **Test Group**."),
+        "{}",
+        sent[0]
+    );
+    assert!(
+        sent[0].contains("**The message:**\n> buy now  \n> - cheap\n\n"),
+        "{}",
+        sent[0]
+    );
+    assert!(
+        sent[0].contains("**Reason:**\n- contains word: 'buy'\n- has more than 1 lines\n\n"),
+        "{}",
+        sent[0]
+    );
+}
+
+#[tokio::test]
+async fn test_a_notification_about_a_message_without_text_says_so() {
+    let messenger = Arc::new(RecordingMessenger::default());
+    let app = BotDmApplication::new(
+        messenger.clone(),
+        Arc::new(OneGroup::default()),
+        EDITOR.to_string(),
+    );
+    let group = Group {
+        id: 5,
+        name: "Test Group".to_string(),
+    };
+
+    app.send_moderation_notification(
+        1,
+        &group,
+        &[ModerationAction::ModerateMessage],
+        false,
+        "",
+        &["contains an image".to_string()],
+    )
+    .await
+    .unwrap();
+
+    assert!(messenger.sent()[0].contains("**The message:**\n_(no text)_\n\n"));
 }
