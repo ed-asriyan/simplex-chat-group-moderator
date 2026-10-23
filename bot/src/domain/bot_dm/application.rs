@@ -170,13 +170,8 @@ fn parse(message: &Message, base_url: &str) -> ParsedDm {
     }
 }
 
-/// A group's name as a heading over the link to its editor. The heading is a
-/// block of its own, so the link stays on its own line whatever the name holds.
 fn render_group(group: &Group, editor_url: &str) -> String {
-    format!(
-        "### {}\n[View and edit settings]({})",
-        group.name, editor_url
-    )
+    format!("*{}*\n[View and Edit Settings]({})", group.name, editor_url)
 }
 
 /// `text` as a Markdown block quote, its line breaks kept: inside a quote a
