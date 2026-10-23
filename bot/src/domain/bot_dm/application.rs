@@ -20,62 +20,76 @@ fn lz_decompress(s: &str) -> Option<String> {
 
 const MAX_MESSAGE_LENGTH: usize = 300;
 
+// Written in SimpleX's Markdown. Once a message holds any block (a heading, a
+// list, a quote), a single newline inside a paragraph renders as a space, so
+// every line meant to stand on its own is a block or is set off by a blank line.
+// Commands stay bare: the app makes a bare `/command` tappable, a code span would
+// not be.
 const HELP: &str = "\
-*How to use this bot:*
+### How to use this bot
 
 1. Invite me to your group as:
-   • Moderator — to delete violating messages.
-   • Admin — to also set violators as observers.
-   • Owner — to also kick violators out of the group.
-2. Once I join, use /groups to list your groups and open the visual editor.
-3. I will automatically monitor the chat and take action according to your rules.
+   - **Moderator** — to delete violating messages.
+   - **Admin** — to also set violators as observers.
+   - **Owner** — to also kick violators out of the group.
+2. Once I join, send /groups to list your groups and open the visual editor.
+3. I watch the chat and act according to your rules.
 
-*If you want me to stop moderating a group, just kick me from it.*
+To stop me moderating a group, just remove me from it.
 
-*Commands:*
-  /start   - Show welcome guide.
-  /help    - Show this guide.
-  /groups  - List and manage groups I moderate for you.
-  /source  - View my source code.
-  /issue   - Report a bug or unexpected moderation behaviour.
-  /feature - Request a new moderation rule type or feature.
+### Modes
 
-*Modes:*
-Each group has a mode, set in the same editor as its rules (use /groups to get the link):
-  • Notifications — I take action and DM you every time I do.
-  • Silent — I take action without telling you.
-  • Dry — I run all checks and DM you what I would have done, but I don't actually delete anything or kick anyone.
+Each group has a mode, set in the same editor as its rules (send /groups to get the link):
+
+- **Notifications** — I act and DM you every time I do.
+- **Silent** — I act without telling you.
+- **Dry** — I run every check and DM you what I would have done, but delete and kick nothing.
+
+### Commands
+
+- /start — show the welcome guide.
+- /help — show this guide.
+- /groups — list and manage the groups I moderate for you.
+- /source — view my source code.
+- /issue — report a bug or unexpected moderation.
+- /feature — request a new moderation rule type or feature.
 ";
 
 const ISSUE_URL: &str = "https://github.com/ed-asriyan/simplex-chat-group-moderator/issues/new?template=moderation-rule-bug.yml";
 
 const FEATURE_REQUEST_URL: &str = "https://github.com/ed-asriyan/simplex-chat-group-moderator/issues/new?template=feature-request.yml";
 
+const SOURCE_URL: &str = "https://github.com/ed-asriyan/simplex-chat-group-moderator";
+
 const START: &str = "\
-Hi! I'm an *automated moderation* bot for SimpleX groups.
+Hi! I'm an **automated moderation** bot for SimpleX groups.
 
-*What I can detect:*
-• 🚫 *Banned words & exact phrases* (even obfuscated like b@d_w0rd)
-• 🔗 *Links* (blocklist specific sites, allow only whitelist, or auto-allow Top 100 safe sites)
-• ⏱ *Rate limits* (too many messages or repeated rule violations in a time window)
-• 🌊 *Screen flooding* (long messages, empty/invisible text, line flood)
-...and much more! This is just a glimpse of what I can do.
+### What I can detect
 
-*What I can do to violators:*
-• 🗑 *Moderate their messages*
-• 👁 *Change role to observer*
-• 🚪 *Kick them out of the group*
+- 🚫 **Banned words and exact phrases**, even obfuscated like b@d_w0rd.
+- 🔗 **Links** — block specific sites, allow only a list, or allow just the Top 100 sites.
+- ⏱ **Rate limits** — too many messages, or repeated violations, in a time window.
+- 🌊 **Screen flooding** — long messages, empty or invisible text, line floods.
 
-*How to get started:*
+…and much more — this is just a glimpse.
+
+### What I can do to violators
+
+- 🗑 **Delete their messages**
+- 👁 **Make them observers**
+- 🚪 **Kick them out of the group**
+
+### How to get started
+
 1. Invite me to your group as:
-   • Moderator — if you only want me to 🗑 delete messages.
-   • Admin — if you also want me to 👁 change roles to observer.
-   • Owner — if you also want me to 🚪 kick users.
-2. Once I join, use /groups to configure your moderation rules in the visual editor.
+   - **Moderator** — if you only want me to 🗑 delete messages.
+   - **Admin** — if you also want me to 👁 make members observers.
+   - **Owner** — if you also want me to 🚪 kick members.
+2. Once I join, send /groups to set up your rules in the visual editor.
 
-Use /help anytime for commands and extra features (like dry mode).
+Send /help any time for the commands and modes (like dry mode).
 
-My code [available on GitHub](https://github.com/ed-asriyan/simplex-chat-group-moderator).
+My code is [available on GitHub](https://github.com/ed-asriyan/simplex-chat-group-moderator).
 ";
 
 pub struct BotDmApplication {
@@ -156,8 +170,35 @@ fn parse(message: &Message, base_url: &str) -> ParsedDm {
     }
 }
 
+/// A group's name as a heading over the link to its editor. The heading is a
+/// block of its own, so the link stays on its own line whatever the name holds.
 fn render_group(group: &Group, editor_url: &str) -> String {
-    format!("*{}*\n[View and Edit Settings]({})", group.name, editor_url)
+    format!(
+        "### {}\n[View and edit settings]({})",
+        group.name, editor_url
+    )
+}
+
+/// `text` as a Markdown block quote, its line breaks kept: inside a quote a
+/// plain newline renders as a space, so every line but the last ends in the two
+/// spaces that make it a hard break. A quote's content is parsed inline only, so
+/// nothing in `text` can open a block that runs past the quote.
+fn quote(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            if line.trim().is_empty() {
+                ">".to_owned()
+            } else if i + 1 < lines.len() {
+                format!("> {line}  ")
+            } else {
+                format!("> {line}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 impl BotDmApplication {
@@ -205,13 +246,15 @@ impl BotDmReceiver for BotDmApplication {
                 match result {
                     Ok(()) => {
                         self.messenger
-                            .send_dm(&user_id, "Group settings updated successfully.")
+                            .send_dm(&user_id, "✅ Group settings updated.")
                             .await?;
                     }
                     Err(e) => {
-                        self.messenger
-                            .send_dm(&user_id, &format!("Failed to update group settings: {}", e))
-                            .await?;
+                        let text = format!(
+                            "❌ **Failed to update group settings:**\n\n{}",
+                            quote(&e.to_string())
+                        );
+                        self.messenger.send_dm(&user_id, &text).await?;
                     }
                 }
             }
@@ -219,7 +262,12 @@ impl BotDmReceiver for BotDmApplication {
             ParsedDm::GetGroups => {
                 let groups = self.group_operator.get_groups(user_id).await?;
                 if groups.is_empty() {
-                    self.messenger.send_dm(&user_id, "You don't have any groups registered. Send me a group invite link to get started!")
+                    self.messenger
+                        .send_dm(
+                            &user_id,
+                            "You don't have any groups yet. Invite me to your group as **moderator** \
+                            or higher to get started — /help explains how.",
+                        )
                         .await?;
                 } else {
                     for group in &groups {
@@ -231,23 +279,19 @@ impl BotDmReceiver for BotDmApplication {
                 }
             }
             ParsedDm::Source => {
-                self.messenger
-                    .send_dm(
-                        &user_id,
-                        "https://github.com/ed-asriyan/simplex-chat-group-moderator",
-                    )
-                    .await?;
+                let message = format!("My source code is [on GitHub]({SOURCE_URL}).");
+                self.messenger.send_dm(&user_id, &message).await?;
             }
             ParsedDm::Issue => {
                 let message = format!(
-                    "Please report any bugs or unexpected moderation behaviour [here]({})",
+                    "🐞 Please report bugs and unexpected moderation [on GitHub]({}).",
                     ISSUE_URL
                 );
                 self.messenger.send_dm(&user_id, &message).await?;
             }
             ParsedDm::Feature => {
                 let message = format!(
-                    "Please request new moderation rule types or features [here]({})",
+                    "💡 Please request new moderation rule types and features [on GitHub]({}).",
                     FEATURE_REQUEST_URL
                 );
                 self.messenger.send_dm(&user_id, &message).await?;
@@ -273,7 +317,8 @@ impl BotDmReceiver for BotDmApplication {
             self.messenger
                 .send_dm(
                     &user_id,
-                    "The invitation must have the moderator role or higher.",
+                    "❌ I can't join this group: I need the **moderator** role or higher to delete \
+                    messages. Invite me again with that role.",
                 )
                 .await?;
             return Ok(());
@@ -285,7 +330,10 @@ impl BotDmReceiver for BotDmApplication {
         {
             Ok(group) => {
                 self.messenger
-                    .send_dm(&user_id, "Joined the group successfully!")
+                    .send_dm(
+                        &user_id,
+                        "✅ I joined the group. Open the editor below to set up its rules.",
+                    )
                     .await?;
                 let editor_url = self.editor_url(user_id, group.id).await?;
                 self.messenger
@@ -296,7 +344,7 @@ impl BotDmReceiver for BotDmApplication {
                 self.messenger
                     .send_dm(
                         &user_id,
-                        "Failed to join the group. Check that the invitation is still valid and send it again.",
+                        "❌ I couldn't join the group. Check that the invitation is still valid and send it again.",
                     )
                     .await?;
             }
@@ -396,14 +444,21 @@ impl ModerationNotificationReceiver for BotDmApplication {
             message.to_owned()
         };
         let actions_text = describe_actions(actions, !performed);
+        // Quoted, so the member's own text can neither pass for the bot's nor
+        // break out of its place in the message.
+        let message = if message.trim().is_empty() {
+            "_(no text)_".to_owned()
+        } else {
+            quote(&message)
+        };
         let reasons = reasons
             .iter()
-            .map(|x| format!("• {}", x))
+            .map(|x| format!("- {}", x))
             .collect::<Vec<_>>()
             .join("\n");
         let text = format!(
-            "{} in *{}*!\n\n*The message:*\n{}\n\n*Reason:*\n{}\n\nIf it's a false positive, please [file an issue](https://github.com/ed-asriyan/simplex-chat-group-moderator/issues/new?template=moderation-rule-bug.yml)",
-            actions_text, group.name, message, reasons,
+            "{} in **{}**.\n\n**The message:**\n{}\n\n**Reason:**\n{}\n\nIf it's a false positive, please [file an issue]({}).",
+            actions_text, group.name, message, reasons, ISSUE_URL,
         );
         self.messenger.send_dm(&user_id, &text).await
     }
