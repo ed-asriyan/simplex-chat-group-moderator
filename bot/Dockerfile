@@ -5,6 +5,8 @@ COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
 
 FROM dev AS test
+# A test checks the schema in the design document against the migrations.
+COPY --from=docs design.md /docs/design.md
 CMD cargo test --release
 
 FROM dev AS builder

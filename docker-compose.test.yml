@@ -6,3 +6,5 @@ services:
       context: bot
       dockerfile: Dockerfile
       target: test
+      additional_contexts:
+        docs: docs

@@ -2,6 +2,8 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ed-asriyan/simplex-chat-group-moderator)
 
+What it does is described in [`docs/user-stories.md`](docs/user-stories.md), how it is built in [`docs/design.md`](docs/design.md), and how to work on it in [`AGENTS.md`](AGENTS.md).
+
 Try the bot here:
 
 https://simplex-directory.asriyan.me/#/bots/63d110f4-9f70-4128-b0e7-5a8958299f96
