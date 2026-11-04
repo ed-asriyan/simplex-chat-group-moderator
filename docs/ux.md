@@ -129,7 +129,7 @@ The list's title is followed by its number of entries, `Words / Phrases · 2`, a
 
 **States:** *changes* (the lines of US-G7: a setting's line, then each rule as `changed`, `added`, `removed` or `moved` with *was rule 2*, a list that lost entries in red, then the unchanged rules); *no change* (the text of US-G7); *the link near or past the size limit* (the warnings of US-G7, above the changes); *copied* (US-G8); *the clipboard refused* (US-G8).
 
-**Keyboard and focus:** focus goes to *Cancel* when it opens; Escape closes it; focus goes back to *Apply changes* when it closes.
+**Keyboard and focus:** focus goes to *Cancel* when it opens, or to the first change that unfolds (a changed list) when there is one; Escape closes it; focus goes back to *Apply changes* when it closes.
 
 ### Edit your settings with AI
 **Purpose:** have an AI chat explain or change the configuration (US-G9, US-G10).
