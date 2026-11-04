@@ -10,6 +10,34 @@ Owners interact with the bot entirely through **direct messages**:
 
 There are two independent surfaces — DM conversation handling and group message moderation — and the codebase models them as two separate bounded contexts.
 
+## How work proceeds
+Every feature, however small, goes through the same stages, and each stage is reviewed by the maintainer before the next one starts:
+
+1. **User stories.** Change the stories first, if the behaviour changes. They are a living document: they describe the current intended behaviour only; stories that no longer apply are removed, not kept as history (git has the history).
+2. **User experience.** The screens of the web editor the changed stories are played on, in the UX document: their elements by role and accessible name, their states, the way between them. A story played in the chat with the bot has no screen.
+3. **End-to-end tests.** Each changed story played from the outside against the running system; they depend on the stories and the UX document alone, so they come before the design, and they fail.
+4. **Design.** The ports (traits and the value types they exchange), a new condition's or action's type and its entry in `webeditor/rules-schema.json`, and the migration the stories need. Those files only: the rest of the code may stop compiling against the new ports. This is what the maintainer decides on; everything behind it is the later stages'.
+5. **Unit tests.** The code compiles again with `todo!()` bodies where it no longer fits the ports, and unit tests are written against the ports and pure functions. They compile and fail.
+6. **Implementation.** Code that makes the unit and end-to-end tests pass, and the web editor as the UX document describes it.
+
+If a later stage needs to deviate from an earlier one, the earlier stage's artefact is updated in the same change, and the maintainer is told.
+
+Write only what is true now, in the stories, the UX document, code comments and test names. When something is removed or renamed, delete every mention of it: never write that a command, rule or type "no longer exists", "was replaced by", "is gone" or "used to", and never explain a decision by the old state of things.
+
+Each stage is a skill in `.claude/skills/`, started by the maintainer: `/stories`, `/ux`, `/e2e-tests`, `/design`, `/unit-tests`, `/implement`. A skill does its own stage only, within the files it names, and stops for review; **never start the next stage on your own**, and never do a stage's work outside its skill. A stage with nothing to change says so instead of inventing work. `/coverage` checks, at any time, which stories the tests do not really cover. The skills hold nothing particular to this project: what they need from it is *Workflow*. They are shared with other projects (see `.claude/skills/README.md`), so a change to a skill is made for every project, not for this one.
+
+## Workflow
+The project's values the stage skills use.
+
+- **Stories:** `docs/user-stories.md`. A story id is `US-<epic letter><n>`, with an optional lower-case letter for a variant (`US-A1b`); its regex is `US-[A-Z][0-9]+[a-z]?`, and a story is defined as `**US-X1.**` at the start of its item. A bot story is written as the person sees the chat: what they send or do in SimpleX (`/groups`, an invitation with a role), then the bot's answer written out exactly, in its SimpleX Markdown. A condition or action story starts with what the owner sees when adding it in the editor — its title (**💬 Message Contains Any of These Words**) and its fields with their defaults and limits — then real settings, a message that matches or not, and the reason line the owner is told. An editor story names the controls as the editor labels them (*Apply changes*, *Copy the prompt*) and writes out what the owner reads. The examples use the owner, group and member of *Conventions* in the stories.
+- **UX:** `docs/ux.md`, for the web editor; the bot's chat has no screen, its texts are in the stories. The editor is `webeditor/` (`index.html`, `editor.css`, `editor.js`, `ai.js`, `transfer.js`, and `rules-schema.json`, from which it builds its fields). It opens locally with `python3 -m http.server -d webeditor 8000`, at `http://localhost:8000/#bot_id=7&config=<lz>`, where `<lz>` is the group's configuration as JSON, compressed with lz-string's `compressToEncodedURIComponent`; without a hash it opens empty, and without `bot_id` it cannot be applied.
+- **Stub body:** `todo!()`.
+- **Tests:** a unit test cites its story as `// US-E1` above it, or `[US-E11]` in the file's doc comment; no test cites a story yet. A condition or action is tested in its own module's `tests.rs`; a use case through its inbound port with the fakes of `domain/moderator/application/tests.rs`.
+- **End-to-end tests:** there are none yet.
+- **Not testable by nature:** by unit tests, the SimpleX driver, and the web editor, which has no test suite.
+- **Only the implementation writes:** the bot's texts (`domain/bot_dm/application.rs`) and the web editor's code (`webeditor/*.js`, `index.html`, `editor.css`): they are never stubbed.
+- **Commands**, from `bot/`: build `cargo build --all-targets`; compile the tests `cargo test --no-run`; test `cargo test`; lint `cargo clippy`. Coverage, from the repository root: `.claude/skills/coverage/scripts/story_coverage.sh docs/user-stories.md 'US-[A-Z][0-9]+[a-z]?' unit=bot/src:tests.rs`.
+
 ## Main user flows (the "why")
 1. **Join a group.** A user DMs the bot and invites it to their group with a **moderator** role. The bot accepts and joins. The inviting user becomes that group's **owner**.
 2. **Moderate messages.** Every message posted in a joined group is passed through **all** of that group's rules, in order. If any rule matches, what happens depends on the group's **mode**: `notifications` carries out the rule's actions and DMs the owner about them, `silent` carries them out without telling the owner, and `dry` does nothing in the group but DMs the owner what it would have done (`GroupMode::executes_actions` / `notifies_owner`).
