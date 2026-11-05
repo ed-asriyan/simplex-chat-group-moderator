@@ -58,6 +58,8 @@ export class Person {
     this.bot = connected.contact.contactId;
   }
 
+  private links = new Map<number, string>();
+
   private async activate() {
     const r = await this.cli.command(`/user ${this.name}`);
     if (r.type !== 'activeUser') throw new Error(`activate ${this.name}: ${JSON.stringify(r)}`);
@@ -151,12 +153,15 @@ export class Person {
     return { group, link };
   }
 
-  /** A link to join the group as a member. */
+  /** A link to join the group as a member; a group has one, made the first time. */
   async groupLink(group: number): Promise<string> {
+    const made = this.links.get(group);
+    if (made) return made;
     await this.activate();
     const r = await this.cli.command(`/_create link #${group} member`);
     const link = JSON.stringify(r).match(/"connShortLink":"([^"]+)"/) || JSON.stringify(r).match(/"connFullLink":"([^"]+)"/);
     if (!link) throw new Error(`group link: ${JSON.stringify(r)}`);
+    this.links.set(group, link[1]);
     return link[1];
   }
 

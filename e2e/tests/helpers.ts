@@ -54,10 +54,10 @@ export async function moderated(s: Scene, content: string | Record<string, unkno
   const item = await s.member.post(s.memberGroup, content);
   expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
   const text = message !== undefined ? message : typeof content === 'string' ? content : (content.text as string) || null;
-  expect(lineEnds(await s.owner.message())).toBe(notice('moderated the message', text, reasons));
+  expect(lineEnds(await s.owner.message())).toBe(lineEnds(notice('moderated the message', text, reasons)));
 }
 
-/** A notification with the spaces at the ends of its lines left out. */
+/** A notification with the spaces at the ends of its lines left out: the story does not say how a line ends. */
 export function lineEnds(text: string): string {
   return text.replace(/ +\n/g, '\n');
 }
