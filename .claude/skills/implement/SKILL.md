@@ -12,13 +12,13 @@ You are doing **only** the implementation stage of the process in `AGENTS.md`. $
 Read `docs/design.md` first: the rules of its *Overview* hold for every line you write, and *Source layout* says where each kind of code goes. The project's own values — the commands, the stub body, which parts of the code only this stage writes — are in `AGENTS.md` *Workflow*.
 
 ## Input
-The stories, their screens in the UX document, their end-to-end tests, the design (`docs/design.md`, the ports, the migration), the stubs and the unit tests: the uncommitted diff. Start from the project's test commands to see what fails.
+The stories, the user interface from stage 2 with its stubs and its temporary code, their end-to-end tests, the design (`docs/design.md`, the ports, the migration), the stubs and the unit tests: the uncommitted diff. Start from the project's test commands to see what fails.
 
 ## Scope
 - Fill the stub bodies and whatever the stories require behind them, outside the test files.
 - Everything the design left out is yours: applications, pure rule modules, adapters, routers, wiring in the composition root, texts and their wording, and the removal of code a removed feature no longer needs.
 - **Don't change tests**, unit or end-to-end. If a test looks wrong, or cannot pass without breaking the stories or the rules of `docs/design.md`, stop and explain; the maintainer decides whether the test or the story changes.
-- **A user interface is built as the UX document describes it**: its screens, their elements with their roles and accessible names, their states. If the code cannot follow it, stop and say why; the maintainer decides whether the UX document changes.
+- **The user interface stays as stage 2 built it**: fill its stubs with the real code, remove the code it marked as temporary, and change nothing a person sees. If the real code needs the interface to change, stop and say why; the maintainer decides.
 - **Don't change the design.** No new or changed component responsibility in `docs/design.md`, port, value type or migration beyond what `/design` wrote. If the code needs one, stop and say why; the maintainer decides, and the change is made to the ports or the migration in the same change, the regenerated schema included.
 - A module's doc comment says what its code cannot: the rule it keeps that its callers rely on, the outside constraint it works around, why it is built the way it is. It does not retell the code. Update it when that changes.
 
@@ -26,7 +26,7 @@ The stories, their screens in the UX document, their end-to-end tests, the desig
 1. The project's test command: all unit tests pass, old and new.
 2. The project's end-to-end command: all end-to-end tests pass, old and new. If the system cannot run here (no container runtime), say so.
 3. The project's lint command: no new warnings in the code you wrote.
-4. A search of the source for the stub body: nothing left from this feature.
+4. A search of the source for the stub body, and for the stubs and temporary code of stage 2: nothing left from this feature.
 5. You edited no test file in this stage. If you had to, say which and why.
 
 ## Finish

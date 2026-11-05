@@ -14,7 +14,7 @@ The design is what the maintainer decides on: **which component is responsible f
 Read `docs/design.md` in full first: its *Overview* is the architecture and the rules every change keeps, *Components* says what each component is responsible for, is not responsible for and interacts with, and *Source layout* says where the ports and the migrations are. The project's own values are in `AGENTS.md` *Workflow*. If they do not say something this skill needs, ask the maintainer.
 
 ## Input
-The stories changed by stage 1, their screens from stage 2 and their end-to-end tests from stage 3: the uncommitted diff (if empty, the last commits that touched the stories, or ask the maintainer which stories this is about). Read those stories in full, the ports of every component they concern, and the schema in `docs/design.md`.
+The stories changed by stage 1, the user interface from stage 2 with its stubs, and their end-to-end tests from stage 3: the uncommitted diff (if empty, the last commits that touched the stories, or ask the maintainer which stories this is about). Read those stories in full, the ports of every component they concern, and the schema in `docs/design.md`.
 
 If the stories turn out incomplete or contradictory, **don't fix them silently**: stop, explain the problem, propose the change to the stories, and make it only once the maintainer agrees.
 

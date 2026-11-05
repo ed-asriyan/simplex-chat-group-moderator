@@ -14,9 +14,11 @@ An end-to-end test is a story run for real: the system as it is deployed (its pr
 The project's own values — where the end-to-end tests and their harness live, how a test cites a story, how the harness starts the system, plays a user and moves the clock, the command that runs them, which stories cannot be caused from outside — are in `AGENTS.md` *Workflow*. Read it first; if it does not say something this skill needs, ask the maintainer.
 
 ## Input
-The stories changed by stage 1 and, for a story played through a user interface, its screens in the UX document from stage 2: the uncommitted diff (if empty, the last commits that touched them, or ask the maintainer which stories this is about). Read those stories in full, those screens, and the existing end-to-end tests, and reuse their helpers.
+The stories changed by stage 1 and, for a story played through a user interface, that interface as stage 2 built it, with the way it reaches each state: the uncommitted diff (if empty, the last commits that touched them, or ask the maintainer which stories this is about). Read those stories in full, use that interface, and read the existing end-to-end tests, and reuse their helpers.
 
-A test reaches an element of a screen the way the UX document names it — its role and its accessible name — never by its markup, its classes or its position. An element the UX document does not name is a gap in that document: stop and say so.
+A test reaches an element of a screen as a person does — by its role and its accessible name — never by its markup, its classes or its position, and reaches a state the way a person can, never through code stage 2 marked as temporary. An element with no accessible name, or a state a person cannot reach, is a gap of stage 2: stop and say so.
+
+Stage 2 left stubs behind the interface: a test checks the real outcome the story names, so it fails on a stub.
 
 If a story cannot be checked as written — it does not say what the user sees, or leaves a value open — **don't guess**: stop, say what is missing, and propose the change to the story.
 

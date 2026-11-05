@@ -4,11 +4,12 @@ Skills for Claude Code that take a feature through six reviewed stages, each sta
 | Skill | Stage | Changes |
 |---|---|---|
 | `/stories` | 1. user stories | the stories document |
-| `/ux` | 2. user experience | the UX document: the screens the stories are played on, their elements and states; nothing to do for a project without a user interface |
+| `/ux` | 2. user experience | the user interface, for real: every screen, element and state the stories need, with stubs behind it; shown with `/screenshots` and reviewed by using it; nothing to do for a project without a user interface |
 | `/e2e-tests` | 3. end-to-end tests | the end-to-end tests and their harness: each changed story played by a user against the whole running system; the new tests fail |
 | `/design` | 4. design | the ports, a new migration, and `docs/design.md` when a component's responsibilities change; nothing else, even if the rest stops compiling |
 | `/unit-tests` | 5. unit tests | stub bodies so the code compiles again, the regenerated schema, and the unit tests; the new tests fail |
 | `/implement` | 6. implementation | everything else; all unit and end-to-end tests pass |
+| `/screenshots` | any time, read-only | nothing: sends screenshots of the user interface, on a computer and a phone, to the chat |
 | `/coverage` | any time, read-only | nothing: reports the stories the tests do not really check, per level |
 
 The skills hold nothing particular to one project, so the same directory serves every project that provides the two files below. A change to a skill is a change for every project.
@@ -29,7 +30,7 @@ It describes the current design only, and is changed by `/design` when a compone
 The project's values the skills use:
 
 - **Stories:** the stories document, the story id format and its regex, how a story is written there.
-- **UX:** the UX document and where the user interface's code is and how to open it, or that the project has no user interface.
+- **UX:** which code is the user interface, how to run it locally and at which address, and how a screen or a state is reached; or that the project has no user interface.
 - **Stub body:** what a body that is not implemented yet is (`todo!()`, `raise NotImplementedError`, …).
 - **Schema snapshot:** where the generated whole schema is (usually `docs/design.md` *Schema*), and the command that regenerates it.
 - **Tests:** how a unit test cites its story, the test helpers, the edge cases the stories have.
