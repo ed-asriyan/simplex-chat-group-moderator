@@ -209,6 +209,16 @@ export class Person {
     if (r.type !== 'userDeletedMembers') throw new Error(`remove the bot: ${JSON.stringify(r)}`);
   }
 
+  /** The messages others posted in the group, oldest first, as this person's chat shows them now. */
+  async history(group: number): Promise<{ text: string; deleted: boolean }[]> {
+    await this.activate();
+    const r = await this.cli.command(`/_get chat #${group} count=100`);
+    if (r.type !== 'apiChat') throw new Error(`history: ${JSON.stringify(r).slice(0, 300)}`);
+    return r.chat.chatItems
+      .filter((ci: Event) => ci.content?.type === 'rcvMsgContent')
+      .map((ci: Event) => ({ text: ci.content.msgContent.text, deleted: !!ci.meta.itemDeleted }));
+  }
+
   /** The next thing this person sees happen in the group. */
   async seesInGroup(ms = PATIENCE): Promise<GroupEvent> {
     for (;;) {

@@ -54,19 +54,18 @@ test('kick the author, with or without their history', async ({ page }) => {
   await keeps.member.post(keeps.memberGroup, 'kick me');
   expect(await keeps.member.seesInGroup()).toEqual({ kind: 'removed' });
   expect(await keeps.owner.message()).toBe(notice('kicked the author', 'kick me', ["contains word: 'kick'"]));
+  // The message stays: the owner still sees it.
+  expect(await keeps.owner.history(keeps.ownerGroup)).toContainEqual({ text: 'kick me', deleted: false });
+  // With the history: the owner sees every message of the author's deleted.
   const wipes = await scene(rules(rule({ type: 'ContainsWords', keywords: ['kick'] }, [{ type: 'KickAuthor', delete_all_messages: true }])));
-  const earlier = await wipes.member.post(wipes.memberGroup, 'an earlier message');
+  await wipes.member.post(wipes.memberGroup, 'an earlier message');
   await wipes.member.seesNothing(3000);
-  const last = await wipes.member.post(wipes.memberGroup, 'kick me');
-  const seen = [];
-  for (;;) {
-    const e = await wipes.member.seesInGroup();
-    seen.push(e);
-    if (e.kind === 'removed') break;
-  }
-  const deleted = seen.flatMap((e) => (e.kind === 'deleted' ? e.itemIds : []));
-  expect(deleted).toEqual(expect.arrayContaining([earlier, last]));
+  await wipes.member.post(wipes.memberGroup, 'kick me');
+  expect(await wipes.member.seesInGroup()).toEqual({ kind: 'removed' });
   expect(await wipes.owner.message()).toBe(notice('kicked the author and deleted all their messages', 'kick me', ["contains word: 'kick'"]));
+  await expect
+    .poll(() => wipes.owner.history(wipes.ownerGroup), { timeout: 60_000 })
+    .toEqual(expect.arrayContaining([{ text: 'an earlier message', deleted: true }, { text: 'kick me', deleted: true }]));
 });
 
 // US-F4

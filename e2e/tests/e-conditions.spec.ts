@@ -243,15 +243,13 @@ test('author hits moderation rate limit', async ({ page }) => {
   const pane = await adding(page, 'Moderation rate limit');
   await number(pane, 'Number of Moderated Messages', '3', '1');
   await number(pane, 'Time Window (Minutes)', '60', '1', '60');
-  // The limit comes first: a rule whose actions an earlier match already
-  // covers adds nothing, so the limit would go unasked after the words.
   const s = await scene(rules(
     rule({ type: 'AuthorHitsModerationRateLimit', message_count: 3, time_window_minutes: 60 }),
     rule({ type: 'ContainsWords', keywords: ['spam'] }),
   ));
   await moderated(s, 'spam 1', ["contains word: 'spam'"]);
   await moderated(s, 'spam 2', ["contains word: 'spam'"]);
-  await moderated(s, 'spam 3', ['author had 3 messages moderated in 60 min']);
+  await moderated(s, 'spam 3', ['author had 3 messages moderated in 60 min', "contains word: 'spam'"]);
   // Then the author's next messages too, while the window holds them.
   await moderated(s, 'hello', ['author had 3 messages moderated in 60 min']);
 });

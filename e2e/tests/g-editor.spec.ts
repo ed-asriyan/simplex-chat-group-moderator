@@ -1,9 +1,8 @@
 // G. The web editor, as the owner uses it in a browser.
 import { expect, Locator, Page, test } from '@playwright/test';
-import LZ from 'lz-string';
 import { configOf } from '../harness/person';
 import { EDITOR } from '../harness/stack';
-import { editorUrl, emptyEditor, rule, rules, scene } from './helpers';
+import { currentLink, editorUrl, emptyEditor, open, rule, rules, scene } from './helpers';
 
 test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
 
@@ -12,12 +11,6 @@ const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`);
 const W = (keywords: string[]) => rule({ type: 'ContainsWords', keywords });
 const pane = (page: Page) => page.getByRole('region', { name: 'Rule', exact: true });
 const clipboard = (page: Page) => page.evaluate(() => navigator.clipboard.readText());
-
-/** Opens `url` afresh: going to another link that differs only by its hash would not reload the editor. */
-async function open(page: Page, url: string) {
-  await page.goto('about:blank');
-  await page.goto(url);
-}
 
 /** What a person reads in `locator`, its whitespace as the browser shows it. */
 async function textOf(locator: Locator): Promise<string> {
@@ -32,8 +25,7 @@ async function apply(page: Page) {
 // US-G1
 test('the editor shows the group settings and the rules', async ({ page }) => {
   const s = await scene(rules(W(['a']), W(['b']), W(['c'])));
-  await s.owner.send('/groups');
-  await open(page, (await s.owner.message()).match(/\((http[^)]+)\)/)![1]);
+  await open(page, await currentLink(s));
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Moderation settings for Moderator Bot');
   await expect(page.getByText(STEPS)).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Group settings' })).toBeVisible();
@@ -222,10 +214,11 @@ test('apply changes warns when the link nears what one message carries', async (
 // US-G8, US-C1
 test('the copied link, sent to the bot, saves the changes', async ({ page }) => {
   const s = await scene(rules(W(['spam'])));
-  await open(page, s.link);
+  await open(page, await currentLink(s));
   await page.getByRole('combobox', { name: '🛡 Mode' }).selectOption({ label: 'Dry — only tell me what it would do' });
   const dialog = await apply(page);
   await dialog.getByRole('button', { name: 'Copy the link' }).click();
+  await expect(dialog.getByText('Link copied.')).toBeVisible();
   expect(await textOf(dialog)).toContain('Link copied. Paste it into your chat with the bot and send it — that is what applies the changes.');
   await expect(dialog.getByRole('button', { name: 'Close' })).toBeVisible();
   const copied = await clipboard(page);
@@ -363,4 +356,3 @@ test('import and export JSON', async ({ page }) => {
   expect(saved.rules[0].condition.api_key).toBe(key);
 });
 
-void LZ;

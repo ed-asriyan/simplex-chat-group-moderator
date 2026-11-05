@@ -53,8 +53,13 @@ export function notice(did: string, message: string | null, reasons: string[], g
 export async function moderated(s: Scene, content: string | Record<string, unknown>, reasons: string[], message?: string | null) {
   const item = await s.member.post(s.memberGroup, content);
   expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
-  const text = message !== undefined ? message : typeof content === 'string' ? content : (content.text as string) || null;
+  const text = message !== undefined ? message : quoted(typeof content === 'string' ? content : (content.text as string) || null);
   expect(lineEnds(await s.owner.message())).toBe(lineEnds(notice('moderated the message', text, reasons)));
+}
+
+/** A message as the notification quotes it: cut after 300 characters. */
+export function quoted(text: string | null): string | null {
+  return text !== null && [...text].length > 300 ? `${[...text].slice(0, 300).join('')}...` : text;
 }
 
 /** A notification with the spaces at the ends of its lines left out: the story does not say how a line ends. */
@@ -87,7 +92,19 @@ export async function untouched(s: Scene, content: string | Record<string, unkno
 
 /** Opens the editor on an empty configuration of the bot's group 7. */
 export async function emptyEditor(page: Page) {
-  await page.goto(editorUrl({ mode: 'notifications', rules: [] }));
+  await open(page, editorUrl({ mode: 'notifications', rules: [] }));
+}
+
+/** Opens `url` afresh: going to another link that differs only by its hash would not reload the editor. */
+export async function open(page: Page, url: string) {
+  await page.goto('about:blank');
+  await page.goto(url);
+}
+
+/** The editor link the bot sends for the scene's group now (US-B4). */
+export async function currentLink(s: Scene): Promise<string> {
+  await s.owner.send('/groups');
+  return (await s.owner.message()).match(/\((http[^)]+)\)/)![1];
 }
 
 export function editorUrl(config: unknown, id: string | null = '7') {

@@ -37,6 +37,12 @@ test('the notification quotes the message, cut after 300 characters', async () =
   await moderated(s, { type: 'image', text: '', image: PIXEL }, ['contains an image'], null);
 });
 
+// US-D2
+test('each matched rule gives one reason line', async () => {
+  const s = await scene(rules(rule({ type: 'ContainsWords', keywords: ['spam'] }), rule({ type: 'ContainsImage' })));
+  await moderated(s, { type: 'image', text: 'spam', image: PIXEL }, ["contains word: 'spam'", 'contains an image']);
+});
+
 // US-D3
 test('silent mode acts without telling', async () => {
   const s = await scene({ mode: 'silent', rules: [rule({ type: 'ContainsWords', keywords: ['spam'] })] });
