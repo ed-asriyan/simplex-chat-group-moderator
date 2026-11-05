@@ -25,7 +25,7 @@ test('a configuration that is not valid saves nothing', async () => {
   const cases: [unknown, string][] = [
     [rules({ actions: [], condition: { type: 'ContainsWords', keywords: ['x'] } }), 'A rule has no actions. Add at least one action to it, or remove the rule.'],
     [rules(rule({ type: 'Not', condition: { type: 'AuthorHitsModerationRateLimit', message_count: 3, time_window_minutes: 60 } })),
-      "'AuthorHitsModerationRateLimit' cannot be placed under a 'Not' condition, because it already depends on what the other rules do with this message."],
+      "'Author Hits Moderation Rate Limit' cannot be placed under a 'Not' condition, because it already depends on what the other rules do with this message."],
   ];
   for (const [config, reason] of cases) {
     expect(await s.owner.ask(settingsLink(s.id, config))).toBe(failed(reason));

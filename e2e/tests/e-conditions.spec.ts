@@ -249,6 +249,7 @@ test('author hits moderation rate limit', async ({ page }) => {
   ));
   await moderated(s, 'spam 1', ["contains word: 'spam'"]);
   await moderated(s, 'spam 2', ["contains word: 'spam'"]);
+  // The first rule that matched is named after the others, though its actions were covered.
   await moderated(s, 'spam 3', ['author had 3 messages moderated in 60 min', "contains word: 'spam'"]);
   // Then the author's next messages too, while the window holds them.
   await moderated(s, 'hello', ['author had 3 messages moderated in 60 min']);
@@ -346,7 +347,7 @@ test('flagged by OpenAI Omni: its fields', async ({ page }) => {
     await expect(field.locator('option')).toHaveText(['Off', 'OpenAI decides', 'Min score, %']);
   }
   await number(pane, 'Attempts', '3', '1', '5');
-  await number(pane, 'Pause Between Attempts (Seconds)', '1', '0', '10');
+  await number(pane, 'Pause, s', '1', '0', '10');
 });
 
 // US-E26
@@ -361,9 +362,9 @@ test('flagged by OpenRouter Instruction: its fields', async ({ page }) => {
     'anthropic/claude-haiku-4.5', 'openai/gpt-4o', 'openai/gpt-4.1',
   ]);
   await expect(pane.getByRole('textbox', { name: /^Instruction/ })).toHaveAttribute('maxlength', '4000');
-  await number(pane, 'Earlier Messages Sent as Context', '0', '0', '10');
+  await number(pane, 'Context', '0', '0', '10');
   await number(pane, 'Attempts', '3', '1', '5');
-  await number(pane, 'Pause Between Attempts (Seconds)', '1', '0', '10');
+  await number(pane, 'Pause, s', '1', '0', '10');
 });
 
 // ---- Combining conditions ----
@@ -394,11 +395,23 @@ test('any of these conditions match', async ({ page }) => {
 
 // US-E29
 test('this condition does not match', async ({ page }) => {
-  const pane = await adding(page, 'Does not match');
-  await expect(pane.getByRole('combobox', { name: 'Condition type' })).toHaveCount(2);
+  // Wrapped from the condition's menu, the condition sits inside the NOT.
+  const pane = await adding(page, 'Exceeds max characters');
+  await pane.getByRole('button', { name: '⋮' }).first().click();
+  await pane.getByRole('button', { name: 'Wrap in NOT' }).click();
+  const types = pane.getByRole('combobox', { name: 'Condition type' });
+  await expect(types).toHaveCount(2);
+  await expect(types.nth(0).locator('option:checked')).toHaveText('Does not match');
+  await expect(types.nth(1).locator('option:checked')).toHaveText('Exceeds max characters');
+  // Picked from the type list, it starts empty, with nothing to add to it.
+  const empty = await adding(page, 'Does not match');
+  await expect(empty.getByRole('combobox', { name: 'Condition type' })).toHaveCount(1);
+  await expect(empty.getByRole('button', { name: /^\+ Add/ })).toHaveCount(0);
   const s = await scene(rules(rule({ type: 'Not', condition: { type: 'ExceedsMaxCharacters', max_characters: 1000 } })));
   await moderated(s, 'hi', ['does not match: has more than 1000 characters']);
   await untouched(s, 'x'.repeat(1001));
+  // An empty one is refused when it is saved.
+  expect(await s.owner.ask(settingsLink(s.id, rules(rule({ type: 'Not' }))))).toMatch(/^❌ \*\*Failed to update group settings:\*\*\n\n> \S/);
 });
 
 // US-E30

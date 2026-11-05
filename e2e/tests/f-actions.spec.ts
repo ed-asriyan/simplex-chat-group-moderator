@@ -26,7 +26,7 @@ test('moderate the message', async ({ page }) => {
 // US-F2
 test('set author as observer, for a while or for good', async ({ page }) => {
   const pane = await actionFields(page, 'Set author as observer');
-  const field = pane.getByRole('spinbutton', { name: 'Restore the author to member after this many minutes' });
+  const field = pane.getByRole('spinbutton', { name: 'Restore author to member after (minutes)' });
   await expect(field).toHaveValue('0');
   await expect(field).toHaveAttribute('max', '43200');
   const s = await scene(rules(

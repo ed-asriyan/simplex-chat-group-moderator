@@ -3,12 +3,14 @@ import { expect, test } from '@playwright/test';
 import { apply, moderated, notice, rule, rules, scene, untouched } from './helpers';
 
 // US-D1
-test('every rule that matches contributes, and an edit is checked again', async () => {
+test('a rule the earlier matches already cover is not checked, and an edit is checked again', async () => {
+  // Both rules moderate: only the first one that matches counts.
   const s = await scene(rules(
     rule({ type: 'ContainsWords', keywords: ['spam'] }),
     rule({ type: 'ContainsLinksInList', domains: ['spam.example'] }),
   ));
-  await moderated(s, 'spam at https://spam.example', ["contains word: 'spam'", 'spam.example']);
+  await moderated(s, 'spam at https://spam.example', ["contains word: 'spam'"]);
+  await moderated(s, 'see https://spam.example', ['spam.example']);
   const item = await s.member.post(s.memberGroup, 'hello');
   await s.member.seesNothing(3000);
   await s.member.edit(s.memberGroup, item, 'hello spam');
@@ -16,16 +18,30 @@ test('every rule that matches contributes, and an edit is checked again', async 
   expect(await s.owner.message()).toBe(notice('moderated the message', 'hello spam', ["contains word: 'spam'"]));
 });
 
+// US-D1
+test('every rule that matches contributes its actions', async () => {
+  // The second rule does more than the first, so it is checked and adds its observer.
+  const s = await scene(rules(
+    rule({ type: 'ContainsWords', keywords: ['spam'] }),
+    rule({ type: 'ContainsLinksInList', domains: ['spam.example'] }, [{ type: 'ModerateMessage' }, { type: 'SetAuthorObserver', duration_minutes: 10 }]),
+  ));
+  const item = await s.member.post(s.memberGroup, 'spam at https://spam.example');
+  const seen = [await s.member.seesInGroup(), await s.member.seesInGroup()];
+  expect(seen).toContainEqual({ kind: 'deleted', itemIds: [item] });
+  expect(seen).toContainEqual({ kind: 'role', role: 'observer' });
+  expect(await s.owner.message()).toBe(notice('set the author as observer for 10 minutes and moderated the message', 'spam at https://spam.example', ["contains word: 'spam'", 'spam.example']));
+});
+
 // US-D2
 test('notifications mode acts and tells the owner', async () => {
   const s = await scene(rules(rule({ type: 'ContainsLinksInList', domains: ['spam.example'] }, [
     { type: 'ModerateMessage' }, { type: 'SetAuthorObserver', duration_minutes: 60 },
   ])));
-  const item = await s.member.post(s.memberGroup, 'Buy cheap followers at spam.example');
+  const item = await s.member.post(s.memberGroup, 'Buy cheap followers at https://spam.example');
   const seen = [await s.member.seesInGroup(), await s.member.seesInGroup()];
   expect(seen).toContainEqual({ kind: 'deleted', itemIds: [item] });
   expect(seen).toContainEqual({ kind: 'role', role: 'observer' });
-  expect(await s.owner.message()).toBe(notice('moderated the message and set the author as observer for 60 minutes', 'Buy cheap followers at spam.example', ['spam.example']));
+  expect(await s.owner.message()).toBe(notice('set the author as observer for 60 minutes and moderated the message', 'Buy cheap followers at https://spam.example', ['spam.example']));
 });
 
 // US-D2
@@ -38,9 +54,26 @@ test('the notification quotes the message, cut after 300 characters', async () =
 });
 
 // US-D2
-test('each matched rule gives one reason line', async () => {
-  const s = await scene(rules(rule({ type: 'ContainsWords', keywords: ['spam'] }), rule({ type: 'ContainsImage' })));
-  await moderated(s, { type: 'image', text: 'spam', image: PIXEL }, ["contains word: 'spam'", 'contains an image']);
+test('each matched rule gives one reason line, in the order of the rules', async () => {
+  const s = await scene(rules(
+    rule({ type: 'ContainsWords', keywords: ['spam'] }),
+    rule({ type: 'ContainsImage' }, [{ type: 'ModerateMessage' }, { type: 'SetAuthorObserver', duration_minutes: 10 }]),
+  ));
+  const item = await s.member.post(s.memberGroup, { type: 'image', text: 'spam', image: PIXEL });
+  const seen = [await s.member.seesInGroup(), await s.member.seesInGroup()];
+  expect(seen).toContainEqual({ kind: 'deleted', itemIds: [item] });
+  expect(seen).toContainEqual({ kind: 'role', role: 'observer' });
+  expect(await s.owner.message()).toBe(notice('set the author as observer for 10 minutes and moderated the message', 'spam', ["contains word: 'spam'", 'contains an image']));
+});
+
+// US-D2
+test('the message is named before the kick', async () => {
+  // The observer before the message is the first test of US-D2.
+  const s = await scene(rules(rule({ type: 'ContainsWords', keywords: ['spam'] }, [
+    { type: 'KickAuthor', delete_all_messages: false }, { type: 'ModerateMessage' },
+  ])));
+  await s.member.post(s.memberGroup, 'spam');
+  expect(await s.owner.message()).toBe(notice('moderated the message and kicked the author', 'spam', ["contains word: 'spam'"]));
 });
 
 // US-D3
