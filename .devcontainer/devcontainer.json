@@ -1,10 +1,11 @@
 {
   "name": "simplex-chat-moderator-bot",
   "dockerComposeFile": [
+    "../docker-compose.yml",
     "../docker-compose.dev.yml"
   ],
   "workspaceFolder": "/workspace",
-  "service": "workspace",
+  "service": "bot",
   "overrideCommand": false,
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {

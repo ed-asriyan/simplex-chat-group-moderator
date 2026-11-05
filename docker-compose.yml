@@ -2,7 +2,9 @@ name: simplex-chat-moderator-bot-production
 
 services:
   smp-client:
-    build: smp-client
+    build:
+      context: .
+      target: smp-client
     image: simplex-chat-moderator-bot/smp-client:${TAG:-latest}
     environment:
       - PORT=5225
@@ -18,8 +20,7 @@ services:
       
   bot:
     build:
-      context: bot
-      dockerfile: Dockerfile
+      context: .
       target: bot
     image: simplex-chat-moderator-bot/bot:${TAG:-latest}
     depends_on:

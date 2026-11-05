@@ -6,7 +6,8 @@ on:
       - master
     paths:
       - 'bot/**'
-      - 'smp-client/**'
+      - 'Dockerfile'
+      - '.dockerignore'
       - '.github/workflows/CD.yml'
       - 'docker-compose.yml'
   workflow_dispatch:

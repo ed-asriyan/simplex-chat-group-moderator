@@ -1,0 +1,6 @@
+# The build context is the repository root; only what the Dockerfile copies
+# goes in, so build outputs and the bot's data never reach the builder.
+*
+!bot/Cargo.toml
+!bot/Cargo.lock
+!bot/src/
