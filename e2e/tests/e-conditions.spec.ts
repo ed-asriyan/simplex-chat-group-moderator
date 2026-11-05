@@ -333,7 +333,7 @@ test('group hits line rate limit', async ({ page }) => {
 
 // ---- AI ----
 // What these conditions match is decided by OpenAI and OpenRouter, which the
-// end-to-end tests do not reach (AGENTS.md, Workflow); what the owner sees
+// end-to-end tests do not reach (AGENTS.md, *Workflow*); what the owner sees
 // when adding them is the editor's.
 
 // US-E25

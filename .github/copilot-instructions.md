@@ -1,3 +1,3 @@
 # Copilot instructions
 
-Read and follow [AGENTS.md](../AGENTS.md) before making changes. It is the single source of project guidance.
+Read and follow [AGENTS.md](../AGENTS.md) and [docs/design.md](../docs/design.md) before making changes: how work proceeds, and how the project is built.

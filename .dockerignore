@@ -4,3 +4,4 @@
 !bot/Cargo.toml
 !bot/Cargo.lock
 !bot/src/
+!docs/design.md

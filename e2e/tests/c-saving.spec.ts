@@ -55,7 +55,7 @@ test('a link for a group of someone else is refused', async () => {
 });
 
 // US-C4: an AI condition's key is checked with OpenAI or OpenRouter, which the
-// end-to-end tests do not reach (AGENTS.md, Workflow).
+// end-to-end tests do not reach (AGENTS.md, *Workflow*).
 
 // US-C5
 test('a link to the editor without its settings is no settings', async () => {
