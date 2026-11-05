@@ -7,10 +7,10 @@ test('a rule the earlier matches already cover is not checked, and an edit is ch
   // Both rules moderate: only the first one that matches counts.
   const s = await scene(rules(
     rule({ type: 'ContainsWords', keywords: ['spam'] }),
-    rule({ type: 'ContainsLinksInList', domains: ['spam.example'] }),
+    rule({ type: 'ContainsLinksInList', domains: ['casino.example'] }),
   ));
-  await moderated(s, 'spam at https://spam.example', ["contains word: 'spam'"]);
-  await moderated(s, 'see https://spam.example', ['spam.example']);
+  await moderated(s, 'spam at https://casino.example', ["contains word: 'spam'"]);
+  await moderated(s, 'see https://casino.example', ['casino.example']);
   const item = await s.member.post(s.memberGroup, 'hello');
   await s.member.seesNothing(3000);
   await s.member.edit(s.memberGroup, item, 'hello spam');

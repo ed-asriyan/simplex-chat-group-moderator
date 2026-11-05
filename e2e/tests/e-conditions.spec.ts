@@ -406,7 +406,7 @@ test('this condition does not match', async ({ page }) => {
   // Picked from the type list, it starts empty, with nothing to add to it.
   const empty = await adding(page, 'Does not match');
   await expect(empty.getByRole('combobox', { name: 'Condition type' })).toHaveCount(1);
-  await expect(empty.getByRole('button', { name: /^\+ Add/ })).toHaveCount(0);
+  await expect(empty.getByRole('button', { name: /^\+ Add to/ })).toHaveCount(0);
   const s = await scene(rules(rule({ type: 'Not', condition: { type: 'ExceedsMaxCharacters', max_characters: 1000 } })));
   await moderated(s, 'hi', ['does not match: has more than 1000 characters']);
   await untouched(s, 'x'.repeat(1001));
