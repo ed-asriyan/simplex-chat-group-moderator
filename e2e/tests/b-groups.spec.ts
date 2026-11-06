@@ -14,7 +14,7 @@ for (const role of ['moderator', 'admin', 'owner']) {
     await alice.inviteBot(group, role);
     expect(await alice.message()).toBe('✅ I joined the group. Open the editor below to set up its rules.');
     const link = await alice.message();
-    expect(link).toMatch(new RegExp(`^\\*Crypto Chat\\*\\n\\[View and Edit Settings\\]\\(${EDITOR.replace(/[.]/g, '\\.')}#bot_id=\\d+&config=[^)]+\\)$`));
+    expect(link).toMatch(new RegExp(`^\\*\\*Crypto Chat\\*\\*\\n\\[View and Edit Settings\\]\\(${EDITOR.replace(/[.]/g, '\\.')}#bot_id=\\d+&config=[^)]+\\)$`));
     // A new group has no rules and the mode Notifications.
     expect(configOf(link)).toEqual({ mode: 'notifications', rules: [] });
   });
@@ -45,8 +45,8 @@ test('groups lists each group with its link, by its current name', async () => {
   await alice.send('/groups');
   const listed = [await alice.message(), await alice.message()].sort();
   expect(listed).toEqual([
-    `*Crypto Chat*\n[View and Edit Settings](${first.link})`,
-    `*Dogs*\n[View and Edit Settings](${second.link})`,
+    `**Crypto Chat**\n[View and Edit Settings](${first.link})`,
+    `**Dogs**\n[View and Edit Settings](${second.link})`,
   ].sort());
   expect(botId(first.link)).not.toBe(botId(second.link));
 });
