@@ -171,7 +171,7 @@ fn parse(message: &Message, base_url: &str) -> ParsedDm {
 }
 
 fn render_group(group: &Group, editor_url: &str) -> String {
-    format!("*{}*\n[View and Edit Settings]({})", group.name, editor_url)
+    format!("**{}**\n[View and Edit Settings]({})", group.name, editor_url)
 }
 
 /// `text` as a Markdown block quote, its line breaks kept: inside a quote a
