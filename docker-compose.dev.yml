@@ -1,45 +1,31 @@
+# The development stack: the production file, overridden here only where
+# development differs, so whatever both share is written once.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# The bot is the dev container (.devcontainer): the toolchain with the
+# repository mounted, where the bot is built and run by hand; the web editor is
+# served at http://127.0.0.1:8080. The data stays in
+# ./simplex-chat-moderator-bot-dev.
+# The unit tests run as in CI:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml run --build --rm test
 name: simplex-chat-moderator-bot-dev
 
 services:
   smp-client:
-    build: smp-client
-    environment:
-      - PORT=5225
-      - DB=/opt/simplex-chat-moderator-bot/simplex-chat/db
-    volumes:
+    volumes: !override
       - ./simplex-chat-moderator-bot-dev:/opt/simplex-chat-moderator-bot
-    healthcheck:
-      test: [ "CMD", "nc", "-z", "127.0.0.1", "5225" ]
-      interval: 3s
-      timeout: 2s
-      retries: 10
-      start_period: 5s
-    restart: unless-stopped
 
-  workspace:
+  bot:
     build:
-      context: bot
-      dockerfile: Dockerfile
       target: dev
-    depends_on:
-      smp-client:
-        condition: service_healthy
-    network_mode: "service:smp-client"
+    image: simplex-chat-moderator-bot/bot-dev:latest
     working_dir: /workspace
-    volumes:
+    volumes: !override
       - .:/workspace
       - ./simplex-chat-moderator-bot-dev:/opt/simplex-chat-moderator-bot
-    command: [ "sleep", "infinity" ]
+    command: ["sleep", "infinity"]
     environment:
-      - SIMPLEX_WS_URI=ws://localhost:5225
       - WEBEDITOR_BASE_URL=http://127.0.0.1:8080
       - BOT_DISPLAY_NAME=DEV Moderator Bot
-      - BOT_FULL_NAME=
-      - "BOT_SHORT_DESCRIPTION=I help keep your groups clean by automatically removing unwanted messages
-      
-       https://simplex-directory.asriyan.me/#/bots/63d110f4-9f70-4128-b0e7-5a8958299f96"
-      - DB_PATH=/opt/simplex-chat-moderator-bot/bot.db
-    restart: unless-stopped
 
   webeditor:
     image: nginx:alpine
@@ -48,3 +34,10 @@ services:
     volumes:
       - ./webeditor:/usr/share/nginx/html:ro
     restart: unless-stopped
+
+  # The unit tests, in the image CI runs them in; started only by name.
+  test:
+    profiles: [test]
+    build:
+      context: .
+      target: test

@@ -11,7 +11,7 @@ updates:
           - "version-update:semver-patch"
 
   - package-ecosystem: "docker"
-    directory: "/bot"
+    directory: "/"
     open-pull-requests-limit: 1
     schedule:
       interval: "weekly"
@@ -22,6 +22,16 @@ updates:
 
   - package-ecosystem: "github-actions"
     directory: "/"
+    open-pull-requests-limit: 1
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-patch"
+
+  - package-ecosystem: "npm"
+    directory: "/e2e"
     open-pull-requests-limit: 1
     schedule:
       interval: "weekly"

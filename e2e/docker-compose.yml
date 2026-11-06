@@ -1,0 +1,78 @@
+# The production stack, run locally against a SMP server of its own, with
+# people to talk to the bot, the web editor served locally and a clock the
+# tests move. Used only together with the production file, which it overrides:
+#   docker compose -f docker-compose.yml -f e2e/docker-compose.yml …
+# The harness (e2e/harness/stack.ts) brings it up and down; it sets
+# E2E_SMP_SERVER once the SMP server has printed its address, and
+# E2E_CLOCK_DIR to the directory of the clock file.
+name: simplex-chat-moderator-bot-e2e
+
+services:
+  # A SMP server of the stack's own, so no message leaves the machine.
+  smp-server:
+    image: simplexchat/smp-server:latest@sha256:7d825822839a9d5ee9e9a99563d77a319816c7a8e0b4b7bf4dcebe448897af54  # v7.0.1
+    environment:
+      - ADDR=smp.e2e.test
+      - WEB_MANUAL=1
+    networks:
+      default:
+        aliases:
+          - smp.e2e.test
+
+  # The bot's SimpleX CLI, as in production, on the local SMP server and on
+  # the tests' clock: the bot dates a message by the time its CLI received it.
+  smp-client:
+    image: simplex-chat-moderator-bot/smp-client-e2e:latest
+    build:
+      target: smp-client-e2e
+    command: ["sh", "-c", 'simplex-chat --yes-migrate --create-bot-display-name bot -p $$PORT -d $$DB -s "$$SMP_SERVER"']
+    environment:
+      - SMP_SERVER=${E2E_SMP_SERVER:-}
+    volumes: !override
+      - e2e-data:/opt/simplex-chat-moderator-bot
+      - ${E2E_CLOCK_DIR:-/tmp}:/clock
+    depends_on:
+      - smp-server
+
+  # The production bot on the tests' clock, linking to the editor below.
+  bot:
+    image: simplex-chat-moderator-bot/bot-e2e:latest
+    build:
+      target: bot-e2e
+    environment:
+      - WEBEDITOR_BASE_URL=http://127.0.0.1:${E2E_EDITOR_PORT:-18080}
+    volumes: !override
+      - e2e-data:/opt/simplex-chat-moderator-bot
+      - ${E2E_CLOCK_DIR:-/tmp}:/clock
+
+  # The web editor, as GitHub Pages serves it: the folder, as it is.
+  webeditor:
+    image: nginx:1.27-alpine
+    ports:
+      - "127.0.0.1:${E2E_EDITOR_PORT:-18080}:80"
+    volumes:
+      - ./webeditor:/usr/share/nginx/html:ro
+
+  # The people of the tests: a SimpleX CLI the tests drive through its
+  # websocket API, one user profile per person, on the real clock.
+  person:
+    image: simplex-chat-moderator-bot/smp-client:${TAG:-latest}
+    build:
+      context: .
+      target: smp-client
+    command: ["sh", "-c", 'simplex-chat --yes-migrate --create-bot-display-name people -p 5225 -d /data/people -s "$$SMP_SERVER"']
+    environment:
+      - SMP_SERVER=${E2E_SMP_SERVER:-}
+    ports:
+      - "127.0.0.1:${E2E_PERSON_PORT:-15225}:15225"
+    depends_on:
+      - smp-server
+
+  # The CLI listens on 127.0.0.1 only; this forwards the published port to it.
+  person-ws:
+    image: alpine/socat:1.8.0.3
+    network_mode: service:person
+    command: ["TCP-LISTEN:15225,fork,reuseaddr", "TCP:127.0.0.1:5225"]
+
+volumes:
+  e2e-data:
