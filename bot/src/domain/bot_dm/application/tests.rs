@@ -225,6 +225,15 @@ async fn test_groups_links_the_whole_config() {
     assert!(sent[0].contains(&link), "{}", sent[0]);
 }
 
+// US-B4
+#[tokio::test]
+async fn test_groups_names_the_group_in_bold() {
+    let (sent, _) = send("/groups").await;
+
+    assert_eq!(sent.len(), 1);
+    assert!(sent[0].starts_with("**Test Group**\n[View and Edit Settings]("), "{}", sent[0]);
+}
+
 /// Counts join attempts; every attempt fails.
 #[derive(Default)]
 struct CountingJoins {
