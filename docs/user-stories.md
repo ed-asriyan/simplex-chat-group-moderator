@@ -12,7 +12,7 @@ A group owner adds the bot to their [SimpleX Chat](https://simplex.chat) group w
 - **Member** — anyone in the group whose SimpleX role is *member*. Only a member's messages are checked; a moderator's, an admin's and an owner's never are, and an observer cannot write.
 
 ## Conventions
-- The owner talks to the bot in a direct chat, in English. The bot writes in SimpleX Markdown; a bare `/command` in its text is tappable.
+- The owner talks to the bot in a direct chat, in English. The bot writes in standard Markdown, as SimpleX renders it (`**bold**`, `_italic_`, never a single `*` for bold); a bare `/command` in its text is tappable.
 - The examples use the owner Alice, her group **Crypto Chat** (the bot's id for it: 7), and the member Bob. The editor's address is `https://ed-asriyan.github.io/simplex-chat-group-moderator`; a link to it carries the group's settings after `#`, shown here as `#bot_id=7&config=…`.
 
 ## A. Talking to the bot
@@ -92,7 +92,7 @@ A group owner adds the bot to their [SimpleX Chat](https://simplex.chat) group w
 - **US-B4.** As an owner, when I send `/groups`, I get one message per group I own:
 
   ```text
-  *Crypto Chat*
+  **Crypto Chat**
   [View and Edit Settings](https://ed-asriyan.github.io/simplex-chat-group-moderator#bot_id=7&config=…)
   ```
 
