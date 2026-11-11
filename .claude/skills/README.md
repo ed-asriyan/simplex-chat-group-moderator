@@ -13,7 +13,7 @@ Skills for Claude Code that take a feature through seven reviewed stages, each s
 | `/screenshots` | any time, read-only | nothing: sends screenshots of the user interface, on a computer and a phone, to the chat |
 | `/coverage` | any time, read-only | nothing: reports the stories the tests do not really check, per level |
 
-The skills hold nothing particular to one project, so the same directory serves every project that provides the two files below. A change to a skill is a change for every project.
+The skills hold nothing particular to one project: what they need from it is the two files below. Each project keeps its own copy, grown from one set, and the copies may differ where the projects do (one without a user interface has no use for `/ux` or `/finalize`). A change that is about the method rather than one project is pointed out to the maintainer, who decides whether the other projects take it.
 
 ## What a project provides
 
