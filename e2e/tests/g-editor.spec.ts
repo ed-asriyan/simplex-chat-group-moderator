@@ -17,8 +17,15 @@ async function textOf(locator: Locator): Promise<string> {
   return (await locator.innerText()).replace(/\s+/g, ' ');
 }
 
-/** Opens rule `n`: a phone shows the list alone until a rule is tapped. */
+/** Back to the rules list: a phone shows either the list or one rule. */
+async function toList(page: Page) {
+  const back = page.getByRole('button', { name: '‹ Rules' });
+  if (await back.isVisible()) await back.click();
+}
+
+/** Opens rule `n` from the list. */
 async function openRule(page: Page, n: number) {
+  await toList(page);
   await page.getByRole('button', { name: new RegExp(`^${n} IF `) }).click();
 }
 
@@ -57,6 +64,7 @@ test('a rule of a type the editor does not know is kept as it is', async ({ page
   await pane(page).getByRole('button', { name: 'ⓘ' }).nth(1).click();
   await expect(pane(page).getByText("This type is not in this editor's schema. It is kept as it is — leave it alone unless you mean to replace it.")).toBeVisible();
   await looks(page, 'unknown-type');
+  await toList(page);
   await page.getByRole('combobox', { name: '🛡 Mode' }).selectOption({ label: 'Dry — only tell me what it would do' });
   await (await apply(page)).getByRole('button', { name: 'Copy the link' }).click();
   expect(configOf(await clipboard(page)).rules[0]).toEqual(unknown);
@@ -117,7 +125,7 @@ test('a list is edited entry by entry, filtered, or as text', async ({ page }) =
   await expect(page.getByText('That entry is already in the list.')).toBeVisible();
   await pane(page).getByRole('button', { name: 'Remove spam' }).click();
   await expect(pane(page).getByRole('button', { name: 'Remove spam' })).toHaveCount(0);
-  await page.getByRole('button', { name: /^2 IF / }).click();
+  await openRule(page, 2);
   const filter = pane(page).getByRole('textbox', { name: 'Filter Words / Phrases' });
   await expect(filter).toHaveAttribute('placeholder', 'filter 150 entries');
   await filter.fill('word149');
@@ -140,10 +148,10 @@ test('changing a type keeps what both types have, and a composite unwraps', asyn
   await openRule(page, 1);
   await pane(page).getByRole('combobox', { name: 'Condition type' }).first().selectOption({ label: 'Any of these (OR)' });
   await expect(pane(page).getByRole('combobox', { name: 'Condition type' })).toHaveCount(3);
-  await page.getByRole('button', { name: /^2 IF / }).click();
+  await openRule(page, 2);
   await pane(page).getByRole('combobox', { name: 'Condition type' }).first().selectOption({ label: 'Link outside this list' });
   await expect(pane(page).getByRole('button', { name: 'Remove spam.example' })).toBeVisible();
-  await page.getByRole('button', { name: /^3 IF / }).click();
+  await openRule(page, 3);
   await pane(page).getByRole('button', { name: '⋮' }).nth(1).click();
   await looks(page, 'condition-menu');
   await pane(page).getByRole('button', { name: 'Unwrap' }).click();
@@ -168,7 +176,7 @@ test('the editor warns past the limits, and marks a covered action', async ({ pa
   await openRule(page, 1);
   await expect(pane(page).getByText('This rule has 70 conditions nested 9 levels deep. The bot accepts at most 64 conditions and 8 levels, so simplify it before applying — otherwise the rules will be rejected.')).toBeVisible();
   await looks(page, 'limits-warning');
-  await page.getByRole('button', { name: /^2 IF / }).click();
+  await openRule(page, 2);
   const covered = pane(page).getByText('covered', { exact: true });
   await expect(covered).toBeVisible();
   await expect(covered).toHaveAttribute('title', 'A stronger action on this rule already covers it');
@@ -200,9 +208,13 @@ test('every change can be undone and redone', async ({ page }) => {
     await expect(mode.locator('option:checked')).toHaveText('Dry — only tell me what it would do');
   }
   // Up to 20 steps.
-  for (let i = 0; i < 25; i++) await page.getByRole('button', { name: '+ Add rule' }).click();
+  for (let i = 0; i < 25; i++) {
+    await toList(page);
+    await page.getByRole('button', { name: '+ Add rule' }).click();
+  }
   for (let i = 0; i < 20; i++) await undo.click();
   await expect(undo).toBeHidden();
+  await toList(page);
   await expect(page.getByText('5 total')).toBeVisible();
 });
 
