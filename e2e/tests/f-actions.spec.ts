@@ -9,6 +9,7 @@ async function actionFields(page: import('@playwright/test').Page, type: string)
   await page.getByRole('button', { name: '+ Add rule' }).click();
   const pane = page.getByRole('region', { name: 'Rule', exact: true });
   await pane.getByRole('combobox', { name: 'Action' }).first().selectOption({ label: type });
+  await expect(pane).toHaveScreenshot(`action-${type.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.png`);
   return pane;
 }
 

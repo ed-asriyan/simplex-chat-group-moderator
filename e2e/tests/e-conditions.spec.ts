@@ -34,10 +34,15 @@ async function noField(pane: Locator) {
   await expect(pane.getByRole('checkbox')).toHaveCount(0);
 }
 
+/** Adds a rule with the condition `type` (the picker's label); its pane looks as approved. */
 async function adding(page: Page, type: string): Promise<Locator> {
   await emptyEditor(page);
-  return addCondition(page, type);
+  const pane = await addCondition(page, type);
+  await expect(pane).toHaveScreenshot(`condition-${slug(type)}.png`);
+  return pane;
 }
+
+const slug = (label: string) => label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 // ---- Text ----
 

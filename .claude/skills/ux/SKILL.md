@@ -21,7 +21,7 @@ If a story cannot be built without deciding what the story leaves open — which
 ## Scope
 - Write the user interface's code, as *Workflow* names it: screens, elements, states, texts, styles, and its client-side behaviour where it is the interface's own (showing, hiding, moving between screens).
 - **Stub what the interface calls and later stages write**: a request to a backend, a rule of the domain, a computation the stories ask for. A stub is the smallest code that lets a person go on through the flow — fixed data, a canned answer, nothing done — and is marked as a stub where it is. Leaving one behind is caught later: the end-to-end tests check the real outcome and fail on it.
-- Never change the stories, the backend, the ports, the schema or any test.
+- Never change the stories, the backend, the ports, the schema or any test. When *Workflow* has screenshot tests, those of the screens this stage changes fail until `/e2e-tests` takes them again: that is expected, and they are not updated here.
 
 ## Rules
 - **Every flow of the changed stories can be gone through** in the running interface, each step showing what the story says, its texts word for word.

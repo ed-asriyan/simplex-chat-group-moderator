@@ -95,6 +95,14 @@ export async function emptyEditor(page: Page) {
   await open(page, editorUrl({ mode: 'notifications', rules: [] }));
 }
 
+/**
+ * The page as the person sees it now matches its approved screenshot,
+ * `tests/__screenshots__/<project>/<spec>/<name>.png` (AGENTS.md, *Workflow*).
+ */
+export async function looks(page: Page, name: string) {
+  await expect(page).toHaveScreenshot(`${name}.png`, { fullPage: true });
+}
+
 /** Opens `url` afresh: going to another link that differs only by its hash would not reload the editor. */
 export async function open(page: Page, url: string) {
   await page.goto('about:blank');

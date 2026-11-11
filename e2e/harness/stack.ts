@@ -22,6 +22,10 @@ import path from 'node:path';
 export const ROOT = path.resolve(__dirname, '..', '..');
 export const PERSON_WS = 'ws://127.0.0.1:15225';
 export const EDITOR = 'http://127.0.0.1:18080';
+/** The browser of the tests, in Docker (`browser` in e2e/docker-compose.yml). */
+export const BROWSER = 'ws://127.0.0.1:13000/';
+// The browser's image is the Playwright the tests run, so the two always agree.
+const PLAYWRIGHT = { E2E_PLAYWRIGHT_VERSION: require('@playwright/test/package.json').version as string };
 const CLOCK_DIR = path.join(os.tmpdir(), 'simplex-chat-moderator-bot-e2e-clock');
 const CLOCK_FILE = path.join(CLOCK_DIR, 'now');
 const STATE_FILE = path.join(CLOCK_DIR, 'stack.json');
@@ -34,7 +38,7 @@ function files(): string[] {
 export function compose(args: string[], env: Record<string, string> = {}): string {
   return execFileSync('docker', ['compose', ...files(), ...args], {
     cwd: ROOT,
-    env: { ...process.env, ...env },
+    env: { ...process.env, ...PLAYWRIGHT, ...env },
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     maxBuffer: 64 * 1024 * 1024,
@@ -42,7 +46,7 @@ export function compose(args: string[], env: Record<string, string> = {}): strin
 }
 
 function logs(service: string): string {
-  return execFileSync('docker', ['compose', ...files(), 'logs', service], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  return execFileSync('docker', ['compose', ...files(), 'logs', service], { cwd: ROOT, env: { ...process.env, ...PLAYWRIGHT }, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
 
 function waitForLog(service: string, pattern: RegExp): string {
@@ -65,6 +69,7 @@ export function start(): string {
   const smp = waitForLog('smp-server', /Server address: (smp:\/\/\S+)/);
   compose(['up', '-d', '--no-build'], { E2E_SMP_SERVER: smp, E2E_CLOCK_DIR: CLOCK_DIR });
   const address = waitForLog('bot', /Bot address: (\S+)/);
+  waitForLog('browser', /(Listening on) /);
   fs.writeFileSync(STATE_FILE, JSON.stringify({ address, now: new Date().toISOString() }));
   return address;
 }
