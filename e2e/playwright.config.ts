@@ -3,9 +3,9 @@
 //
 // The browser runs in Docker (`browser` in e2e/docker-compose.yml), so a page
 // renders the same wherever the tests run, and a screenshot compares with the
-// one committed under tests/__screenshots__/. A screenshot not committed yet
-// is taken and passes on a developer's machine; in CI it fails, so a green CI
-// has compared every one.
+// one approved under tests/__screenshots__/. Nothing is taken unless asked:
+// a screenshot with nothing approved yet fails the test, and only the
+// finalize stage takes one (AGENTS.md, *Workflow*).
 import { defineConfig } from '@playwright/test';
 import { BROWSER } from './harness/stack';
 
@@ -17,7 +17,7 @@ export default defineConfig({
   timeout: 300_000,
   reporter: [['list']],
   snapshotPathTemplate: '{testDir}/__screenshots__/{projectName}/{testFileName}/{arg}{ext}',
-  updateSnapshots: process.env.CI ? 'none' : 'missing',
+  updateSnapshots: 'none',
   expect: {
     timeout: 15_000,
     // A toast leaves after a few seconds, whenever the shot is taken.
