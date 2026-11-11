@@ -72,6 +72,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # The approved screenshots are in Git LFS.
+          lfs: true
 
       - name: Download the images
         uses: actions/download-artifact@v8
