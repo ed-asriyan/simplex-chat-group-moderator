@@ -17,6 +17,11 @@ async function textOf(locator: Locator): Promise<string> {
   return (await locator.innerText()).replace(/\s+/g, ' ');
 }
 
+/** Opens rule `n`: a phone shows the list alone until a rule is tapped. */
+async function openRule(page: Page, n: number) {
+  await page.getByRole('button', { name: new RegExp(`^${n} IF `) }).click();
+}
+
 async function apply(page: Page) {
   await page.getByRole('button', { name: 'Apply changes' }).click();
   return page.getByRole('dialog', { name: 'Changes before you send them' });
@@ -24,6 +29,12 @@ async function apply(page: Page) {
 
 // US-G1
 test('the editor shows the group settings and the rules', async ({ page }) => {
+  // At a fixed bot id first, for the screenshots; then by the group's own link.
+  await open(page, editorUrl(rules(W(['a']), W(['b']), W(['c']))));
+  await looks(page, 'editor-rules');
+  await emptyEditor(page);
+  await expect(page.getByText('No rules yet. Nothing is moderated until you add one.')).toBeVisible();
+  await looks(page, 'editor-empty');
   const s = await scene(rules(W(['a']), W(['b']), W(['c'])));
   await open(page, await currentLink(s));
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Moderation settings for Moderator Bot');
@@ -33,18 +44,13 @@ test('the editor shows the group settings and the rules', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Rules' })).toBeVisible();
   await expect(page.getByText('3 total')).toBeVisible();
   await expect(page.getByRole('button', { name: /^\d IF / })).toHaveCount(3);
-  // The same settings at a fixed bot id, as the screenshot does not depend on the group.
-  await open(page, editorUrl(rules(W(['a']), W(['b']), W(['c']))));
-  await looks(page, 'editor-rules');
-  await emptyEditor(page);
-  await expect(page.getByText('No rules yet. Nothing is moderated until you add one.')).toBeVisible();
-  await looks(page, 'editor-empty');
 });
 
 // US-G1
 test('a rule of a type the editor does not know is kept as it is', async ({ page }) => {
   const unknown = { actions: [{ type: 'ModerateMessage' }], condition: { type: 'FutureType', level: 3 } };
   await open(page, editorUrl(rules(unknown, W(['a']))));
+  await openRule(page, 1);
   const type = pane(page).getByRole('combobox', { name: 'Condition type' });
   await expect(type.locator('option:checked')).toHaveText('FutureType (unknown)');
   await expect(pane(page).getByRole('spinbutton')).toHaveCount(0);
@@ -100,6 +106,7 @@ test('a rule is added from conditions grouped by subject', async ({ page }) => {
 // US-G3
 test('a list is edited entry by entry, filtered, or as text', async ({ page }) => {
   await open(page, editorUrl(rules(W([]), W(words(150)))));
+  await openRule(page, 1);
   const add = pane(page).getByRole('textbox', { name: 'add + Enter' });
   await add.fill('spam');
   await add.press('Enter');
@@ -130,6 +137,7 @@ test('changing a type keeps what both types have, and a composite unwraps', asyn
     rule({ type: 'ContainsLinksInList', domains: ['spam.example'] }),
     rule({ type: 'Any', conditions: [{ type: 'All', conditions: [{ type: 'ContainsWords', keywords: ['x'] }, { type: 'IsBlank' }] }, { type: 'ContainsWords', keywords: ['y'] }] }),
   )));
+  await openRule(page, 1);
   await pane(page).getByRole('combobox', { name: 'Condition type' }).first().selectOption({ label: 'Any of these (OR)' });
   await expect(pane(page).getByRole('combobox', { name: 'Condition type' })).toHaveCount(3);
   await page.getByRole('button', { name: /^2 IF / }).click();
@@ -157,6 +165,7 @@ test('the editor warns past the limits, and marks a covered action', async ({ pa
     rule(tree(7, 62)),
     rule({ type: 'IsBlank' }, [{ type: 'ModerateMessage' }, { type: 'KickAuthor', delete_all_messages: true }]),
   )));
+  await openRule(page, 1);
   await expect(pane(page).getByText('This rule has 70 conditions nested 9 levels deep. The bot accepts at most 64 conditions and 8 levels, so simplify it before applying — otherwise the rules will be rejected.')).toBeVisible();
   await looks(page, 'limits-warning');
   await page.getByRole('button', { name: /^2 IF / }).click();
@@ -182,11 +191,14 @@ test('every change can be undone and redone', async ({ page }) => {
   await looks(page, 'redo-shown');
   await redo.click();
   await expect(mode.locator('option:checked')).toHaveText('Dry — only tell me what it would do');
-  await page.locator('body').click();
-  await page.keyboard.press('Control+z');
-  await expect(mode.locator('option:checked')).toHaveText('Notifications — act and tell me');
-  await page.keyboard.press('Control+Shift+z');
-  await expect(mode.locator('option:checked')).toHaveText('Dry — only tell me what it would do');
+  // The keys, where there is a keyboard.
+  if (!test.info().project.use.isMobile) {
+    await page.locator('body').click();
+    await page.keyboard.press('Control+z');
+    await expect(mode.locator('option:checked')).toHaveText('Notifications — act and tell me');
+    await page.keyboard.press('Control+Shift+z');
+    await expect(mode.locator('option:checked')).toHaveText('Dry — only tell me what it would do');
+  }
   // Up to 20 steps.
   for (let i = 0; i < 25; i++) await page.getByRole('button', { name: '+ Add rule' }).click();
   for (let i = 0; i < 20; i++) await undo.click();
