@@ -1,105 +1,87 @@
+"use strict";
 /*
- * Rules editor for the SimpleX Chat group moderator bot.
+ * The rules editor of the SimpleX Chat group moderator bot.
  *
  * SimpleX carries plain text only, so the whole round trip is one URL: the bot
- * sends `#bot_id=<id>&group=<name>&config=<lz>`, where the config is the
- * group's whole configuration — its settings (the mode) beside its rules. This
- * page edits it, writes it back into the hash on every change, and the owner
- * pastes the link into the chat. `bot_id` and `config` must be present or the
- * bot ignores the message; `group` is the name the page shows.
+ * sends `#bot_id=<id>&group=<name>&config=<lz>`, the config being the group's
+ * whole configuration — its settings beside its rules. This page edits it,
+ * writes it back into the hash on every change, and the owner sends the link
+ * back to the bot. `bot_id` and `config` must both be there or the bot ignores
+ * the message; `group` only names the group on the page.
  *
- * Nothing here knows a single condition, action, trigger or group setting by
- * name. The registries are derived from rules-schema.json, so adding a rule
- * type is one `oneOf` entry in that file and no change to this code. What the
- * schema cannot express — the one-line summary, the human phrase, the execution
- * order of actions, the triggers a type works with — lives in optional
- * `options` keys on the same entry, each with a fallback when absent.
+ * Nothing here knows a condition, an action, a trigger or a group setting by
+ * name: every one of them is read from rules-schema.json, so a new rule type is
+ * an entry in that file and no code here. What the schema cannot say — a
+ * summary, a phrase, the order actions run in, the triggers a type takes — is
+ * in `options` keys on the same entry.
  *
- * Three pages (US-G1, US-G3, US-G14): the group's overview, one rule, and New
- * rule. Each is an entry in the browser's history, so Back goes where the
- * owner came from.
+ * Three pages, each an entry in the browser's history (US-G1, US-G3, US-G14):
+ * the group, one rule, and New rule.
  */
 
-/* ------------------------------------------------------------------ *
- * Layout vocabulary
- *
- * Every condition and action renders as ONE ROW titled by its type:
- *   [▾] [emoji] Title [summary when folded] [ⓘ] [⋮]
- * Its fields open under it, each with its description in view (US-G3); the
- * type's long description is behind ⓘ. Depth is a rail plus a small indent,
- * so a six-level tree still fits a phone.
- * ------------------------------------------------------------------ */
-
-const EDITOR_URL_BASE = location.href.split("#")[0];
-
-/* Emoji is the subject taxonomy, so it also groups the type picker. An unknown
-   emoji falls into "Other" rather than breaking the list. */
-const GROUPS = {
-    "💬": "💬 Text",
-    "🔗": "🔗 Links",
-    "📏": "📏 Shape and size",
-    "📎": "📎 Attachments",
-    "👤": "👤 Member",
-    "👥": "👥 Group",
-    "🧩": "Combine",
-    "🔀": "Combine",
-    "✖️": "Combine",
-};
+const BASE_URL = location.href.split("#")[0];
 
 /* Past this many entries a list gets a filter. */
 const BIG_LIST = 20;
 
-/* How many steps back the editor remembers. The rules are plain JSON, so a
-   snapshot is a cheap clone. */
+/* How many steps back Undo goes. A snapshot is the configuration's JSON. */
 const UNDO_LIMIT = 20;
 
-const state = {
+/* The subject a condition's emoji stands for, in the type picker. */
+const SUBJECTS = {
+    "💬": "Message text",
+    "🔗": "Links",
+    "📏": "Shape and size",
+    "📎": "Attachments",
+    "👤": "Member",
+    "👥": "Group",
+};
+
+let SCHEMA = null;
+let C = {}; // conditions, by type
+let A = {}; // actions, by type
+let S = []; // the group's settings: the schema root's fields but `rules`
+let T = []; // the triggers, one section of the group page each
+let R = {}; // the rule's own fields: name, trigger, enabled
+
+const st = {
     rules: [],
-    /* The group's settings: every property of the schema root but `rules`. */
     settings: {},
-    /* Snapshots of the config before each change that actually changed
-       something, and the ones undone out of it, waiting to be redone. */
+    /* What the bot has: the configuration the link arrived with. Every diff is
+       measured from it, and it moves when a link is copied (US-G8). */
+    baseline: { rules: [] },
     history: [],
     future: [],
-    /* What the bot has stored: the config as it arrived in the hash. Every diff
-       is measured against this, whoever made the change. */
-    baseline: { rules: [] },
     botId: null,
-    groupName: null,
-    /* "overview", "rule" (state.sel) or "new" (state.newTrigger). */
-    view: "overview",
+    group: null,
+    unreadable: false,
+    /* "home", "rule" (sel) or "new" (trigger). */
+    view: "home",
     sel: 0,
-    newTrigger: null,
-    showTemplates: false,
-    howOpen: false,
-    focus: null,
-    collapsed: new Set(),
-    helped: new Set(),
-    /* Password fields the owner chose to show, by path. */
-    revealed: new Set(),
-    bulk: new Set(),
-    q: {},
+    trigger: null,
+    templates: false,
+    how: false,
     menu: null,
+    folded: new Set(),
+    help: new Set(),
+    shown: new Set(),
+    bulk: new Set(),
+    filter: {},
+    only: null,
     limits: { depth: 8, nodes: 64 },
 };
 
-let C = {};   // condition registry, built from the schema
-let A = {};   // action registry
-let S = { p: [], def: {} };   // the group settings, from the schema root
-let T = [];   // the triggers, in the order of their sections
-let RULE = {};   // the rule's own fields: name, trigger, enabled
-let SCHEMA = null;
+/* -------------------------------------------------------------------------- */
+/* Small things                                                                */
+/* -------------------------------------------------------------------------- */
 
-/* ------------------------------- helpers ------------------------------- */
+const $ = (id) => document.getElementById(id);
 
 const esc = (s) =>
-    String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-const fmtList = (a) =>
-    a.length ? a.slice(0, 2).join(", ") + (a.length > 2 ? ` +${a.length - 2}` : "") : "empty";
-
-/* Inline markdown from the schema's own descriptions. Escaped first, so the
-   only HTML that survives is what these four rules produce. */
+/* The schema's descriptions are a little markdown: code, bold, italics, links.
+   Escaped first, so these four are the only HTML that comes out. */
 const md = (t) =>
     esc(t)
         .replace(/`([^`]+)`/g, "<code>$1</code>")
@@ -107,416 +89,32 @@ const md = (t) =>
         .replace(/(^|[\s(])[_*]([^_*]+)[_*]/g, "$1<i>$2</i>")
         .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
 
-const spec = (reg, type) => reg[type] || unknownSpec(type);
-
 const clone = (v) => structuredClone(v);
+
+/* Identity regardless of key order. */
+const canon = (v) =>
+    JSON.stringify(v, (k, x) =>
+        x && typeof x === "object" && !Array.isArray(x)
+            ? Object.fromEntries(Object.keys(x).sort().map((key) => [key, x[key]]))
+            : x
+    );
 
 const ordinal = (n) => {
     const s = ["th", "st", "nd", "rd"], v = n % 100;
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
 };
 
-/* Everything the link carries, settings and rules together: what undo
-   snapshots, what Apply diffs, what the bot stores. */
-const config = () => ({ ...state.settings, rules: state.rules });
-const snapshot = () => clone(config());
-function restore(c) {
-    const { rules, ...settings } = c;
-    state.rules = rules;
-    state.settings = settings;
-}
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-/* Every change goes through one of the DOM listeners below, so recording there
-   catches all of them. A handler that turns out to change nothing records
-   nothing. */
-function recordUndo(before) {
-    if (canon(before) === canon(config())) return;
-    state.history.push(before);
-    if (state.history.length > UNDO_LIMIT) state.history.shift();
-    /* Editing after undoing forks the history: what was undone is gone. */
-    state.future = [];
-}
-
-/* Undo and redo are the same move in opposite directions: take the last state
-   off one stack, put the current one on the other. */
-function step(from, to, word) {
-    const target = from.pop();
-    if (!target) return;
-    to.push(snapshot());
-    restore(target);
-    if (state.view === "rule" && !state.rules[state.sel]) state.view = "overview";
-    state.focus = null;
-    state.menu = null;
-    render();
-    toast(word);
-}
-
-const undo = () => step(state.history, state.future, "Undone.");
-const redo = () => step(state.future, state.history, "Redone.");
-
-/* Key-order-independent identity, so two rules that differ only in how their
-   JSON was written still count as the same rule. */
-const canon = (v) =>
-    JSON.stringify(v, (k, val) =>
-        val && typeof val === "object" && !Array.isArray(val)
-            ? Object.fromEntries(Object.keys(val).sort().map((k2) => [k2, val[k2]]))
-            : val
-    );
-
-/* A rule saved by a newer bot than this page's schema still has to render, and
-   above all has to survive being sent back untouched. */
-function unknownSpec(type) {
-    return {
-        g: "❓",
-        grp: "Other",
-        t: `${type} (unknown)`,
-        name: `${type} (unknown)`,
-        full: `${type} (unknown)`,
-        gist: "",
-        help: "This type is not in this editor's schema. It is kept as it is — leave it alone unless you mean to replace it.",
-        p: [],
-        rank: 0,
-        coveredBy: [],
-        triggers: null,
-        def: {},
-        unknown: true,
-        sum: () => "",
-        say: () => type,
-    };
-}
-
-const say = (n) => spec(C, n.type).say(n);
-
-/* {field} · {field|n} · {field|list} · {field|phrase(s)} · {field?yes:no} with $ = value */
-function tpl(s, v) {
-    return s.replace(
-        /\{([a-z_]+)(?:\?([^:}]*):([^}]*)|\|(n|list|phrase|phrases))?\}/g,
-        (m, f, yes, no, mod) => {
-            const val = v[f];
-            if (yes !== undefined) return (val ? yes : no).replace(/\$/g, val);
-            if (mod === "n") return (val || []).length;
-            if (mod === "list") return fmtList(val || []);
-            if (mod === "phrase") return val ? say(val) : "";
-            if (mod === "phrases") return (val || []).map(say).join("; ");
-            return val;
-        }
-    );
-}
-
-/* ------------------------- registry from schema ------------------------ */
-
-function kindOf(pr) {
-    if (pr.$ref) return "child";
-    if (pr.type === "array") return pr.items && pr.items.$ref ? "children" : "strlist";
-    if (pr.type === "boolean") return "bool";
-    if (pr.type === "integer" || pr.type === "number") return "int";
-    /* A string the owner would not want read over their shoulder. */
-    if (pr.type === "string" && pr.format === "password") return "password";
-    /* Prose rather than a word: several lines, and a diff that counts. */
-    if (pr.type === "string" && pr.format === "textarea") return "textarea";
-    /* A few named values and, optionally, a number of the owner's own:
-       `oneOf` of `const`s plus at most one integer branch. */
-    if (pr.oneOf) return "choice";
-    return "text";
-}
-
-/* The pieces of a `choice` field: its named values and its number branch. */
-function choiceParts(pr) {
-    const branches = pr.oneOf || [];
-    return {
-        choices: branches
-            .filter((b) => "const" in b)
-            .map((b) => ({ v: b.const, t: b.title || String(b.const), o: b.options || {} })),
-        num: branches.find((b) => b.type === "integer" || b.type === "number"),
-    };
-}
-
-function defaultFor(pr) {
-    if ("default" in pr) return structuredClone(pr.default);
-    const k = kindOf(pr);
-    if (k === "strlist" || k === "children") return [];
-    if (k === "bool") return false;
-    if (k === "int") return 0;
-    if (k === "choice") {
-        const { choices, num } = choiceParts(pr);
-        return choices.length ? choices[0].v : num.minimum ?? 0;
-    }
-    return "";
-}
-
-/* How a `choice` value reads: the title of a named value, or the number with
-   the unit its branch declares. */
-function choiceText(f, v) {
-    if (typeof v === "number") return `${v}${f.unit}`;
-    const c = f.choices.find((x) => x.v === v);
-    return c ? c.t : String(v);
-}
-
-/* Thirteen fields in one row read best grouped by value: the value most of
-   them share is counted, the few that differ are named. */
-function choiceSummary(fields, v) {
-    const byText = new Map();
-    for (const f of fields) {
-        const t = choiceText(f, v[f.k]);
-        if (!byText.has(t)) byText.set(t, []);
-        byText.get(t).push(f.label);
-    }
-    return [...byText]
-        .map(([t, labels]) => (labels.length > 2 ? `${t} ×${labels.length}` : labels.map((l) => `${l} ${t}`).join(" · ")))
-        .join(" · ");
-}
-
-/* One parameter's control, read off its schema property. */
-function fieldOf([k, pr]) {
-    const { choices, num } = choiceParts(pr);
-    return {
-        k,
-        kind: kindOf(pr),
-        label: (pr.options && pr.options.label) || pr.title || k,
-        hint: pr.description ? md(pr.description) : "",
-        min: pr.minimum ?? (num && num.minimum),
-        max: pr.maximum ?? (num && num.maximum),
-        maxItems: pr.maxItems,
-        maxLength: pr.items ? pr.items.maxLength : pr.maxLength,
-        choices,
-        num,
-        unit: (num && num.options && num.options.unit) || "",
-    };
-}
-
-/* The group settings are the schema root's properties other than `rules`, so
-   a new one is a property there and no code here. */
-function buildSettings(root) {
-    const fields = Object.entries(root.properties).filter(([k]) => k !== "rules");
-    return {
-        full: "Group settings",
-        help: "",
-        p: fields.map(fieldOf),
-        props: Object.fromEntries(fields),
-        def: Object.fromEntries(fields.map(([k, pr]) => [k, defaultFor(pr)])),
-    };
-}
-
-/* The triggers are the `oneOf` of the rule's `trigger` field: each one is a
-   section of the overview, and its `options` carry the section's texts. */
-function buildTriggers(pr) {
-    return pr.oneOf.map((b) => {
-        const o = b.options || {};
-        return {
-            v: b.const,
-            title: b.title,
-            section: o.section || b.title,
-            newRule: o.new_rule || b.title,
-            empty: o.empty || "No rules yet.",
-            incompatible: o.incompatible || "Doesn't work here",
-            incomplete: o.incomplete || "Pick a condition and at least one action.",
-            prompt: o.prompt || b.title,
-            optional: !!o.condition_optional,
-            everyone: o.everyone || "Always",
-        };
-    });
-}
-
-/* A settings object from outside — the hash, an import — checked field by
-   field against the schema. Returns the errors, or the settings with every
-   missing field at its default. */
-function validateSettings(obj) {
-    const errors = [], out = clone(S.def);
-    for (const k of Object.keys(obj)) if (!S.p.some((f) => f.k === k)) errors.push(`There is no setting “${k}”.`);
-    for (const f of S.p) {
-        if (!(f.k in obj)) continue;
-        const v = obj[f.k];
-        const ok =
-            f.kind === "choice" ? f.choices.some((c) => c.v === v) || (f.num && Number.isInteger(v))
-                : f.kind === "bool" ? typeof v === "boolean"
-                    : f.kind === "int" ? Number.isInteger(v)
-                        : typeof v === "string";
-        if (ok) out[f.k] = v;
-        else errors.push(`${f.label}: “${JSON.stringify(v)}” is not a value it can take.`);
-    }
-    return errors.length ? { errors } : { settings: out };
-}
-
-/* The fields behind a `data-p` path: the settings' own, or the condition's or
-   action's that the path ends at. */
-const fieldsAt = (p) => (p === "settings" ? S.p : [...spec(C, at(p).type).p, ...spec(A, at(p).type).p]);
-
-function buildRegistry(entries, defaultTriggers) {
-    const reg = {};
-    for (const e of entries) {
-        const key = e.properties.type.const;
-        const emoji = e.title.split(" ")[0];
-        const rest = e.title.slice(emoji.length).trim();
-        const o = e.options || {};
-        const fields = Object.entries(e.properties).filter(([k]) => k !== "type");
-        const entry = {
-            g: emoji,
-            grp: GROUPS[emoji] || "Other",
-            full: e.title,
-            name: rest,
-            help: e.description ? md(e.description) : "",
-            /* The first sentence, for the type picker. */
-            gist: e.description ? md(e.description.split(/(?<=[a-z)`]\.)\s+(?=[A-Z*_])/)[0]) : "",
-            t: o.short || rest.replace(/^(Message|Author|This Condition)\s+/, ""),
-            rank: o.execution_rank || 0,
-            coveredBy: o.covered_by || [],
-            triggers: o.triggers || defaultTriggers,
-            p: fields.map(fieldOf),
-            def: Object.fromEntries(fields.map(([k, pr]) => [k, defaultFor(pr)])),
-        };
-        entry.sum = (v) =>
-            o.summary
-                ? tpl(o.summary, v)
-                : [
-                    ...entry.p.filter((f) => f.kind === "int").map((f) => `${f.k} ${v[f.k]}`),
-                    choiceSummary(entry.p.filter((f) => f.kind === "choice"), v),
-                ]
-                    .filter(Boolean)
-                    .join(" · ");
-        entry.say = (v) => (o.phrase ? tpl(o.phrase, v) : entry.t.toLowerCase());
-        reg[key] = entry;
-    }
-    return reg;
-}
-
-/* Changing a type carries across anything the new type also has, under the
-   same name and of the same kind — which is what keeps the whole subtree when
-   All becomes Any, and the domains when one link condition becomes another
-   (US-G4). */
-function retype(oldNode, nextType, registry) {
-    const next = { type: nextType, ...clone(spec(registry, nextType).def) };
-    const wasFields = spec(registry, oldNode.type).p;
-    for (const f of spec(registry, nextType).p) {
-        const was = wasFields.find((x) => x.k === f.k);
-        if (was && was.kind === f.kind && oldNode[f.k] !== undefined) next[f.k] = clone(oldNode[f.k]);
-    }
-    return next;
-}
-
-/* ------------------------------- rules ---------------------------------- */
-
-const trig = (r) => r.trigger || T[0].v;
-const tinfo = (r) => T.find((t) => t.v === trig(r)) || T[0];
-const isOn = (r) => r.enabled !== false;
-const works = (s, r) => s.unknown || s.triggers.includes(trig(r));
-
-/* What keeps a rule from being sent: no condition where its trigger needs
-   one, or no action at all (US-G14). */
-function issueOf(r) {
-    if (!r.condition && !tinfo(r).optional) return "condition";
-    if (!r.actions || !r.actions.length) return "action";
-    return null;
-}
-
-const actionWords = (r) => (r.actions || []).map((a) => `${spec(A, a.type).g} ${spec(A, a.type).say(a)}`).join(" · ");
-const condWords = (r) => (r.condition ? say(r.condition) : tinfo(r).everyone);
-const rulePhrase = (r) => `IF ${condWords(r)} THEN ${actionWords(r)}`;
-
-/* How a rule is called everywhere: its name, or what it does (US-G1). */
-const titleOf = (r) => r.name || (issueOf(r) ? "New rule" : rulePhrase(r));
-
-/* The rules of one section, with their place in the whole list. */
-const sectionOf = (v) => state.rules.map((r, i) => [r, i]).filter(([r]) => trig(r) === v);
-
-/* ------------------------------ tree walking --------------------------- */
-
-const at = (p) => p.split(".").reduce((o, k) => o[k], state);
-const parentOf = (p) => ({ o: at(p.slice(0, p.lastIndexOf("."))), k: p.slice(p.lastIndexOf(".") + 1) });
-
-/* Composites are found through the schema's own shape, not by name. */
-const childKeyOf = (n) => (spec(C, n.type).p.find((f) => f.kind === "child") || {}).k;
-const childrenKeyOf = (n) => (spec(C, n.type).p.find((f) => f.kind === "children") || {}).k;
-const isComposite = (n) => !!(childKeyOf(n) || childrenKeyOf(n));
-
-function depthOf(n) {
-    if (!n) return 0;
-    const one = childKeyOf(n), many = childrenKeyOf(n);
-    if (one && n[one]) return 1 + depthOf(n[one]);
-    if (many) return 1 + Math.max(0, ...(n[many] || []).map(depthOf));
-    return 1;
-}
-
-function nodesOf(n) {
-    if (!n) return 0;
-    const one = childKeyOf(n), many = childrenKeyOf(n);
-    if (one && n[one]) return 1 + nodesOf(n[one]);
-    if (many) return 1 + (n[many] || []).reduce((s, x) => s + nodesOf(x), 0);
-    return 1;
-}
-
-function foldAll(n, path, set) {
-    set.add(path);
-    const one = childKeyOf(n), many = childrenKeyOf(n);
-    if (one && n[one]) foldAll(n[one], `${path}.${one}`, set);
-    else if (many) (n[many] || []).forEach((x, j) => foldAll(x, `${path}.${many}.${j}`, set));
-}
-
-const fresh = (reg, type) => ({ type, ...clone(reg[type].def) });
-
-/* The container a new condition joins when the rule has a single one already:
-   the composite that holds many and is not NOT — found by shape, not name. */
-const andType = () => Object.keys(C).find((k) => C[k].p.some((f) => f.kind === "children"));
-
-/* --------------------------------- URL --------------------------------- */
-
-/* The hash is the transport: it is rewritten on every change so the address
-   bar (and therefore the copied link) is always what the bot would store. */
-function hashParts() {
-    const compressed = LZString.compressToEncodedURIComponent(JSON.stringify(config()));
-    return (
-        (state.botId ? `bot_id=${state.botId}&` : "") +
-        (state.groupName ? `group=${encodeURIComponent(state.groupName)}&` : "") +
-        `config=${compressed}`
-    );
-}
-
-function syncHash() {
-    /* Keep whatever navigation state this entry carries: the pages live in the
-       history. */
-    history.replaceState(history.state, "", "#" + hashParts());
-}
-
-/* Each page is an entry in the history, so the browser's Back goes back a
-   page instead of leaving the editor (US-G3). */
-function goTo(view, extra = {}, replace = false) {
-    state.view = view;
-    if (extra.sel !== undefined) state.sel = extra.sel;
-    if (extra.trigger !== undefined) state.newTrigger = extra.trigger;
-    state.showTemplates = !!extra.templates;
-    state.focus = null;
-    state.menu = null;
-    history[replace ? "replaceState" : "pushState"]({ v: view, i: state.sel, t: state.newTrigger }, "", location.hash);
-    window.scrollTo(0, 0);
-}
-
-window.addEventListener("popstate", (e) => {
-    const entry = e.state || {};
-    state.view = ["rule", "new"].includes(entry.v) ? entry.v : "overview";
-    if (typeof entry.i === "number") state.sel = entry.i;
-    if (entry.t) state.newTrigger = entry.t;
-    if (state.view === "rule" && !state.rules[state.sel]) state.view = "overview";
-    state.showTemplates = false;
-    state.focus = null;
-    state.menu = null;
-    render();
-});
-
-/* The draft lives only in this tab: the link in the chat still holds the old
-   config until the owner sends a new one. */
-window.addEventListener("beforeunload", (e) => {
-    if (canon(state.baseline) !== canon(config())) e.preventDefault();
-});
-
-function parseHash() {
-    const out = {};
-    for (const part of location.hash.slice(1).split("&")) {
-        const i = part.indexOf("=");
-        if (i >= 0) out[part.slice(0, i)] = part.slice(i + 1);
-    }
-    return out;
-}
-
-/* ------------------------------ rendering ------------------------------ */
+const ICON = {
+    more: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="4" cy="10" r="1.6"/><circle cx="10" cy="10" r="1.6"/><circle cx="16" cy="10" r="1.6"/></svg>',
+    info: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="9.25" y="8.5" width="1.5" height="5.5" rx=".75"/><circle cx="10" cy="6.2" r="1"/></svg>',
+    chevron: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 8l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    grip: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="7" cy="5" r="1.4"/><circle cx="13" cy="5" r="1.4"/><circle cx="7" cy="10" r="1.4"/><circle cx="13" cy="10" r="1.4"/><circle cx="7" cy="15" r="1.4"/><circle cx="13" cy="15" r="1.4"/></svg>',
+    back: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    plus: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>',
+    focus: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 8V4h4M16 8V4h-4M4 12v4h4M16 12v4h-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+};
 
 function toast(text) {
     const el = document.createElement("div");
@@ -524,932 +122,1053 @@ function toast(text) {
     el.setAttribute("role", "status");
     el.textContent = text;
     document.body.appendChild(el);
-    setTimeout(() => el.remove(), 2800);
+    setTimeout(() => el.remove(), 3000);
 }
 
-/* A ⋯ or ⋮ button and the menu it opens. `items` are [label, data-attrs,
-   extra class]. */
-function menuHtml(id, label, glyph, items) {
-    const open = state.menu === id;
-    return `<div class="menu"><button class="ico" type="button" data-op="menu" data-p="${esc(id)}"
-      aria-haspopup="menu" aria-expanded="${open}" aria-label="${esc(label)}">${glyph}</button>
-      ${open
-            ? `<div class="pop" role="menu">${items
-                .map(([text, attrs, cls]) => `<button type="button" role="menuitem" ${attrs} ${cls ? `class="${cls}"` : ""}>${esc(text)}</button>`)
+/* -------------------------------------------------------------------------- */
+/* The schema                                                                  */
+/* -------------------------------------------------------------------------- */
+
+function kindOf(pr) {
+    if (pr.$ref) return "child";
+    if (pr.type === "array") return pr.items && pr.items.$ref ? "children" : "list";
+    if (pr.type === "boolean") return "bool";
+    if (pr.type === "integer" || pr.type === "number") return "int";
+    if (pr.type === "string" && pr.format === "password") return "secret";
+    if (pr.type === "string" && pr.format === "textarea") return "prose";
+    if (pr.oneOf) return "choice";
+    return "text";
+}
+
+function defaultOf(pr) {
+    if ("default" in pr) return clone(pr.default);
+    const k = kindOf(pr);
+    if (k === "list" || k === "children") return [];
+    if (k === "bool") return false;
+    if (k === "int") return pr.minimum ?? 0;
+    if (k === "choice") {
+        const first = (pr.oneOf || []).find((b) => "const" in b);
+        return first ? first.const : 0;
+    }
+    return "";
+}
+
+/* A field read off its schema property: its control, label, description and
+   limits. */
+function fieldOf(key, pr) {
+    const branches = pr.oneOf || [];
+    const num = branches.find((b) => b.type === "integer" || b.type === "number");
+    return {
+        key,
+        kind: kindOf(pr),
+        label: (pr.options && pr.options.label) || pr.title || key,
+        hint: pr.description || "",
+        min: pr.minimum ?? (num && num.minimum),
+        max: pr.maximum ?? (num && num.maximum),
+        maxItems: pr.maxItems,
+        maxLength: pr.items ? pr.items.maxLength : pr.maxLength,
+        choices: branches.filter((b) => "const" in b).map((b) => ({ v: b.const, t: b.title || String(b.const), o: b.options || {} })),
+        num,
+        unit: (num && num.options && num.options.unit) || "",
+        def: defaultOf(pr),
+    };
+}
+
+const choiceText = (f, v) => (typeof v === "number" ? `${v}${f.unit}` : (f.choices.find((c) => c.v === v) || { t: String(v) }).t);
+
+/* {field} · {field|n} · {field|list} · {field|phrase(s)} · {field?yes:no}, $ = the value */
+function fill(template, v) {
+    return template.replace(/\{([a-z_]+)(?:\?([^:}]*):([^}]*)|\|(n|list|phrase|phrases))?\}/g, (m, f, yes, no, mod) => {
+        const x = v[f];
+        if (yes !== undefined) return (x ? yes : no).replace(/\$/g, x);
+        if (mod === "n") return (x || []).length;
+        if (mod === "list") return (x || []).length ? x.slice(0, 2).join(", ") + (x.length > 2 ? ` +${x.length - 2}` : "") : "empty";
+        if (mod === "phrase") return x ? phraseOf(x) : "";
+        if (mod === "phrases") return (x || []).map(phraseOf).join("; ");
+        return x;
+    });
+}
+
+function registry(entries, triggersByDefault, isAction) {
+    const out = {};
+    for (const e of entries) {
+        const type = e.properties.type.const;
+        const emoji = e.title.split(" ")[0];
+        const o = e.options || {};
+        const fields = Object.entries(e.properties).filter(([k]) => k !== "type").map(([k, pr]) => fieldOf(k, pr));
+        const title = e.title.slice(emoji.length).trim();
+        out[type] = {
+            type,
+            emoji,
+            title,
+            subject: isAction ? "Actions" : SUBJECTS[emoji] || "Combine",
+            help: e.description || "",
+            gist: e.description ? e.description.split(/(?<=[a-z)`]\.)\s+(?=[A-Z*_])/)[0] : "",
+            triggers: o.triggers || triggersByDefault,
+            rank: o.execution_rank || 0,
+            coveredBy: o.covered_by || [],
+            joiner: ((title.match(/\(([A-Z]+)\)\s*$/) || [])[1] || "").toLowerCase(),
+            fields,
+            summary: (v) => (o.summary ? fill(o.summary, v) : ""),
+            phrase: (v) => (o.phrase ? fill(o.phrase, v) : title.toLowerCase()),
+            defaults: () => Object.fromEntries(fields.map((f) => [f.key, clone(f.def)])),
+        };
+    }
+    return out;
+}
+
+/* A type a newer bot stored, that this page's schema does not have: it shows,
+   and above all it goes back to the bot untouched. */
+const unknown = (type) => ({
+    type,
+    emoji: "❓",
+    title: `${type} (unknown)`,
+    subject: "Other",
+    help: "This type is not in this editor's schema. It is kept as it is — leave it alone unless you mean to replace it.",
+    gist: "",
+    triggers: null,
+    rank: 0,
+    coveredBy: [],
+    joiner: "",
+    fields: [],
+    unknown: true,
+    summary: () => "",
+    phrase: () => type,
+    defaults: () => ({}),
+});
+
+const cond = (type) => C[type] || unknown(type);
+const act = (type) => A[type] || unknown(type);
+const phraseOf = (n) => cond(n.type).phrase(n);
+
+/* -------------------------------------------------------------------------- */
+/* Rules                                                                       */
+/* -------------------------------------------------------------------------- */
+
+const triggerOf = (r) => T.find((t) => t.v === (r.trigger || T[0].v)) || T[0];
+const isOn = (r) => r.enabled !== false;
+const fits = (spec, r) => spec.unknown || spec.triggers.includes(triggerOf(r).v);
+
+/* What keeps the bot from taking a rule (US-G14). */
+function missing(r) {
+    if (!r.condition && !triggerOf(r).optional) return "condition";
+    if (!(r.actions || []).length) return "action";
+    return null;
+}
+
+const actionWords = (r) => (r.actions || []).map((a) => `${act(a.type).emoji} ${act(a.type).phrase(a)}`).join(" · ");
+const condWords = (r) => (r.condition ? phraseOf(r.condition) : triggerOf(r).everyone);
+const sentence = (r) => `IF ${condWords(r)} THEN ${actionWords(r)}`;
+
+/* A rule is called by its name, or by what it does (US-G1). */
+const titleOf = (r) => r.name || (missing(r) ? "New rule" : sentence(r));
+
+const inSection = (v) => st.rules.map((r, i) => [r, i]).filter(([r]) => triggerOf(r).v === v);
+
+/* -------------------------------------------------------------------------- */
+/* Condition trees                                                             */
+/* -------------------------------------------------------------------------- */
+
+/* A path is dotted keys from st: "rules.2.condition.conditions.0". */
+const at = (path) => path.split(".").reduce((o, k) => o[k], st);
+const parent = (path) => {
+    const i = path.lastIndexOf(".");
+    return { holder: at(path.slice(0, i)), key: path.slice(i + 1) };
+};
+
+const oneKey = (n) => (cond(n.type).fields.find((f) => f.kind === "child") || {}).key;
+const manyKey = (n) => (cond(n.type).fields.find((f) => f.kind === "children") || {}).key;
+const andType = () => Object.keys(C).find((k) => C[k].fields.some((f) => f.kind === "children"));
+
+function depth(n) {
+    if (!n) return 0;
+    const one = oneKey(n), many = manyKey(n);
+    if (one) return 1 + depth(n[one]);
+    if (many) return 1 + Math.max(0, ...(n[many] || []).map(depth));
+    return 1;
+}
+
+function count(n) {
+    if (!n) return 0;
+    const one = oneKey(n), many = manyKey(n);
+    if (one) return 1 + count(n[one]);
+    if (many) return 1 + (n[many] || []).reduce((s, x) => s + count(x), 0);
+    return 1;
+}
+
+function foldAll(n, path, set) {
+    if (!n) return;
+    set.add(path);
+    const one = oneKey(n), many = manyKey(n);
+    if (one) foldAll(n[one], `${path}.${one}`, set);
+    if (many) (n[many] || []).forEach((x, i) => foldAll(x, `${path}.${many}.${i}`, set));
+}
+
+const fresh = (spec) => ({ type: spec.type, ...spec.defaults() });
+
+/* A new type keeps every field the old one had under the same name and kind,
+   so All becomes Any with its whole subtree, and one link condition another
+   with its domains (US-G4). */
+function retype(old, spec, oldSpec) {
+    const next = fresh(spec);
+    for (const f of spec.fields) {
+        const was = oldSpec.fields.find((x) => x.key === f.key);
+        if (was && was.kind === f.kind && old[f.key] !== undefined) next[f.key] = clone(old[f.key]);
+    }
+    return next;
+}
+
+/* -------------------------------------------------------------------------- */
+/* History, the link, the pages                                                */
+/* -------------------------------------------------------------------------- */
+
+const config = () => ({ ...st.settings, rules: st.rules });
+const snapshot = () => clone(config());
+
+function restore(c) {
+    const { rules, ...settings } = c;
+    st.rules = rules;
+    st.settings = settings;
+}
+
+/* Every edit goes through `edit`, so nothing escapes Undo, and an edit that
+   changes nothing leaves no step behind. */
+function edit(change) {
+    const before = snapshot();
+    const result = change();
+    if (canon(before) !== canon(config())) {
+        st.history.push(before);
+        if (st.history.length > UNDO_LIMIT) st.history.shift();
+        st.future = [];
+    }
+    return result;
+}
+
+function travel(from, to, word) {
+    const target = from.pop();
+    if (!target) return;
+    to.push(snapshot());
+    restore(target);
+    if (st.view === "rule" && !st.rules[st.sel]) st.view = "home";
+    st.menu = null;
+    render();
+    toast(word);
+}
+
+const undo = () => travel(st.history, st.future, "Undone.");
+const redo = () => travel(st.future, st.history, "Redone.");
+
+function hashOf() {
+    const packed = LZString.compressToEncodedURIComponent(JSON.stringify(config()));
+    return (st.botId ? `bot_id=${st.botId}&` : "") + (st.group ? `group=${encodeURIComponent(st.group)}&` : "") + `config=${packed}`;
+}
+
+/* The message the owner sends. The bot finds the URL anywhere in it. */
+const linkMessage = () =>
+    `[Settings for ${st.group ? st.group.replace(/[[\]]/g, "") : `group ${st.botId}`}](${BASE_URL}#${hashOf()})`;
+
+/* A page is a history entry, so Back goes back a page (US-G3). */
+function go(view, { sel, trigger, replace } = {}) {
+    st.view = view;
+    if (sel !== undefined) st.sel = sel;
+    if (trigger !== undefined) st.trigger = trigger;
+    st.templates = false;
+    st.menu = null;
+    st.only = null;
+    history[replace ? "replaceState" : "pushState"]({ view, sel: st.sel, trigger: st.trigger }, "", location.hash);
+    render();
+    window.scrollTo(0, 0);
+    const h = $("page-h");
+    if (h) h.focus({ preventScroll: true });
+}
+
+window.addEventListener("popstate", (e) => {
+    const s = e.state || {};
+    st.view = s.view === "rule" && st.rules[s.sel] ? "rule" : s.view === "new" ? "new" : "home";
+    if (typeof s.sel === "number") st.sel = s.sel;
+    if (s.trigger) st.trigger = s.trigger;
+    st.templates = false;
+    st.menu = null;
+    render();
+});
+
+/* The draft lives in this tab only, until its link is sent. */
+window.addEventListener("beforeunload", (e) => {
+    if (canon(st.baseline) !== canon(config())) e.preventDefault();
+});
+
+/* -------------------------------------------------------------------------- */
+/* Rendering                                                                   */
+/* -------------------------------------------------------------------------- */
+
+const groupTitle = () => st.group || (st.botId ? `Group ${st.botId}` : "Group settings");
+
+function render() {
+    if (st.view === "rule" && !st.rules[st.sel]) st.view = "home";
+    /* The focus survives a render when its element does. */
+    const focused = document.activeElement && document.activeElement.id;
+    renderBar();
+    const app = $("app");
+    app.dataset.view = st.view;
+    app.innerHTML = st.view === "rule" ? rulePage() : st.view === "new" ? newPage() : homePage();
+    history.replaceState(history.state, "", "#" + hashOf());
+    if (focused && $(focused) && document.activeElement === document.body) $(focused).focus({ preventScroll: true });
+}
+
+/* A ⋯ or ⋮ button and the menu it opens; `items` are [label, attributes,
+   danger?]. */
+function menuInner(id, label, items, icon = ICON.more) {
+    const open = st.menu === id;
+    return `<button class="icon" type="button" id="m-${esc(id)}" data-op="menu" data-menu="${esc(id)}"
+      aria-haspopup="menu" aria-expanded="${open}" aria-label="${esc(label)}">${icon}</button>${open
+            ? `<div class="pop" role="menu" aria-label="${esc(label)}">${items
+                .map(([text, attrs, danger]) => `<button type="button" role="menuitem" tabindex="-1" ${attrs}${danger ? ' class="danger"' : ""}>${esc(text)}</button>`)
                 .join("")}</div>`
             : ""
-        }</div>`;
+        }`;
 }
 
-/* ---- the overview ---- */
+const menu = (id, label, items) => (items.length ? `<div class="menu">${menuInner(id, label, items)}</div>` : `<span class="icon-space"></span>`);
+
+function renderBar() {
+    $("where").innerHTML =
+        st.view === "home"
+            ? `<h1 id="page-h" tabindex="-1">${esc(groupTitle())}</h1>
+         <p>Moderation settings · <a href="https://simplex-directory.asriyan.me/#/bots/63d110f4-9f70-4128-b0e7-5a8958299f96" target="_blank" rel="noopener">Moderator Bot</a></p>`
+            : `<button class="back" type="button" data-op="home" id="back">${ICON.back}<span>${esc(groupTitle())}</span></button>`;
+    document.title = `${groupTitle()} — Moderation settings`;
+    $("undo").hidden = !st.history.length;
+    $("redo").hidden = !st.future.length;
+    const n = changeCount();
+    $("apply").textContent = n ? `Apply ${plural(n, "change")}` : "Apply changes";
+    const g = $("gmenu");
+    g.hidden = st.view !== "home";
+    g.innerHTML = menuInner("global", "More", [
+        ["Edit all with AI", 'data-op="ai-all"'],
+        ["Import JSON", 'data-op="import"'],
+        ["Export JSON", 'data-op="export"'],
+    ]);
+
+    /* A setting's value may carry a banner, shown on every page while it holds
+       (US-G2, Dry). */
+    const banners = S.filter((f) => f.kind === "choice")
+        .map((f) => (f.choices.find((c) => c.v === st.settings[f.key]) || { o: {} }).o.banner)
+        .filter(Boolean);
+    $("banner").hidden = !banners.length;
+    $("banner").textContent = banners.join(" ");
+}
+
+/* ---------------------------- the group ---------------------------------- */
 
 function settingsHtml() {
-    return S.p
-        .map((f) => {
-            const pr = S.props[f.k];
-            /* A setting of a few named values whose titles read "Name — what it
-               does" is a row of choices, each with its line (US-G2). */
-            const segmented = f.kind === "choice" && !f.num && f.choices.every((c) => c.t.includes(" — "));
-            if (!segmented)
-                return `<section class="card" aria-label="${esc(f.label)}"><div class="params">${params(S, state.settings, "settings")}</div></section>`;
-            const id = `set-${f.k}`;
-            return `<section class="card setting" aria-labelledby="${id}-h">
-          <div class="card-head"><h2 id="${id}-h">${esc(pr.title || f.k)}</h2>
-            <button class="ico" type="button" data-op="help" data-p="settings" aria-expanded="${state.helped.has("settings")}"
-              aria-label="About ${esc(f.label.replace(/^\S+\s/, ""))}">ⓘ</button></div>
-          ${state.helped.has("settings") && pr.description ? `<div class="help">${md(pr.description)}</div>` : ""}
-          <div class="seg" role="radiogroup" aria-labelledby="${id}-h">
-          ${f.choices
-                    .map((c, i) => {
-                        const [name, line] = c.t.split(" — ");
-                        const on = state.settings[f.k] === c.v;
-                        return `<label class="segopt${on ? " on" : ""}">
-              <input type="radio" name="${id}" id="${id}-c${i}" value="c${i}" ${on ? "checked" : ""} data-op="choice" data-p="settings" data-k="${f.k}">
-              <span class="segname">${esc(name)}</span>
-              <span class="segline">${esc(line.charAt(0).toUpperCase() + line.slice(1))}</span></label>`;
-                    })
-                    .join("")}
-          </div></section>`;
-        })
-        .join("");
+    return S.map((f) => {
+        const pr = SCHEMA.properties[f.key];
+        const id = `set-${f.key}`;
+        const name = (pr.title || f.key).replace(/^\S+\s/, "");
+        /* A few named values whose titles read "Name — what it does" are a row
+           of choices, each with its line (US-G2). */
+        const segmented = f.kind === "choice" && !f.num && f.choices.every((c) => c.t.includes(" — "));
+        const body = segmented
+            ? `<div class="segments" role="radiogroup" aria-labelledby="${id}-h">${f.choices
+                .map((c, i) => {
+                    const [label, line] = c.t.split(" — ");
+                    const on = st.settings[f.key] === c.v;
+                    return `<label class="segment${on ? " on" : ""}"><input type="radio" name="${id}" id="${id}-${i}" value="${i}"
+                ${on ? "checked" : ""} data-op="setting" data-key="${f.key}"><b>${esc(label)}</b><span>${esc(line[0].toUpperCase() + line.slice(1))}</span></label>`;
+                })
+                .join("")}</div>`
+            : `<div class="fields">${fieldsHtml([f], st.settings, "settings")}</div>`;
+        return `<section class="block" aria-labelledby="${id}-h">
+        <div class="block-head"><h2 id="${id}-h">${esc(pr.title || f.key)}</h2>
+          ${pr.description ? `<button class="icon" type="button" id="help-${id}" data-op="help" data-key="${id}" aria-expanded="${st.help.has(id)}" aria-label="About ${esc(name)}">${ICON.info}</button>` : ""}
+        </div>
+        ${st.help.has(id) ? `<div class="help">${md(pr.description)}</div>` : ""}
+        ${body}</section>`;
+    }).join("");
 }
 
-function ruleRowHtml(r, i, pos, count) {
-    const title = titleOf(r), issue = issueOf(r), on = isOn(r);
-    /* A rule without a name reads as its phrase, which names its actions. */
-    const icons = r.name ? (r.actions || []).map((a) => spec(A, a.type).g).join(" ") : "";
-    return `<li class="rrow${on ? "" : " off"}" data-i="${i}">
-      <button class="handle" type="button" data-drag="${i}" aria-label="Move “${esc(title)}”"
-        aria-describedby="move-hint">⠿</button>
-      <button class="ropen" type="button" data-op="open" data-i="${i}">
-        <span class="rtitle${r.name ? "" : " phrase"}">${esc(title)}</span>
-        <span class="rmeta">
-          ${icons ? `<span class="ricons" aria-hidden="true">${icons}</span>` : ""}
-          ${issue ? `<span class="badge warn">Incomplete</span>` : ""}
-          ${on ? "" : `<span class="badge">Off</span>`}
-        </span>
+function rowHtml(r, i, pos, total) {
+    const title = titleOf(r), gap = missing(r), on = isOn(r);
+    const words = r.name ? actionWords(r) : "";
+    const sub = words || gap || !on;
+    return `<li class="item${on ? "" : " off"}" data-i="${i}">
+      <button class="grip" type="button" id="grip-${i}" data-drag="${i}" aria-label="Move “${esc(title)}”" aria-describedby="move-hint">${ICON.grip}</button>
+      <button class="item-main" type="button" id="open-${i}" data-op="open" data-i="${i}" aria-labelledby="t-${i}"${sub ? ` aria-describedby="d-${i}"` : ""}>
+        <span class="item-title${r.name ? "" : " plain"}" id="t-${i}">${esc(title)}</span>
+        ${sub ? `<span class="item-sub" id="d-${i}">${words ? `<span>${esc(words)}</span>` : ""}${gap ? `<span class="tag warn">Incomplete</span>` : ""}${on ? "" : `<span class="tag">Off</span>`}</span>` : ""}
       </button>
-      <button class="switch" type="button" role="switch" aria-checked="${on}" data-op="toggle" data-i="${i}"
-        aria-label="${esc(title)}"><span class="knob"></span></button>
-      ${count > 1
-            ? menuHtml(`r:${i}`, `More for “${title}”`, "⋯", [
-                ...(pos > 0 ? [["Move up", `data-op="rmove" data-i="${i}" data-d="-1"`]] : []),
-                ...(pos < count - 1 ? [["Move down", `data-op="rmove" data-i="${i}" data-d="1"`]] : []),
-            ])
-            : `<span class="menu-sp"></span>`}
+      <button class="switch" type="button" role="switch" id="sw-${i}" aria-checked="${on}" data-op="toggle" data-i="${i}" aria-label="${esc(title)}"><span></span></button>
+      ${menu(`r${i}`, `More for “${title}”`, [
+        ...(pos > 0 ? [["Move up", `data-op="move" data-i="${i}" data-d="-1"`]] : []),
+        ...(pos < total - 1 ? [["Move down", `data-op="move" data-i="${i}" data-d="1"`]] : []),
+    ])}
     </li>`;
 }
 
-function renderOverview(host) {
+function homePage() {
     const sections = T.map((t) => {
-        const rows = sectionOf(t.v);
-        const id = `sec-${t.v}`;
-        return `<section class="card section" aria-labelledby="${id}" data-trigger="${esc(t.v)}">
-        <div class="card-head">
-          <div><h2 id="${id}">${esc(t.section)}</h2><p class="muted">Checked top to bottom.</p></div>
-          <button class="btn sm" type="button" data-op="newrule" data-t="${esc(t.v)}"
-            aria-label="+ Add rule ${esc(t.newRule.replace(/^When /, "when "))}">+ Add rule</button>
+        const rows = inSection(t.v);
+        return `<section class="block" aria-labelledby="sec-${t.v}" data-trigger="${esc(t.v)}">
+        <div class="block-head">
+          <div><h2 id="sec-${t.v}">${esc(t.section)}</h2><p class="sub">Checked top to bottom.</p></div>
+          <button class="btn" type="button" id="add-${t.v}" data-op="new" data-t="${esc(t.v)}"
+            aria-label="+ Add rule ${esc(t.newRule.replace(/^When /, "when "))}">${ICON.plus}<span>Add rule</span></button>
         </div>
         ${rows.length
-                ? `<ol class="rlist">${rows.map(([r, i], pos) => ruleRowHtml(r, i, pos, rows.length)).join("")}</ol>`
-                : `<p class="empty">${esc(t.empty)}</p>`
-            }
+                ? `<ol class="list">${rows.map(([r, i], pos) => rowHtml(r, i, pos, rows.length)).join("")}</ol>`
+                : `<p class="empty">${esc(t.empty)}</p>`}
       </section>`;
     }).join("");
 
-    host.innerHTML = `
+    return `
+      ${st.unreadable ? `<p class="alert bad" role="alert">The settings in this link could not be read. Starting from scratch.</p>` : ""}
       <div class="how">
-        <button type="button" class="lnk" data-op="how" aria-expanded="${!!state.howOpen}" aria-controls="how-text">How this works</button>
-        <p id="how-text" ${state.howOpen ? "" : "hidden"}>${md(SCHEMA.description)}</p>
+        <button class="link" type="button" id="how" data-op="how" aria-expanded="${st.how}" aria-controls="how-text">How this works</button>
+        <p id="how-text"${st.how ? "" : " hidden"}>${md(SCHEMA.description)}</p>
       </div>
       ${settingsHtml()}
       ${sections}
       <p class="sr-only" id="move-hint">Drag to move it up or down, or use the arrow keys.</p>`;
 }
 
-/* ---- one rule ---- */
+/* ------------------------------ fields ----------------------------------- */
 
-/* A field's own description, under it, always in view (US-G3). */
-const hintHtml = (f, id) => (f.hint ? `<p class="fhint" id="${id}-h">${f.hint}</p>` : "");
-const described = (f, id) => (f.hint ? `aria-describedby="${id}-h"` : "");
-
-function params(s, val, path) {
-    return s.p
-        .filter((f) => f.kind !== "children" && f.kind !== "child")
+function fieldsHtml(fields, value, path) {
+    return fields
+        .filter((f) => f.kind !== "child" && f.kind !== "children")
         .map((f) => {
-            const id = `f-${path}-${f.k}`;
-            if (f.kind === "int")
-                return `<div class="fld"><label for="${id}" class="flabel">${esc(f.label)}</label>
-        <input type="number" id="${id}" value="${esc(val[f.k])}" inputmode="numeric"
-          min="${f.min ?? 0}" ${f.max != null ? `max="${f.max}"` : ""} ${described(f, id)}
-          data-op="num" data-p="${path}" data-k="${f.k}">${hintHtml(f, id)}</div>`;
+            const id = `f-${path}-${f.key}`;
+            const hint = f.hint ? `<p class="hint" id="${id}-h">${md(f.hint)}</p>` : "";
+            const desc = f.hint ? ` aria-describedby="${id}-h"` : "";
+            const label = `<label class="label" for="${id}">${esc(f.label)}</label>`;
+            const v = value[f.key];
+            const data = `data-path="${path}" data-key="${f.key}"`;
 
-            if (f.kind === "password") {
-                const key = `${path}.${f.k}`, shown = state.revealed.has(key);
-                return `<div class="fld wide"><label for="${id}" class="flabel">${esc(f.label)}</label>
-        <div class="pw"><input type="${shown ? "text" : "password"}" id="${id}" value="${esc(val[f.k] ?? "")}"
-          autocomplete="off" spellcheck="false" ${f.maxLength ? `maxlength="${f.maxLength}"` : ""} ${described(f, id)}
-          data-op="text" data-p="${path}" data-k="${f.k}">
-        <button type="button" class="btn sm" data-op="reveal" data-key="${key}"
-          aria-label="${shown ? "Hide" : "Show"} ${esc(f.label)}">${shown ? "Hide" : "Show"}</button></div>${hintHtml(f, id)}</div>`;
-            }
+            if (f.kind === "int")
+                return `<div class="field">${label}<input type="number" inputmode="numeric" id="${id}" value="${esc(v)}"
+          ${f.min != null ? `min="${f.min}"` : ""} ${f.max != null ? `max="${f.max}"` : ""}${desc} data-op="num" ${data}>${hint}</div>`;
+
+            if (f.kind === "bool")
+                return `<div class="field wide"><label class="check"><input type="checkbox" id="${id}" ${v ? "checked" : ""}${desc}
+          data-op="bool" ${data}><span>${esc(f.label)}</span></label>${hint}</div>`;
 
             if (f.kind === "text")
-                return `<div class="fld wide"><label for="${id}" class="flabel">${esc(f.label)}</label>
-        <input type="text" class="txt" id="${id}" value="${esc(val[f.k] ?? "")}" spellcheck="false"
-          ${f.maxLength ? `maxlength="${f.maxLength}"` : ""} ${described(f, id)}
-          data-op="text" data-p="${path}" data-k="${f.k}">${hintHtml(f, id)}</div>`;
+                return `<div class="field wide">${label}<input type="text" id="${id}" value="${esc(v)}" spellcheck="false"
+          ${f.maxLength ? `maxlength="${f.maxLength}"` : ""}${desc} data-op="text" ${data}>${hint}</div>`;
 
-            if (f.kind === "textarea") {
-                const n = String(val[f.k] ?? "").length;
-                return `<div class="fld wide"><label for="${id}" class="flabel">${esc(f.label)}
-          <span class="count">${n}${f.maxLength ? ` / ${f.maxLength}` : ""}</span></label>
-        <textarea class="prose" id="${id}" rows="6" ${f.maxLength ? `maxlength="${f.maxLength}"` : ""} ${described(f, id)}
-          data-op="text" data-p="${path}" data-k="${f.k}">${esc(val[f.k] ?? "")}</textarea>${hintHtml(f, id)}</div>`;
+            if (f.kind === "prose")
+                return `<div class="field wide"><div class="label-row">${label}<span class="count">${String(v ?? "").length}${f.maxLength ? ` / ${f.maxLength}` : ""}</span></div>
+          <textarea id="${id}" rows="5" ${f.maxLength ? `maxlength="${f.maxLength}"` : ""}${desc} data-op="text" ${data}>${esc(v)}</textarea>${hint}</div>`;
+
+            if (f.kind === "secret") {
+                const key = `${path}.${f.key}`, shown = st.shown.has(key);
+                return `<div class="field wide">${label}<div class="joined"><input type="${shown ? "text" : "password"}" id="${id}" value="${esc(v)}"
+          autocomplete="off" spellcheck="false" ${f.maxLength ? `maxlength="${f.maxLength}"` : ""}${desc} data-op="text" ${data}>
+          <button class="btn" type="button" id="${id}-show" data-op="reveal" data-key="${esc(key)}" aria-label="${shown ? "Hide" : "Show"} ${esc(f.label)}">${shown ? "Hide" : "Show"}</button></div>${hint}</div>`;
             }
 
             if (f.kind === "choice") {
-                const cur = val[f.k], own = typeof cur === "number";
-                return `<div class="fld"><label for="${id}" class="flabel">${esc(f.label)}</label>
-        <div class="choice"><select id="${id}" data-op="choice" data-p="${path}" data-k="${f.k}" ${described(f, id)}>
-          ${f.choices.map((c, i) => `<option value="c${i}" ${cur === c.v ? "selected" : ""}>${esc(c.t)}</option>`).join("")}
-          ${f.num ? `<option value="n" ${own ? "selected" : ""}>${esc(f.num.title || "Custom")}</option>` : ""}
-        </select>${own
-                        ? `<input type="number" id="${id}-n" value="${esc(cur)}" aria-label="${esc(f.label)}, ${esc(f.num.title || "value")}"
-          min="${f.min ?? 0}" ${f.max != null ? `max="${f.max}"` : ""}
-          data-op="num" data-p="${path}" data-k="${f.k}">`
-                        : ""
-                    }</div>${hintHtml(f, id)}</div>`;
+                const own = typeof v === "number";
+                return `<div class="field">${label}<div class="joined"><select id="${id}"${desc} data-op="choice" ${data}>
+          ${f.choices.map((c, i) => `<option value="${i}" ${v === c.v ? "selected" : ""}>${esc(c.t)}</option>`).join("")}
+          ${f.num ? `<option value="n" ${own ? "selected" : ""}>${esc(f.num.title || "Custom")}</option>` : ""}</select>
+          ${own ? `<input type="number" id="${id}-n" value="${esc(v)}" aria-label="${esc(f.label)}: ${esc(f.num.title || "value")}"
+            ${f.min != null ? `min="${f.min}"` : ""} ${f.max != null ? `max="${f.max}"` : ""} data-op="num" ${data}>` : ""}</div>${hint}</div>`;
             }
 
-            if (f.kind === "bool")
-                return `<div class="fld wide"><label class="chk"><input type="checkbox" id="${id}" ${val[f.k] ? "checked" : ""}
-          data-op="bool" data-p="${path}" data-k="${f.k}" ${described(f, id)}> <span>${esc(f.label)}</span></label>${hintHtml(f, id)}</div>`;
+            /* A list: entries one by one, or as text to paste many at once. */
+            const items = v || [], key = `${path}.${f.key}`, big = items.length > BIG_LIST, bulk = st.bulk.has(key);
+            const head = `<div class="label-row"><label class="label" for="${id}${bulk ? "-t" : ""}">${esc(f.label)}</label>
+          <span class="count">${items.length}</span>
+          <button class="link small" type="button" id="${id}-mode" data-op="bulk" data-key="${esc(key)}"
+            aria-label="${bulk ? `Show ${esc(f.label)} as chips` : `Bulk edit ${esc(f.label)}`}">${bulk ? "chips" : "bulk edit"}</button></div>`;
+            if (bulk)
+                return `<div class="field wide">${head}${hint}
+          <textarea class="code" id="${id}-t" rows="9" spellcheck="false" aria-describedby="${id}-b" data-op="lines" ${data}>${esc(items.join("\n"))}</textarea>
+          <p class="hint" id="${id}-b">One per line; applied when you click away — this is how a long list gets pasted in, or replaced wholesale.${f.maxItems ? ` Up to ${f.maxItems} entries${f.maxLength ? `, ${f.maxLength} characters each` : ""}.` : ""}</p></div>`;
 
-            if (f.kind !== "strlist") return "";
-
-            /* A list of 3 domains and a list of 347 words are the same schema
-               kind but need different controls, so size picks the control. */
-            const items = val[f.k] || [], key = `${path}.${f.k}`, n = items.length, big = n > BIG_LIST;
-
-            if (state.bulk.has(key))
-                return `<div class="fld wide">
-          <div class="flabel"><label for="${id}-t">${esc(f.label)}</label> <span class="count">${n}</span>
-            <button type="button" class="lnk" data-op="bulk" data-key="${key}" aria-label="Show ${esc(f.label)} as chips">chips</button></div>
-          <textarea class="bulk" id="${id}-t" rows="9" spellcheck="false" aria-describedby="${id}-bh"
-            data-op="bulktext" data-p="${path}" data-k="${f.k}">${esc(items.join("\n"))}</textarea>
-          <p class="fhint" id="${id}-bh">One per line; applied when you click away — this is how a long list gets pasted in, or replaced wholesale.${f.maxItems ? ` Up to ${f.maxItems} entries${f.maxLength ? `, ${f.maxLength} characters each` : ""}.` : ""
-                    }</p></div>`;
-
-            const q = (state.q[key] || "").toLowerCase();
-            const shown = items.map((v, j) => [v, j]).filter(([v]) => !q || String(v).toLowerCase().includes(q));
-            const chips = shown
-                .map(
-                    ([v, j]) => `<li class="chip">${esc(v)}<button type="button" data-op="unchip" data-p="${path}" data-k="${f.k}"
-              data-j="${j}" aria-label="Remove ${esc(v)}">×</button></li>`
-                )
-                .join("");
-            return `<div class="fld wide">
-        <div class="flabel"><label for="${id}">${esc(f.label)}</label> <span class="count">${n}${q ? ` · ${shown.length} shown` : ""}</span>
-          <button type="button" class="lnk" data-op="bulk" data-key="${key}" aria-label="Bulk edit ${esc(f.label)}">bulk edit</button></div>
-        ${hintHtml(f, id)}
-        <div class="listtools">
-        <input class="chipin" id="${id}" placeholder="add + Enter" aria-label="Add to ${esc(f.label)}"
-          data-op="chip" data-p="${path}" data-k="${f.k}" enterkeyhint="done">
-        ${big
-                    ? `<input class="qbox" id="${id}-q" type="search" value="${esc(state.q[key] || "")}" placeholder="filter ${n} entries"
-              data-op="q" data-key="${key}" aria-label="Filter ${esc(f.label)}">`
-                    : ""
-                }</div>
-        ${n
-                    ? `<ul class="chips ${big ? "cap" : ""}" aria-label="${esc(f.label)}">${chips ||
-                    `<li class="nores">Nothing matches “${esc(state.q[key])}”.</li>`}</ul>`
-                    : ""
-                }</div>`;
-        })
-        .join("");
-}
-
-function helpBox(s) {
-    return `<div class="help">${s.help || esc(s.full)}</div>`;
-}
-
-function badgeIncompatible(s, r) {
-    return works(s, r) ? "" : `<span class="badge bad">${esc(tinfo(r).incompatible)}</span>`;
-}
-
-function node(n, path, d, r) {
-    const s = spec(C, n.type);
-    const one = childKeyOf(n), many = childrenKeyOf(n), composite = !!(one || many);
-    const collapsed = state.collapsed.has(path);
-    const sum = s.sum(n);
-    const hasParams = s.p.some((f) => f.kind !== "children" && f.kind !== "child");
-
-    let kids = "";
-    if (!collapsed && many) {
-        /* The button lives inside its own rail and borrows the tag from the
-           type's title — "(AND)", "(OR)" — so it is clear which container it
-           adds to. */
-        const tag = (s.full.match(/\(([^)]+)\)\s*$/) || [])[1];
-        kids = `<div class="kids">${(n[many] || []).map((x, j) => node(x, `${path}.${many}.${j}`, d + 1, r)).join("")}
-      <div class="kidfoot"><button class="btn sm ghost" type="button" data-op="pick" data-mode="addchild" data-p="${path}">+ Add to ${tag ? esc(tag) : "this"
-            }</button></div></div>`;
-    }
-    if (!collapsed && one && n[one]) kids = `<div class="kids">${node(n[one], `${path}.${one}`, d + 1, r)}</div>`;
-
-    const items = [
-        ["Change type…", `data-op="pick" data-mode="retype" data-p="${path}"`],
-        ["Wrap in NOT", `data-op="wrap" data-p="${path}" data-t="Not"`],
-        ["Wrap in AND", `data-op="wrap" data-p="${path}" data-t="All"`],
-        ...(composite ? [["Unwrap", `data-op="unwrap" data-p="${path}"`]] : []),
-        ["Delete", `data-op="del" data-p="${path}"`, "del"],
-    ];
-
-    return `<div class="node" data-d="${d}">
-    <div class="nrow">
-      ${composite || hasParams
-            ? `<button class="twist" type="button" data-op="fold" data-p="${path}" aria-expanded="${!collapsed}"
-        aria-label="${collapsed ? "Expand" : "Collapse"} “${esc(s.t)}”">${collapsed ? "▸" : "▾"}</button>`
-            : `<span class="twist-sp"></span>`
-        }
-      <span class="glyph" aria-hidden="true">${s.g}</span>
-      <span class="nmain"><span class="ntitle">${esc(s.t)}</span>
-      ${badgeIncompatible(s, r)}
-      ${collapsed && sum ? `<span class="nsum">${esc(sum)}</span>` : ""}</span>
-      ${composite && d >= 2 ? `<button class="ico" type="button" data-op="focus" data-p="${path}" aria-label="Show only “${esc(s.t)}”">⤢</button>` : ""}
-      <button class="ico" type="button" data-op="help" data-p="${path}" aria-expanded="${state.helped.has(path)}" aria-label="About “${esc(s.t)}”">ⓘ</button>
-      ${menuHtml(`n:${path}`, `More for “${s.t}”`, "⋮", items)}
-    </div>
-    ${state.helped.has(path) ? helpBox(s) : ""}
-    ${!collapsed && hasParams ? `<div class="params">${params(s, n, path)}</div>` : ""}
-    ${kids}</div>`;
-}
-
-/* `covered_by` is either a type name or that name plus the settings that make
-   the coverage true — kicking covers moderating the message only when it takes
-   the member's history with it. */
-function coversThis(cover, action) {
-    const type = typeof cover === "string" ? cover : cover.type;
-    if (action.type !== type) return false;
-    const when = typeof cover === "string" ? null : cover.when;
-    return !when || Object.entries(when).every(([k, v]) => action[k] === v);
-}
-
-function actionRows(r, ri) {
-    /* In the order the bot carries them out, which is not the order the owner
-       added them in (US-G3). */
-    const order = r.actions.map((a, j) => [a, j]).sort((x, y) => spec(A, x[0].type).rank - spec(A, y[0].type).rank);
-    return order
-        .map(([a, j]) => {
-            const s = spec(A, a.type), path = `rules.${ri}.actions.${j}`;
-            const covered = s.coveredBy.some((c) => r.actions.some((x) => coversThis(c, x)));
-            return `<div class="arow">
-        <div class="nrow">
-          <span class="glyph" aria-hidden="true">${s.g}</span>
-          <span class="nmain"><span class="ntitle">${esc(s.name)}</span>
-          ${badgeIncompatible(s, r)}
-          ${covered ? `<span class="badge">covered</span>` : ""}</span>
-          <button class="ico" type="button" data-op="help" data-p="${path}" aria-expanded="${state.helped.has(path)}" aria-label="About “${esc(s.name)}”">ⓘ</button>
-          ${menuHtml(`a:${path}`, `More for “${s.name}”`, "⋮", [
-                ["Change type…", `data-op="pick" data-mode="aretype" data-p="${path}"`],
-                ["Delete", `data-op="adel" data-p="${path}"`, "del"],
-            ])}
+            const q = (st.filter[key] || "").toLowerCase();
+            const shown = items.map((x, j) => [x, j]).filter(([x]) => !q || String(x).toLowerCase().includes(q));
+            return `<div class="field wide">${head}${hint}
+        <div class="list-tools">
+          <input type="text" id="${id}" placeholder="add + Enter" aria-label="Add to ${esc(f.label)}" enterkeyhint="done"
+            ${f.maxLength ? `maxlength="${f.maxLength}"` : ""} data-op="entry" ${data}>
+          ${big ? `<input type="search" id="${id}-q" placeholder="filter ${items.length} entries" aria-label="Filter ${esc(f.label)}" value="${esc(st.filter[key] || "")}" data-op="filter" data-key="${esc(key)}">` : ""}
         </div>
-        ${covered ? `<p class="fhint">A stronger action on this rule already covers it, so the bot skips this one.</p>` : ""}
-        ${state.helped.has(path) ? helpBox(s) : ""}
-        ${s.p.length ? `<div class="params">${params(s, a, path)}</div>` : ""}
+        ${items.length
+                    ? `<ul class="chips${big ? " capped" : ""}" aria-label="${esc(f.label)}">${shown
+                        .map(([x, j]) => `<li>${esc(x)}<button type="button" id="${id}-x${j}" data-op="unentry" ${data} data-j="${j}" aria-label="Remove ${esc(x)}">×</button></li>`)
+                        .join("") || `<li class="none">Nothing matches “${esc(st.filter[key])}”.</li>`}</ul>`
+                    : ""}
       </div>`;
         })
         .join("");
 }
 
-function renderRule(host) {
-    const ri = state.sel, r = state.rules[ri], t = tinfo(r);
-    const root = `rules.${ri}.condition`;
-    const focused = state.focus && state.focus.startsWith(root + ".") ? state.focus : null;
-    const title = titleOf(r), issue = issueOf(r);
-    const nameF = RULE.name, whenF = RULE.trigger;
+/* ------------------------------ one rule --------------------------------- */
 
-    const nodes = nodesOf(r.condition), depth = depthOf(r.condition);
-    const over = nodes > state.limits.nodes || depth > state.limits.depth;
+const wrongPlace = (spec, r) => (fits(spec, r) ? "" : `<span class="tag bad">${esc(triggerOf(r).incompatible)}</span>`);
+
+function conditionHtml(n, path, d, r) {
+    const spec = cond(n.type), one = oneKey(n), many = manyKey(n), composite = !!(one || many);
+    const folded = st.folded.has(path);
+    const params = spec.fields.some((f) => f.kind !== "child" && f.kind !== "children");
+    const summary = folded ? spec.summary(n) : "";
+    const items = [
+        ["Change type…", `data-op="pick" data-mode="retype" data-path="${path}"`],
+        ["Wrap in NOT", `data-op="wrap" data-path="${path}" data-type="Not"`],
+        ["Wrap in AND", `data-op="wrap" data-path="${path}" data-type="All"`],
+        ...(composite ? [["Unwrap", `data-op="unwrap" data-path="${path}"`]] : []),
+        ["Delete", `data-op="delete" data-path="${path}"`, true],
+    ];
+
+    let inside = "";
+    if (!folded && many) {
+        const kids = n[many] || [];
+        inside = `<div class="kids">${kids
+            .map((x, j) => (j ? `<div class="joiner" aria-hidden="true"><span>${esc(spec.joiner || "and")}</span></div>` : "") + conditionHtml(x, `${path}.${many}.${j}`, d + 1, r))
+            .join("")}
+          <button class="btn add" type="button" id="add-${path}" data-op="pick" data-mode="child" data-path="${path}">${ICON.plus}<span>Add to ${esc(spec.joiner.toUpperCase() || "this")}</span></button></div>`;
+    } else if (!folded && one && n[one]) inside = `<div class="kids">${conditionHtml(n[one], `${path}.${one}`, d + 1, r)}</div>`;
+
+    return `<div class="node${composite ? " group" : ""}">
+      <div class="node-head">
+        ${composite || params
+            ? `<button class="icon fold${folded ? " folded" : ""}" type="button" id="fold-${path}" data-op="fold" data-path="${path}" aria-expanded="${!folded}" aria-label="${folded ? "Expand" : "Collapse"} “${esc(spec.title)}”">${ICON.chevron}</button>`
+            : `<span class="icon-space"></span>`}
+        <span class="emoji" aria-hidden="true">${spec.emoji}</span>
+        <span class="node-title"><span>${esc(spec.title)}</span>${wrongPlace(spec, r)}${summary ? `<span class="summary">${esc(summary)}</span>` : ""}</span>
+        ${composite && d >= 2 ? `<button class="icon" type="button" id="only-${path}" data-op="only" data-path="${path}" aria-label="Show only “${esc(spec.title)}”">${ICON.focus}</button>` : ""}
+        <button class="icon" type="button" id="help-${path}" data-op="help" data-key="${path}" aria-expanded="${st.help.has(path)}" aria-label="About “${esc(spec.title)}”">${ICON.info}</button>
+        ${menu(path, `More for “${spec.title}”`, items)}
+      </div>
+      ${st.help.has(path) ? `<div class="help">${md(spec.help)}</div>` : ""}
+      ${!folded && params ? `<div class="fields">${fieldsHtml(spec.fields, n, path)}</div>` : ""}
+      ${inside}
+    </div>`;
+}
+
+/* `covered_by`: a type, or a type and the settings that make it cover. */
+function covers(cover, a) {
+    const type = typeof cover === "string" ? cover : cover.type;
+    const when = typeof cover === "string" ? null : cover.when;
+    return a.type === type && (!when || Object.entries(when).every(([k, v]) => a[k] === v));
+}
+
+function actionsHtml(r, i) {
+    /* In the order the bot carries them out (US-G3). */
+    return r.actions
+        .map((a, j) => [a, j])
+        .sort((x, y) => act(x[0].type).rank - act(y[0].type).rank)
+        .map(([a, j]) => {
+            const spec = act(a.type), path = `rules.${i}.actions.${j}`;
+            const covered = spec.coveredBy.some((c) => r.actions.some((x) => covers(c, x)));
+            return `<div class="node">
+          <div class="node-head">
+            <span class="emoji" aria-hidden="true">${spec.emoji}</span>
+            <span class="node-title"><span>${esc(spec.title)}</span>${wrongPlace(spec, r)}${covered ? `<span class="tag">covered</span>` : ""}</span>
+            <button class="icon" type="button" id="help-${path}" data-op="help" data-key="${path}" aria-expanded="${st.help.has(path)}" aria-label="About “${esc(spec.title)}”">${ICON.info}</button>
+            ${menu(path, `More for “${spec.title}”`, [
+                ["Change type…", `data-op="pick" data-mode="reaction" data-path="${path}"`],
+                ["Delete", `data-op="unact" data-path="${path}"`, true],
+            ])}
+          </div>
+          ${covered ? `<p class="hint">A stronger action on this rule already covers it, so the bot skips this one.</p>` : ""}
+          ${st.help.has(path) ? `<div class="help">${md(spec.help)}</div>` : ""}
+          ${spec.fields.length ? `<div class="fields">${fieldsHtml(spec.fields, a, path)}</div>` : ""}
+        </div>`;
+        })
+        .join("");
+}
+
+function rulePage() {
+    const i = st.sel, r = st.rules[i], t = triggerOf(r), gap = missing(r);
+    const root = `rules.${i}.condition`;
+    const only = st.only && st.only.startsWith(root + ".") ? st.only : null;
+    const nodes = count(r.condition), levels = depth(r.condition);
     const condDef = SCHEMA.definitions.condition, actDef = SCHEMA.properties.rules.items.properties.actions;
-    const back = esc(state.groupName || pageTitle());
-
-    /* A single condition that is not a container gains a sibling by turning
-       into an AND of both; a container has its own "+ Add to …". */
-    const rootMany = r.condition && childrenKeyOf(r.condition);
-    const addCond = !r.condition || !rootMany
-        ? `<button class="btn sm" type="button" data-op="pick" data-mode="addroot">+ Add condition</button>` : "";
+    const many = r.condition && manyKey(r.condition);
 
     const tree = !r.condition
-        ? `<p class="everyone">${t.optional ? esc(t.everyone) : "No condition yet."}</p>`
-        : focused
-            ? `<div class="crumbs"><button type="button" class="lnk" data-op="unfocus">Whole condition</button> › <span>part of it</span></div>${node(at(focused), focused, 0, r)}`
-            : node(r.condition, root, 0, r);
+        ? `<p class="empty">${t.optional ? esc(t.everyone) : "No condition yet."}</p>`
+        : only
+            ? `<p class="crumbs"><button class="link small" type="button" id="whole" data-op="whole">Whole condition</button> › part of it</p>${conditionHtml(at(only), only, 0, r)}`
+            : conditionHtml(r.condition, root, 0, r);
 
-    host.innerHTML = `
-    <nav class="pagehead"><button class="back" type="button" data-op="tooverview">‹ ${back}</button></nav>
-    <div class="rulehead">
-      <h2 class="${r.name ? "" : "phrase"}">${esc(title)}</h2>
-      <div class="tools">
-        <button class="btn" type="button" data-op="ruleai">✨ Edit with AI</button>
-        ${menuHtml("rule", "More for this rule", "⋯", [
-            ["Duplicate", `data-op="dup"`],
-            ["Delete", `data-op="ruledel"`, "del"],
-        ])}
+    return `
+    <h1 class="sr-only" id="page-h" tabindex="-1">${esc(titleOf(r))}</h1>
+    <div class="rule-top">
+      <div class="name">
+        <label class="label" for="r-name">${esc(R.name.title)}</label>
+        <input type="text" id="r-name" class="title-input" maxlength="${R.name.maxLength || 60}" value="${esc(r.name)}"
+          placeholder="${esc(gap ? "New rule" : sentence(r))}" aria-describedby="r-name-h" data-op="name">
+        <p class="hint" id="r-name-h">${md(R.name.description || "")}</p>
+      </div>
+      <div class="rule-tools">
+        <button class="btn" type="button" id="rule-ai" data-op="ai-rule">✨ Edit with AI</button>
+        ${menu("rule", "More for this rule", [["Duplicate", 'data-op="duplicate"'], ["Delete", 'data-op="remove"', true]])}
       </div>
     </div>
-    ${isOn(r) ? "" : `<div class="notice off" role="status"><span>⏸ This rule is off — the bot skips it.</span>
-      <button class="btn sm" type="button" data-op="toggle" data-i="${ri}" aria-label="Turn on">Turn on</button></div>`}
-    ${issue ? `<div class="notice warn" role="status">${esc(t.incomplete)}</div>` : ""}
+    ${isOn(r) ? "" : `<p class="alert off" role="status"><span>⏸ This rule is off — the bot skips it.</span>
+      <button class="btn" type="button" id="turn-on" data-op="toggle" data-i="${i}">Turn on</button></p>`}
+    ${gap ? `<p class="alert warn" role="status">${esc(t.incomplete)}</p>` : ""}
 
-    <section class="card" aria-label="Rule">
-      <div class="params">
-        <div class="fld wide"><label for="r-name" class="flabel">${esc(nameF.title)}</label>
-          <input type="text" class="txt" id="r-name" maxlength="${nameF.maxLength || 60}" value="${esc(r.name || "")}"
-            placeholder="${esc(issue ? "New rule" : rulePhrase(r))}" aria-describedby="r-name-h" data-op="rname">
-          <p class="fhint" id="r-name-h">${md(nameF.description || "")}</p></div>
-        <div class="fld wide"><label for="r-when" class="flabel">${esc(whenF.title)}</label>
-          <select id="r-when" data-op="rtrigger" aria-describedby="r-when-h">
-            ${T.map((x) => `<option value="${esc(x.v)}" ${x.v === trig(r) ? "selected" : ""}>${esc(x.title)}</option>`).join("")}
-          </select>
-          <p class="fhint" id="r-when-h">${md(whenF.description || "")}</p></div>
-      </div>
-    </section>
-
-    <section class="card block" aria-labelledby="b-if">
-      <div class="bhead if"><span class="tag" aria-hidden="true">If</span>
-        <h3 id="b-if">${esc(condDef.title.replace(/^\S+\s/, ""))}</h3>
-        <span class="tools">
-          <button class="ico" type="button" data-op="help" data-p="block-if" aria-expanded="${state.helped.has("block-if")}" aria-label="About conditions">ⓘ</button>
-          ${r.condition && (isComposite(r.condition) || spec(C, r.condition.type).p.length)
-            ? `<button class="btn sm ghost" type="button" data-op="foldall">${[...state.collapsed].some((x) => x.startsWith(root)) ? "Expand all" : "Collapse all"}</button>`
-            : ""}
-        </span></div>
-      ${state.helped.has("block-if") ? `<div class="help">${md(condDef.description)}</div>` : ""}
-      ${over
-            ? `<div class="notice warn">This rule has ${nodes} conditions nested ${depth} levels deep. The bot accepts at most ${state.limits.nodes} conditions and ${state.limits.depth} levels, so simplify it before applying — otherwise the rules will be rejected.</div>`
-            : ""
-        }
-      ${tree}
-      ${addCond ? `<div class="bfoot">${addCond}</div>` : ""}
-    </section>
-
-    <section class="card block" aria-labelledby="b-then">
-      <div class="bhead then"><span class="tag" aria-hidden="true">Then</span>
-        <h3 id="b-then">${esc(actDef.title.replace(/^\S+\s/, ""))}</h3>
-        <span class="tools">
-          <button class="ico" type="button" data-op="help" data-p="block-then" aria-expanded="${state.helped.has("block-then")}" aria-label="About actions">ⓘ</button>
-        </span></div>
-      ${state.helped.has("block-then") ? `<div class="help">${md(actDef.description)}</div>` : ""}
-      ${r.actions.length ? `<p class="muted ordnote">The bot runs them in this order.</p>${actionRows(r, ri)}` : `<p class="everyone">No action yet.</p>`}
-      <div class="bfoot"><button class="btn sm" type="button" data-op="pick" data-mode="addaction">+ Add action</button></div>
-    </section>`;
+    <ol class="flow">
+      <li class="step when">
+        <div class="step-head"><h2 class="step-name" id="s-when">${esc(R.trigger.title)}</h2></div>
+        <div class="step-body">
+          <div class="segments two" role="radiogroup" aria-labelledby="s-when" aria-describedby="s-when-h">
+            ${T.map((x, k) => `<label class="segment${x.v === t.v ? " on" : ""}"><input type="radio" name="when" id="when-${k}" value="${esc(x.v)}" ${x.v === t.v ? "checked" : ""} data-op="when"><b>${esc(x.title)}</b></label>`).join("")}
+          </div>
+          <p class="hint" id="s-when-h">${md(R.trigger.description || "")}</p>
+        </div>
+      </li>
+      <li class="step if">
+        <div class="step-head">
+          <h2 class="step-name" id="s-if">${esc(condDef.title.replace(/^\S+\s/, ""))}</h2>
+          <button class="icon" type="button" id="help-if" data-op="help" data-key="if" aria-expanded="${st.help.has("if")}" aria-label="About conditions">${ICON.info}</button>
+          ${r.condition && (oneKey(r.condition) || many || cond(r.condition.type).fields.length)
+            ? `<button class="link small push" type="button" id="fold-all" data-op="fold-all">${[...st.folded].some((p) => p.startsWith(root)) ? "Expand all" : "Collapse all"}</button>` : ""}
+        </div>
+        <div class="step-body">
+          ${st.help.has("if") ? `<div class="help">${md(condDef.description)}</div>` : ""}
+          ${nodes > st.limits.nodes || levels > st.limits.depth
+            ? `<p class="alert warn">This rule has ${nodes} conditions nested ${levels} levels deep. The bot accepts at most ${st.limits.nodes} conditions and ${st.limits.depth} levels, so simplify it before applying — otherwise the rules will be rejected.</p>` : ""}
+          ${tree}
+          ${!r.condition || !many ? `<button class="btn add" type="button" id="add-cond" data-op="pick" data-mode="condition">${ICON.plus}<span>Add condition</span></button>` : ""}
+        </div>
+      </li>
+      <li class="step then">
+        <div class="step-head">
+          <h2 class="step-name" id="s-then">${esc(actDef.title.replace(/^\S+\s/, ""))}</h2>
+          <button class="icon" type="button" id="help-then" data-op="help" data-key="then" aria-expanded="${st.help.has("then")}" aria-label="About actions">${ICON.info}</button>
+        </div>
+        <div class="step-body">
+          ${st.help.has("then") ? `<div class="help">${md(actDef.description)}</div>` : ""}
+          ${r.actions.length ? `<p class="sub">The bot runs them in this order.</p>${actionsHtml(r, i)}` : `<p class="empty">No action yet.</p>`}
+          <button class="btn add" type="button" id="add-act" data-op="pick" data-mode="action">${ICON.plus}<span>Add action</span></button>
+        </div>
+      </li>
+    </ol>`;
 }
 
-/* ---- New rule ---- */
+/* ------------------------------ New rule --------------------------------- */
 
-const templatesFor = (v) => ((SCHEMA.options && SCHEMA.options.templates) || []).filter((x) => (x.rule.trigger || T[0].v) === v);
+const templatesOf = (v) => ((SCHEMA.options && SCHEMA.options.templates) || []).filter((x) => (x.rule.trigger || T[0].v) === v);
 
-function renderNew(host) {
-    const t = T.find((x) => x.v === state.newTrigger) || T[0];
-    const back = esc(state.groupName || pageTitle());
-    const temps = templatesFor(t.v);
-    host.innerHTML = `
-    <nav class="pagehead"><button class="back" type="button" data-op="tooverview">‹ ${back}</button></nav>
-    <div class="rulehead"><div><h2>New rule</h2><p class="muted">${esc(t.newRule)}</p></div></div>
-    <div class="ways">
-      <button class="way" type="button" data-op="templates" aria-expanded="${state.showTemplates}">
-        <span class="wayicon" aria-hidden="true">📋</span><span><b>Start from a template</b>
-        <span class="muted">A ready rule to adjust.</span></span></button>
-      <button class="way" type="button" data-op="createai">
-        <span class="wayicon" aria-hidden="true">✨</span><span><b>Describe it to AI</b>
-        <span class="muted">Say what it should do; your AI chat writes it.</span></span></button>
-      <button class="way" type="button" data-op="build">
-        <span class="wayicon" aria-hidden="true">🛠</span><span><b>Build it myself</b>
-        <span class="muted">Pick its condition and actions.</span></span></button>
-    </div>
-    ${state.showTemplates
-            ? `<section class="card" aria-labelledby="tpl-h"><div class="card-head"><h2 id="tpl-h">Templates</h2></div>
-        <ul class="tlist">${temps
-                .map(
-                    (x, j) => `<li><button class="tpl" type="button" data-op="usetpl" data-j="${j}">
-            <span class="ttitle">${esc(x.title)}</span>
-            <span class="tphrase">${esc(rulePhrase(x.rule))}</span></button></li>`
-                )
+function newPage() {
+    const t = T.find((x) => x.v === st.trigger) || T[0];
+    const ways = [
+        ["templates", "📋", "Start from a template", "A ready rule to adjust.", ` aria-expanded="${st.templates}" aria-controls="templates"`],
+        ["ai-new", "✨", "Describe it to AI", "Say what it should do; your AI chat writes it.", ""],
+        ["build", "🛠", "Build it myself", "Pick its condition and actions.", ""],
+    ];
+    return `
+    <div class="page-head"><h1 id="page-h" tabindex="-1">New rule</h1><p class="sub">${esc(t.newRule)}</p></div>
+    <div class="ways">${ways
+            .map(([op, icon, name, line, extra]) => `<button class="way" type="button" id="way-${op}" data-op="${op}"${extra}>
+          <span class="way-icon" aria-hidden="true">${icon}</span><span><b>${name}</b><span>${line}</span></span></button>`)
+            .join("")}</div>
+    ${st.templates
+            ? `<section class="block" id="templates" aria-labelledby="tpl-h"><div class="block-head"><h2 id="tpl-h">Templates</h2></div>
+        <ul class="templates">${templatesOf(t.v)
+                .map((x, j) => `<li><button type="button" id="tpl-${j}" data-op="template" data-j="${j}"><b>${esc(x.title)}</b><span>${esc(sentence(x.rule))}</span></button></li>`)
                 .join("")}</ul></section>`
-            : ""
-        }`;
+            : ""}`;
 }
 
-/* ---- the frame ---- */
+/* -------------------------------------------------------------------------- */
+/* The type picker                                                             */
+/* -------------------------------------------------------------------------- */
 
-const pageTitle = () => (state.groupName ? state.groupName : state.botId ? `Group ${state.botId}` : "Group settings");
+const pick = { mode: null, path: null };
+const isActionPick = () => pick.mode === "action" || pick.mode === "reaction";
 
-/* The changes the Apply button counts: each changed setting and each rule
-   added, removed, moved or changed (US-G7). */
-function changeCount() {
-    const d = diffConfig(state.baseline, config());
-    return d.settings.length + d.rows.filter((x) => x.status !== "same").length;
-}
-
-function renderFrame() {
-    document.getElementById("gtitle").textContent = pageTitle();
-    /* On a rule's page and New rule, the way back names the group. */
-    document.querySelector(".titles").hidden = state.view !== "overview";
-    document.title = `${pageTitle()} — Moderation settings`;
-    /* Hidden rather than greyed out: a control that can do nothing is noise, and
-       the phone's action bar has room for three buttons, not five. */
-    document.getElementById("undo").hidden = !state.history.length;
-    document.getElementById("redo").hidden = !state.future.length;
-    const n = changeCount();
-    document.getElementById("apply").textContent = n ? `Apply ${n} change${n === 1 ? "" : "s"}` : "Apply changes";
-    document.getElementById("gmenu-wrap").hidden = state.view !== "overview";
-    const gm = document.getElementById("gmenu");
-    gm.hidden = state.menu !== "global";
-    document.querySelector('[data-p="global"]').setAttribute("aria-expanded", state.menu === "global");
-
-    /* A setting value may carry a banner shown on every page while it holds
-       (US-G2: Dry mode). */
-    const banners = S.p
-        .filter((f) => f.kind === "choice")
-        .map((f) => (f.choices.find((c) => c.v === state.settings[f.k]) || { o: {} }).o.banner)
-        .filter(Boolean);
-    const banner = document.getElementById("banner");
-    banner.hidden = !banners.length;
-    banner.textContent = banners.join(" ");
-}
-
-function render() {
-    if (state.view === "rule" && !state.rules[state.sel]) state.view = "overview";
-    const host = document.getElementById("app");
-    host.dataset.view = state.view;
-    renderFrame();
-    if (state.view === "rule") renderRule(host);
-    else if (state.view === "new") renderNew(host);
-    else renderOverview(host);
-    syncHash();
-}
-
-/* After a render, put the focus back where it was, by id. */
-function refocus(id, caretEnd) {
-    const again = id && document.getElementById(id);
-    if (!again) return;
-    again.focus();
-    if (caretEnd && again.setSelectionRange) again.setSelectionRange(again.value.length, again.value.length);
-}
-
-/* ------------------------------- picker -------------------------------- */
-
-const pick = { mode: null, p: null };
-const pickDlg = document.getElementById("pickdlg");
-
-/* Lists the types a rule's trigger takes, grouped by subject (US-G3, US-G4). */
-function openPicker(mode, p) {
-    const r = state.rules[state.sel];
-    const actions = mode === "addaction" || mode === "aretype";
-    const reg = actions ? A : C;
+/* The types the rule's trigger takes, grouped by subject (US-G3, US-G4). */
+function openPicker(mode, path) {
     pick.mode = mode;
-    pick.p = p;
-    const current = mode === "retype" || mode === "aretype" ? at(p).type : null;
-    const taken = actions ? new Set(r.actions.map((a) => a.type)) : new Set();
-    const groups = {};
-    for (const [k, s] of Object.entries(reg)) {
-        if (!works(s, r)) continue;
-        if (actions && taken.has(k) && k !== current) continue;
-        (groups[s.grp] = groups[s.grp] || []).push([k, s]);
-    }
-    document.getElementById("pickdlg-title").textContent =
-        mode === "retype" ? "Change the condition's type" : mode === "aretype" ? "Change the action's type"
-            : actions ? "Pick an action" : "Pick a condition";
-    const body = Object.entries(groups)
-        .map(
-            ([grp, items]) => `<section class="pgroup" aria-label="${esc(grp)}"><h3>${esc(grp)}</h3>
-        <ul>${items
-                    .map(
-                        ([k, s]) => `<li><button type="button" class="ptype${k === current ? " cur" : ""}" data-type="${esc(k)}"
-            ${k === current ? 'aria-current="true"' : ""}>
-            <span class="glyph" aria-hidden="true">${s.g}</span>
-            <span><span class="pname">${esc(s.name)}</span><span class="pgist">${s.gist}</span></span></button></li>`
-                    )
-                    .join("")}</ul></section>`
-        )
-        .join("");
-    document.getElementById("pickdlg-body").innerHTML =
-        body || `<p class="empty">Every action this rule can take is on it already.</p>`;
-    pickDlg.showModal();
+    pick.path = path;
+    $("pick-title").textContent = { retype: "Change the condition's type", reaction: "Change the action's type", action: "Pick an action" }[mode] || "Pick a condition";
+    $("pick-q").value = "";
+    $("pick-q").parentElement.hidden = isActionPick();
+    drawPicker();
+    $("pickdlg").showModal();
+    if (!isActionPick()) $("pick-q").focus();
 }
 
-document.getElementById("pickdlg-x").addEventListener("click", () => pickDlg.close());
+function drawPicker() {
+    const r = st.rules[st.sel];
+    const current = pick.mode === "retype" || pick.mode === "reaction" ? at(pick.path).type : null;
+    const taken = new Set(isActionPick() ? r.actions.map((a) => a.type) : []);
+    const q = $("pick-q").value.trim().toLowerCase();
+    const groups = new Map();
+    for (const spec of Object.values(isActionPick() ? A : C)) {
+        if (!fits(spec, r) || (taken.has(spec.type) && spec.type !== current)) continue;
+        if (q && !`${spec.title} ${spec.gist}`.toLowerCase().includes(q)) continue;
+        if (!groups.has(spec.subject)) groups.set(spec.subject, []);
+        groups.get(spec.subject).push(spec);
+    }
+    $("pick-body").innerHTML = groups.size
+        ? [...groups]
+            .map(([subject, specs]) => `<section aria-label="${esc(subject)}">${isActionPick() ? "" : `<h3>${esc(subject)}</h3>`}<ul class="types">${specs
+                .map((s) => `<li><button type="button" data-type="${esc(s.type)}"${s.type === current ? ' aria-current="true"' : ""}>
+              <span class="emoji" aria-hidden="true">${s.emoji}</span><span><b>${esc(s.title)}</b><span>${md(s.gist)}</span></span></button></li>`)
+                .join("")}</ul></section>`)
+            .join("")
+        : `<p class="empty">${isActionPick() ? "Every action this rule can take is on it already." : "Nothing matches."}</p>`;
+}
 
-pickDlg.addEventListener("click", (e) => {
+$("pick-q").addEventListener("input", drawPicker);
+
+$("pick-body").addEventListener("click", (e) => {
     const b = e.target.closest("[data-type]");
     if (!b) return;
-    const type = b.dataset.type, ri = state.sel, r = state.rules[ri];
-    const before = snapshot();
-    const root = `rules.${ri}.condition`;
-    switch (pick.mode) {
-        case "addroot": {
-            const n = fresh(C, type);
+    const r = st.rules[st.sel];
+    const spec = (isActionPick() ? A : C)[b.dataset.type];
+    let focus = null;
+    edit(() => {
+        if (pick.mode === "condition") {
+            const n = fresh(spec);
             if (!r.condition) r.condition = n;
             else {
-                const and = andType();
-                r.condition = { type: and, ...clone(C[and].def), [childrenKeyOf({ type: and })]: [r.condition, n] };
+                const and = C[andType()];
+                r.condition = { ...fresh(and), [manyKey({ type: and.type })]: [r.condition, n] };
             }
-            state.collapsed.delete(root);
-            break;
+        } else if (pick.mode === "child") {
+            const n = at(pick.path);
+            n[manyKey(n)].push(fresh(spec));
+            st.folded.delete(pick.path);
+        } else if (pick.mode === "retype") {
+            const { holder, key } = parent(pick.path);
+            holder[key] = retype(holder[key], spec, cond(holder[key].type));
+            st.folded.delete(pick.path);
+            focus = `m-${pick.path}`;
+        } else if (pick.mode === "action") {
+            r.actions.push(fresh(spec));
+        } else if (pick.mode === "reaction") {
+            const { holder, key } = parent(pick.path);
+            holder[key] = retype(holder[key], spec, act(holder[key].type));
+            focus = `m-${pick.path}`;
         }
-        case "addchild": {
-            const n = at(pick.p);
-            n[childrenKeyOf(n)].push(fresh(C, type));
-            state.collapsed.delete(pick.p);
-            break;
-        }
-        case "retype": {
-            const { o, k } = parentOf(pick.p);
-            o[k] = retype(o[k], type, C);
-            state.collapsed.delete(pick.p);
-            break;
-        }
-        case "addaction":
-            r.actions.push(fresh(A, type));
-            break;
-        case "aretype": {
-            const { o, k } = parentOf(pick.p);
-            o[k] = retype(o[k], type, A);
-            break;
-        }
-    }
-    pickDlg.close();
-    recordUndo(before);
+    });
+    $("pickdlg").close();
     render();
+    if (focus && $(focus)) $(focus).focus();
 });
 
-/* -------------------------------- events ------------------------------- */
+/* -------------------------------------------------------------------------- */
+/* Events                                                                      */
+/* -------------------------------------------------------------------------- */
 
 function moveRule(i, d) {
-    const sec = sectionOf(trig(state.rules[i])).map(([, j]) => j);
-    const pos = sec.indexOf(i), to = sec[pos + d];
+    const order = inSection(triggerOf(st.rules[i]).v).map(([, j]) => j);
+    const to = order[order.indexOf(i) + d];
     if (to === undefined) return null;
-    [state.rules[i], state.rules[to]] = [state.rules[to], state.rules[i]];
+    edit(() => ([st.rules[i], st.rules[to]] = [st.rules[to], st.rules[i]]));
     return to;
 }
 
-/* Puts a section's rules in a new order, in the places its rules held. */
-function reorderSection(v, order) {
-    const places = sectionOf(v).map(([, j]) => j);
-    const rules = order.map((j) => state.rules[j]);
-    places.forEach((p, k) => (state.rules[p] = rules[k]));
-}
-
-function addRule(rule) {
-    state.rules.push(rule);
-    return state.rules.length - 1;
+/* A template's name the rules already have gets a number (US-G15). */
+function uniqueName(name) {
+    const taken = new Set(st.rules.map((r) => r.name));
+    if (!name || !taken.has(name)) return name;
+    let n = 2;
+    while (taken.has(`${name} ${n}`)) n++;
+    return `${name} ${n}`;
 }
 
 document.addEventListener("click", (e) => {
     if (e.target.closest("dialog")) return;
     const b = e.target.closest("[data-op]");
-    const wasOpen = state.menu;
-    if (!b || b.dataset.op !== "menu") state.menu = null;
+    const open = st.menu;
+    if (!b || b.dataset.op !== "menu") st.menu = null;
     if (!b) {
-        if (wasOpen) render();
+        if (open) render();
         return;
     }
-    const op = b.dataset.op, p = b.dataset.p;
-    const before = snapshot();
+    const op = b.dataset.op, path = b.dataset.path, i = +b.dataset.i;
+    const r = st.rules[st.sel];
+    let after = null;
 
     switch (op) {
-        case "undo":
-            undo();
-            return;
-        case "redo":
-            redo();
-            return;
-        case "open":
-            goTo("rule", { sel: +b.dataset.i });
-            break;
-        case "tooverview":
-            goTo("overview");
-            break;
-        case "newrule":
-            goTo("new", { trigger: b.dataset.t });
-            break;
-        case "how":
-            state.howOpen = !state.howOpen;
-            break;
-        case "templates":
-            state.showTemplates = !state.showTemplates;
-            break;
-        case "usetpl": {
-            const x = templatesFor(state.newTrigger)[+b.dataset.j];
-            const i = addRule(clone(x.rule));
-            recordUndo(before);
-            goTo("rule", { sel: i }, true);
+        case "undo": return undo();
+        case "redo": return redo();
+        case "home": return go("home");
+        case "open": return go("rule", { sel: i });
+        case "new": return go("new", { trigger: b.dataset.t });
+        case "ai-all": render(); return document.dispatchEvent(new CustomEvent("ai:open", { detail: { mode: "all" } }));
+        case "ai-rule": return document.dispatchEvent(new CustomEvent("ai:open", { detail: { mode: "rule", index: st.sel } }));
+        case "ai-new": return document.dispatchEvent(new CustomEvent("ai:open", { detail: { mode: "create", trigger: st.trigger } }));
+        case "import": render(); return document.dispatchEvent(new CustomEvent("json:import"));
+        case "export": render(); return document.dispatchEvent(new CustomEvent("json:export"));
+        case "menu":
+            st.menu = open === b.dataset.menu ? null : b.dataset.menu;
             render();
+            if (st.menu && e.detail === 0) {
+                const first = $(`m-${st.menu}`).parentElement.querySelector("[role=menuitem]");
+                if (first) first.focus();
+            }
+            return;
+        case "how": st.how = !st.how; break;
+        case "help": st.help.has(b.dataset.key) ? st.help.delete(b.dataset.key) : st.help.add(b.dataset.key); break;
+        case "fold": st.folded.has(path) ? st.folded.delete(path) : st.folded.add(path); break;
+        case "fold-all": {
+            const root = `rules.${st.sel}.condition`;
+            if ([...st.folded].some((p) => p.startsWith(root))) st.folded = new Set([...st.folded].filter((p) => !p.startsWith(root)));
+            else foldAll(r.condition, root, st.folded);
+            break;
+        }
+        case "only": st.only = path; break;
+        case "whole": st.only = null; break;
+        case "reveal": st.shown.has(b.dataset.key) ? st.shown.delete(b.dataset.key) : st.shown.add(b.dataset.key); break;
+        case "bulk":
+            st.bulk.has(b.dataset.key) ? st.bulk.delete(b.dataset.key) : st.bulk.add(b.dataset.key);
+            delete st.filter[b.dataset.key];
+            break;
+        case "templates": st.templates = !st.templates; break;
+        case "pick":
+            render();
+            return openPicker(b.dataset.mode, path);
+        case "template": {
+            const x = templatesOf(st.trigger)[+b.dataset.j];
+            const k = edit(() => st.rules.push({ ...clone(x.rule), name: uniqueName(x.rule.name) }) - 1);
+            go("rule", { sel: k, replace: true });
             /* A template with an empty list opens on it, to fill in (US-G15). */
-            if (x.focus) refocus(`f-rules.${i}.condition-${x.focus}`);
+            const list = x.focus && $(`f-rules.${k}.condition-${x.focus}`);
+            if (list) list.focus();
             return;
         }
         case "build": {
-            const i = addRule({ trigger: state.newTrigger, actions: [] });
-            recordUndo(before);
-            goTo("rule", { sel: i }, true);
-            render();
-            openPicker("addroot");
-            return;
+            const k = edit(() => st.rules.push({ trigger: st.trigger, actions: [] }) - 1);
+            go("rule", { sel: k, replace: true });
+            return openPicker("condition");
         }
-        case "createai":
-            document.dispatchEvent(new CustomEvent("ai:create", { detail: { trigger: state.newTrigger } }));
-            return;
-        case "ruleai":
-            document.dispatchEvent(new CustomEvent("ai:rule", { detail: { index: state.sel } }));
-            return;
-        case "toggle": {
-            const r = state.rules[+b.dataset.i];
-            if (isOn(r)) r.enabled = false;
-            else delete r.enabled;
+        case "toggle":
+            edit(() => {
+                const x = st.rules[i];
+                if (isOn(x)) x.enabled = false;
+                else delete x.enabled;
+            });
+            if (b.id === "turn-on") after = "r-name";
+            break;
+        case "move": {
+            const to = moveRule(i, +b.dataset.d);
+            if (to !== null) after = `open-${to}`;
             break;
         }
-        case "rmove": {
-            moveRule(+b.dataset.i, +b.dataset.d);
+        case "duplicate": {
+            const base = titleOf(r), room = (R.name.maxLength || 60) - " (copy)".length;
+            const copy = { ...clone(r), name: `${base.length > room ? base.slice(0, room - 1) + "…" : base} (copy)` };
+            edit(() => st.rules.splice(st.sel + 1, 0, copy));
+            return go("rule", { sel: st.sel + 1 });
+        }
+        /* No confirmation: Undo takes it back, and Apply shows it before
+           anything reaches the bot. */
+        case "remove":
+            edit(() => st.rules.splice(st.sel, 1));
+            return go("home");
+        case "wrap": {
+            const spec = C[b.dataset.type], { holder, key } = parent(path);
+            edit(() => {
+                const w = fresh(spec), one = oneKey(w), many = manyKey(w);
+                if (one) w[one] = holder[key];
+                else w[many] = [holder[key]];
+                holder[key] = w;
+            });
+            st.only = null;
+            after = `m-${path}`;
             break;
         }
-        case "dup": {
-            const r = state.rules[state.sel];
-            /* The copy's name stays within the 60 characters a name can have. */
-            const base = titleOf(r), max = (RULE.name.maxLength || 60) - " (copy)".length;
-            const copy = { ...clone(r), name: `${base.length > max ? base.slice(0, max - 1) + "…" : base} (copy)` };
-            state.rules.splice(state.sel + 1, 0, copy);
-            recordUndo(before);
-            goTo("rule", { sel: state.sel + 1 });
-            render();
-            return;
-        }
-        /* No confirmation: Undo takes it back, and the Apply dialog shows the
-           deletion before anything reaches the bot. */
-        case "ruledel":
-            state.rules.splice(state.sel, 1);
-            recordUndo(before);
-            goTo("overview");
-            render();
-            return;
-        case "fold":
-            state.collapsed.has(p) ? state.collapsed.delete(p) : state.collapsed.add(p);
-            break;
-        case "foldall": {
-            const root = `rules.${state.sel}.condition`, set = new Set(state.collapsed);
-            if ([...set].some((x) => x.startsWith(root))) [...set].forEach((x) => x.startsWith(root) && set.delete(x));
-            else foldAll(state.rules[state.sel].condition, root, set);
-            state.collapsed = set;
-            break;
-        }
-        case "help":
-            state.helped.has(p) ? state.helped.delete(p) : state.helped.add(p);
-            break;
-        case "menu":
-            state.menu = wasOpen === p ? null : p;
-            break;
-        case "focus":
-            state.focus = p;
-            break;
-        case "unfocus":
-            state.focus = null;
-            break;
-        case "reveal": {
-            const k = b.dataset.key;
-            state.revealed.has(k) ? state.revealed.delete(k) : state.revealed.add(k);
-            break;
-        }
-        case "bulk": {
-            const k = b.dataset.key;
-            state.bulk.has(k) ? state.bulk.delete(k) : state.bulk.add(k);
-            delete state.q[k];
-            break;
-        }
-        case "pick":
-            render();
-            openPicker(b.dataset.mode, p);
-            return;
-        /* Wrapping is never a one-way door: a container can be unwrapped. */
+        /* A container is never a one-way door: its conditions move up into its
+           place. */
         case "unwrap": {
-            const node = at(p);
-            const one = childKeyOf(node), many = childrenKeyOf(node);
-            const kids = one ? [node[one]] : (node[many] || []).slice();
-            if (!kids.length) break;
-            const { o, k } = parentOf(p);
-            if (Array.isArray(o)) o.splice(+k, 1, ...kids);
-            else if (kids.length === 1) o[k] = kids[0];
-            else {
+            const n = at(path), kids = oneKey(n) ? [n[oneKey(n)]] : (n[manyKey(n)] || []).slice();
+            const { holder, key } = parent(path);
+            if (!Array.isArray(holder) && kids.length > 1) {
                 toast("This holds several conditions and sits at the top of the rule, which has room for one. Move them out first.");
                 break;
             }
-            state.focus = null;
+            edit(() => (Array.isArray(holder) ? holder.splice(+key, 1, ...kids) : (holder[key] = kids[0])));
+            st.only = null;
             break;
         }
-        case "wrap": {
-            const t = b.dataset.t, { o, k } = parentOf(p);
-            const wrapper = { type: t, ...structuredClone(C[t].def) };
-            const one = (C[t].p.find((f) => f.kind === "child") || {}).k;
-            const many = (C[t].p.find((f) => f.kind === "children") || {}).k;
-            if (one) wrapper[one] = o[k];
-            else if (many) wrapper[many] = [o[k]];
-            o[k] = wrapper;
-            state.focus = null;
-            break;
-        }
-        case "del": {
-            const { o, k } = parentOf(p);
-            /* The rule's own condition: without it, a rule whose trigger needs
-               one is incomplete until it gets another (US-G14). */
-            if (!Array.isArray(o)) {
-                delete o[k];
-                state.focus = null;
-                break;
-            }
-            if (o.length === 1) {
+        case "delete": {
+            const { holder, key } = parent(path);
+            if (Array.isArray(holder) && holder.length === 1) {
                 toast("A combined condition needs at least one condition inside.");
                 break;
             }
-            o.splice(+k, 1);
-            state.focus = null;
+            /* The rule's own condition goes too: a rule whose trigger needs one
+               is incomplete until it has another (US-G14). */
+            edit(() => (Array.isArray(holder) ? holder.splice(+key, 1) : delete holder[key]));
+            st.only = null;
+            after = "add-cond";
             break;
         }
-        case "adel": {
-            const { o, k } = parentOf(p);
-            o.splice(+k, 1);
+        case "unact": {
+            const { holder, key } = parent(path);
+            edit(() => holder.splice(+key, 1));
+            after = "add-act";
             break;
         }
-        case "unchip":
-            at(b.dataset.p)[b.dataset.k].splice(+b.dataset.j, 1);
+        case "unentry":
+            edit(() => at(path)[b.dataset.key].splice(+b.dataset.j, 1));
+            after = `f-${path}-${b.dataset.key}`;
             break;
         default:
             return;
     }
-    recordUndo(before);
     render();
-    /* A menu opened by keyboard puts the focus on its first item. */
-    if (op === "menu" && state.menu) {
-        const btn = document.querySelector(`[data-op="menu"][data-p="${CSS.escape(state.menu)}"]`);
-        const first = btn && btn.parentElement.querySelector(".pop [role=menuitem]");
-        if (first && e.detail === 0) first.focus();
-    }
+    if (after && $(after)) $(after).focus();
 });
 
 document.addEventListener("change", (e) => {
     if (e.target.closest("dialog")) return;
     const b = e.target.closest("[data-op]");
     if (!b) return;
-    const op = b.dataset.op, p = b.dataset.p, key = b.dataset.k;
-    const before = snapshot();
-    const r = state.rules[state.sel];
+    const op = b.dataset.op, path = b.dataset.path, key = b.dataset.key;
+    const r = st.rules[st.sel];
+    const fields = () => (path === "settings" ? S : [...cond(at(path).type).fields, ...act(at(path).type).fields]);
 
-    if (op === "rname") {
-        const v = b.value.trim();
-        if (v) r.name = v;
-        else delete r.name;
-    } else if (op === "rtrigger") {
+    if (op === "setting") edit(() => (st.settings[key] = S.find((f) => f.key === key).choices[+b.value].v));
+    else if (op === "name") edit(() => (b.value.trim() ? (r.name = b.value.trim()) : delete r.name));
+    else if (op === "when") {
         /* The rule moves to the end of its new section (US-G3). */
-        r.trigger = b.value;
-        state.rules.splice(state.sel, 1);
-        state.sel = addRule(r);
-        history.replaceState({ v: "rule", i: state.sel }, "", location.hash);
-    } else if (op === "num") {
-        const f = fieldsAt(p).find((x) => x.k === key) || {};
-        let v = Math.round(+b.value || 0);
-        if (f.min != null) v = Math.max(f.min, v);
-        if (f.max != null) v = Math.min(f.max, v);
-        at(p)[key] = v;
-    } else if (op === "bool") {
-        at(p)[key] = b.checked;
-    } else if (op === "text") {
-        at(p)[key] = b.value;
-    } else if (op === "choice") {
-        const f = fieldsAt(p).find((x) => x.k === key) || {};
-        const cur = at(p)[key];
-        /* Switching to a number starts from the branch's default. */
-        if (b.value === "n") at(p)[key] = typeof cur === "number" ? cur : f.num.default ?? f.min ?? 0;
-        else at(p)[key] = f.choices[+b.value.slice(1)].v;
-    } else if (op === "bulktext") {
-        const seen = new Set(), out = [];
-        b.value.split("\n").map((x) => x.trim()).filter(Boolean).forEach((x) => {
-            if (!seen.has(x)) { seen.add(x); out.push(x); }
+        edit(() => {
+            r.trigger = b.value;
+            st.rules.splice(st.sel, 1);
+            st.sel = st.rules.push(r) - 1;
         });
-        at(p)[key] = out;
+        history.replaceState({ view: "rule", sel: st.sel }, "", location.hash);
+    } else if (op === "num") {
+        const f = fields().find((x) => x.key === key);
+        /* An emptied number keeps its value: 0 would mean something else. */
+        if (b.value.trim() !== "") {
+            let v = Math.round(+b.value);
+            if (!Number.isFinite(v)) v = f.def;
+            const lo = f.min ?? -Infinity, hi = f.max ?? Infinity;
+            if (v < lo || v > hi) {
+                v = Math.min(hi, Math.max(lo, v));
+                toast(`${f.label}: kept within ${f.min ?? "…"}–${f.max ?? "…"}.`);
+            }
+            edit(() => (at(path)[key] = v));
+        }
+    } else if (op === "bool") edit(() => (at(path)[key] = b.checked));
+    else if (op === "text") edit(() => (at(path)[key] = b.value));
+    else if (op === "choice") {
+        const f = fields().find((x) => x.key === key), now = at(path)[key];
+        edit(() => (at(path)[key] = b.value === "n" ? (typeof now === "number" ? now : f.num.default ?? f.min ?? 0) : f.choices[+b.value].v));
+    } else if (op === "lines") {
+        const out = [...new Set(b.value.split("\n").map((x) => x.trim()).filter(Boolean))];
+        edit(() => (at(path)[key] = out));
     } else return;
-    recordUndo(before);
-    /* Rendered once the focus has moved on — a Tab out of the field — and
-       put back on whatever took it. */
+    /* Drawn again once the focus has moved on, and put back where it went. */
     setTimeout(() => {
         const id = document.activeElement && document.activeElement.id;
         render();
-        refocus(id);
+        if (id && $(id)) $(id).focus();
     });
 });
 
-/* Filtering a long list re-renders it, so put the caret back where it was. */
 document.addEventListener("input", (e) => {
-    const b = e.target.closest('[data-op="q"]');
+    const b = e.target.closest('[data-op="filter"]');
     if (!b) return;
-    state.q[b.dataset.key] = b.value;
-    const id = b.id;
+    st.filter[b.dataset.key] = b.value;
     render();
-    refocus(id, true);
+    const again = $(b.id);
+    again.focus();
+    again.setSelectionRange(again.value.length, again.value.length);
 });
 
 document.addEventListener("keydown", (e) => {
-    const b = e.target.closest('[data-op="chip"]');
-    if (!b || e.key !== "Enter") return;
-    e.preventDefault();
-    const v = b.value.trim();
-    if (!v) return;
-    const list = at(b.dataset.p)[b.dataset.k];
-    if (list.includes(v)) {
-        b.value = "";
-        toast("That entry is already in the list.");
+    const t = e.target;
+    if (t.closest("dialog")) return;
+
+    /* A list entry goes in with Enter (US-G3). */
+    if (t.dataset.op === "entry" && e.key === "Enter") {
+        e.preventDefault();
+        const v = t.value.trim();
+        if (!v) return;
+        const list = at(t.dataset.path)[t.dataset.key];
+        if (list.includes(v)) {
+            t.value = "";
+            return toast("That entry is already in the list.");
+        }
+        edit(() => list.push(v));
+        const key = `${t.dataset.path}.${t.dataset.key}`;
+        if (st.filter[key] && !v.toLowerCase().includes(st.filter[key].toLowerCase())) delete st.filter[key];
+        render();
+        return $(t.id).focus();
+    }
+
+    /* The arrow keys on a rule's handle move it (US-G12). */
+    if (t.dataset.drag !== undefined && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+        e.preventDefault();
+        const to = moveRule(+t.dataset.drag, e.key === "ArrowUp" ? -1 : 1);
+        if (to === null) return;
+        render();
+        $(`grip-${to}`).focus();
         return;
     }
-    const before = snapshot();
-    list.push(v);
-    /* A filter that hides the entry just added looks like nothing happened. */
-    const key = `${b.dataset.p}.${b.dataset.k}`;
-    if (state.q[key] && !v.toLowerCase().includes(state.q[key].toLowerCase())) delete state.q[key];
-    const id = b.id;
-    recordUndo(before);
-    render();
-    refocus(id);
+
+    /* A menu: arrows, Home and End move through it; Escape and Tab leave it. */
+    const pop = t.closest(".pop");
+    if (pop) {
+        const items = [...pop.querySelectorAll("[role=menuitem]")], k = items.indexOf(t);
+        const to = { ArrowDown: (k + 1) % items.length, ArrowUp: (k - 1 + items.length) % items.length, Home: 0, End: items.length - 1 }[e.key];
+        if (to !== undefined) {
+            e.preventDefault();
+            items[to].focus();
+            return;
+        }
+    }
+    if (st.menu && (e.key === "Escape" || (e.key === "Tab" && pop))) {
+        const id = `m-${st.menu}`;
+        st.menu = null;
+        render();
+        if (e.key === "Escape" && $(id)) $(id).focus();
+        return;
+    }
+
+    /* Undo and Redo, outside a text field, where the browser's own wins. */
+    if ((e.ctrlKey || e.metaKey) && !t.closest("input, textarea")) {
+        const k = e.key.toLowerCase();
+        if (k === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+        else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); redo(); }
+    }
 });
 
-/* Escape closes an open menu and gives the focus back to its button. */
-document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape" || !state.menu) return;
-    const id = state.menu;
-    state.menu = null;
-    render();
-    const btn = document.querySelector(`[data-op="menu"][data-p="${CSS.escape(id)}"]`);
-    if (btn) btn.focus();
-});
-
-/* Ctrl/Cmd+Z and its redo spellings, outside a text field: inside one the
-   browser's own undo wins. */
-document.addEventListener("keydown", (e) => {
-    if (!(e.ctrlKey || e.metaKey)) return;
-    const key = e.key.toLowerCase();
-    const isUndo = key === "z" && !e.shiftKey;
-    const isRedo = (key === "z" && e.shiftKey) || key === "y";
-    if (!isUndo && !isRedo) return;
-    if (e.target.closest("input, textarea")) return;
-    e.preventDefault();
-    isUndo ? undo() : redo();
-});
-
-/* ----- moving a rule on the overview: its handle, by pointer or keys ----- */
-
-/* The arrow keys on a focused handle move the rule (US-G12). */
-document.addEventListener("keydown", (e) => {
-    const h = e.target.closest("[data-drag]");
-    if (!h || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
-    e.preventDefault();
-    const before = snapshot();
-    const to = moveRule(+h.dataset.drag, e.key === "ArrowUp" ? -1 : 1);
-    if (to === null) return;
-    recordUndo(before);
-    render();
-    const again = document.querySelector(`[data-drag="${to}"]`);
-    if (again) again.focus();
-});
-
-/* Dragging works with a mouse and a finger alike: pointer events, the row
-   following the pointer, and the order settled when it is let go. */
+/* Dragging a rule by its handle, with a mouse or a finger (US-G12). */
 let drag = null;
 document.addEventListener("pointerdown", (e) => {
     const h = e.target.closest("[data-drag]");
     if (!h || e.button > 0) return;
-    const row = h.closest(".rrow"), list = row.parentElement;
-    const rows = [...list.children];
-    drag = { row, list, rows, startY: e.clientY, from: rows.indexOf(row), to: rows.indexOf(row), moved: false, id: e.pointerId };
+    const row = h.closest(".item");
+    const rows = [...row.parentElement.children];
+    drag = { row, rows, from: rows.indexOf(row), to: rows.indexOf(row), y: e.clientY, moved: false, id: e.pointerId };
     h.setPointerCapture(e.pointerId);
 });
 
 document.addEventListener("pointermove", (e) => {
     if (!drag || e.pointerId !== drag.id) return;
-    const dy = e.clientY - drag.startY;
-    if (Math.abs(dy) > 4) drag.moved = true;
-    if (!drag.moved) return;
-    e.preventDefault();
+    const dy = e.clientY - drag.y;
+    if (!drag.moved && Math.abs(dy) < 5) return;
+    drag.moved = true;
     drag.row.classList.add("dragging");
     drag.row.style.transform = `translateY(${dy}px)`;
     const mid = drag.row.getBoundingClientRect().top + drag.row.offsetHeight / 2;
-    let to = 0;
-    drag.rows.forEach((r, k) => {
-        if (r === drag.row) return;
-        const box = r.getBoundingClientRect();
-        if (mid > box.top + box.height / 2) to = k < drag.from ? k + 1 : k;
+    let to = drag.from;
+    drag.rows.forEach((x, k) => {
+        if (x === drag.row) return;
+        const box = x.getBoundingClientRect(), centre = box.top + box.height / 2;
+        if (k < drag.from && mid < centre) to = Math.min(to, k);
+        if (k > drag.from && mid > centre) to = Math.max(to, k);
     });
-    if (mid < drag.rows[0].getBoundingClientRect().top + drag.rows[0].offsetHeight / 2) to = 0;
-    drag.to = Math.max(0, Math.min(drag.rows.length - 1, to));
-    drag.rows.forEach((r, k) => r.classList.toggle("drop-before", k === drag.to && drag.to < drag.from && r !== drag.row));
-    drag.rows.forEach((r, k) => r.classList.toggle("drop-after", k === drag.to && drag.to > drag.from && r !== drag.row));
+    drag.to = to;
+    drag.rows.forEach((x, k) => {
+        x.classList.toggle("drop-above", k === to && to < drag.from);
+        x.classList.toggle("drop-below", k === to && to > drag.from);
+    });
 });
 
 document.addEventListener("pointerup", (e) => {
@@ -1461,472 +1180,331 @@ document.addEventListener("pointerup", (e) => {
         d.row.classList.remove("dragging");
         return;
     }
-    const before = snapshot();
-    const v = d.list.closest("[data-trigger]").dataset.trigger;
-    const order = sectionOf(v).map(([, j]) => j);
-    const [moved] = order.splice(d.from, 1);
-    order.splice(d.to, 0, moved);
-    reorderSection(v, order);
-    recordUndo(before);
+    const v = d.row.closest("[data-trigger]").dataset.trigger;
+    const places = inSection(v).map(([, j]) => j);
+    const order = places.slice();
+    order.splice(d.to, 0, order.splice(d.from, 1)[0]);
+    edit(() => {
+        const rules = order.map((j) => st.rules[j]);
+        places.forEach((p, k) => (st.rules[p] = rules[k]));
+    });
     render();
 });
 
-/* --------------------------------- diff --------------------------------- */
+/* Every dialog closes by its ×, its Close or Cancel. */
+document.addEventListener("click", (e) => {
+    const x = e.target.closest("dialog [data-close]");
+    if (x) x.closest("dialog").close();
+});
 
-/* Rules carry no id, so comparing by position lies: insert one rule at the top
-   and everything below it looks changed. Identical rules are paired first, and
-   only what is left is matched up — by resemblance, not by position. Each
-   section is its own list (US-D1, US-D6), and a rule that changed sections is
-   found across them (US-G7). */
-function diffConfig(before, after) {
-    const settings = S.p.filter((f) => canon(before[f.k]) !== canon(after[f.k]));
-    const rows = [];
-    const left = [], right = [];
+/* -------------------------------------------------------------------------- */
+/* What changed (US-G7)                                                        */
+/* -------------------------------------------------------------------------- */
+
+/* Rules have no ids, so they are paired by what they are: the same rule first,
+   then the same name, or the same condition and actions. Each section is its
+   own list, and a rule that changed section is found across them. */
+function changes(before, after) {
+    const settings = S.filter((f) => canon(before[f.key]) !== canon(after[f.key]));
+    const rows = [], gone = [], come = [];
     for (const t of T) {
-        const l = before.rules.filter((r) => trig(r) === t.v), rr = after.rules.filter((r) => trig(r) === t.v);
-        const d = diffRules(l, rr, t.v);
-        rows.push(...d.rows.filter((x) => x.status !== "added" && x.status !== "removed"));
-        left.push(...d.rows.filter((x) => x.status === "removed"));
-        right.push(...d.rows.filter((x) => x.status === "added"));
+        const was = before.rules.filter((r) => triggerOf(r).v === t.v);
+        const now = after.rules.filter((r) => triggerOf(r).v === t.v);
+        for (const row of pairUp(was, now, t.v)) (row.status === "removed" ? gone : row.status === "added" ? come : rows).push(row);
     }
-    /* What left one section and arrived in another is the same rule, moved by
-       its When, when the two resemble each other. */
-    const claimed = new Set();
-    for (const b of right) {
-        let best = -1, score = 0;
-        left.forEach((a, ix) => {
-            if (claimed.has(ix) || a.trigger === b.trigger) return;
-            const s = resemblance(a.rule, b.rule);
-            if (s > score) { score = s; best = ix; }
-        });
-        if (best >= 0 && score >= 2) {
-            claimed.add(best);
-            const was = left[best].rule;
-            rows.push({ ...b, status: "changed", was, wasTrigger: trig(was), details: ruleDetails(was, b.rule) });
-        } else rows.push(b);
+    const used = new Set();
+    for (const c of come) {
+        const k = gone.findIndex((g, j) => !used.has(j) && g.section !== c.section && alike(g.rule, c.rule) >= 3);
+        if (k >= 0) {
+            used.add(k);
+            rows.push({ ...c, status: "changed", marks: ["changed"], was: gone[k].rule, notes: [`was ${sectionName(gone[k].section)}`], details: details(gone[k].rule, c.rule) });
+        } else rows.push(c);
     }
-    left.forEach((a, ix) => !claimed.has(ix) && rows.push(a));
+    gone.forEach((g, j) => !used.has(j) && rows.push(g));
     return { settings, rows };
 }
 
-function resemblance(a, b) {
-    return (
-        (a.name && a.name === b.name ? 5 : 0) +
-        (a.condition && b.condition && a.condition.type === b.condition.type ? 3 : 0) +
-        (actionWords(a) === actionWords(b) ? 2 : 0)
-    );
+const sectionName = (v) => (T.find((t) => t.v === v) || T[0]).section;
+
+function alike(a, b) {
+    const sameCond = a.condition && b.condition && canon(a.condition) === canon(b.condition);
+    const sameType = a.condition && b.condition && a.condition.type === b.condition.type;
+    return (a.name && a.name === b.name ? 5 : 0) + (sameCond ? 4 : sameType ? 2 : 0) + (actionWords(a) === actionWords(b) ? 2 : 0);
 }
 
-/* What a paired rule's change is called: a rename, an on/off switch, or a
-   change of anything else (US-G7). */
-function changeKind(was, now) {
-    const strip = (r) => {
-        const { name, enabled, ...rest } = r;
-        return canon(rest);
-    };
-    if (strip(was) !== strip(now)) return "changed";
-    const renamed = (was.name || "") !== (now.name || ""), switched = isOn(was) !== isOn(now);
-    if (renamed && switched) return "changed";
-    if (switched) return isOn(now) ? "turned on" : "turned off";
-    return "renamed";
-}
-
-function diffRules(before, after, trigger) {
-    const left = before.map((r, i) => ({ r, i, key: canon(r) }));
-    const right = after.map((r, i) => ({ r, i, key: canon(r) }));
-    const usedL = new Set(), pairs = [];
+function pairUp(was, now, section) {
+    const left = was.map((r, i) => ({ r, i, key: canon(r) }));
+    const right = now.map((r, i) => ({ r, i, key: canon(r) }));
+    const takenL = new Set(), takenR = new Set(), pairs = [];
     for (const b of right) {
-        const m = left.find((a) => !usedL.has(a.i) && a.key === b.key);
-        if (m) {
-            usedL.add(m.i);
-            pairs.push({ l: m, r: b });
+        const a = left.find((x) => !takenL.has(x.i) && x.key === b.key);
+        if (a) { takenL.add(a.i); takenR.add(b.i); pairs.push([a, b]); }
+    }
+    for (const b of right) {
+        if (takenR.has(b.i)) continue;
+        let best = null, score = 0;
+        for (const a of left) if (!takenL.has(a.i) && alike(a.r, b.r) > score) { best = a; score = alike(a.r, b.r); }
+        if (best && score >= 3) { takenL.add(best.i); takenR.add(b.i); pairs.push([best, b]); }
+    }
+    /* What kept its order among the paired is what stayed; the rest moved. */
+    pairs.sort((x, y) => x[1].i - y[1].i);
+    const stayed = longestRun(pairs.map(([a]) => a.i));
+    const rows = pairs.map(([a, b], k) => {
+        const notes = [], marks = [];
+        if (a.key !== b.key) {
+            const { name: n1, enabled: e1, ...rest1 } = a.r, { name: n2, enabled: e2, ...rest2 } = b.r;
+            if (canon(rest1) !== canon(rest2)) marks.push("changed");
+            if ((n1 || "") !== (n2 || "")) { marks.push("renamed"); notes.push(`was “${n1 || ""}”`); }
+            if (isOn(a.r) !== isOn(b.r)) marks.push(isOn(b.r) ? "turned on" : "turned off");
         }
-    }
-
-    /* Of the untouched rules, the longest run that kept its relative order is
-       what "stayed put"; the rest are what actually moved. */
-    const inPlace = longestIncreasing(pairs.map((p) => p.l.i));
-    const rows = pairs.map((p, idx) => ({
-        status: inPlace.has(idx) ? "same" : "moved",
-        index: p.r.i,
-        from: p.l.i,
-        rule: p.r.r,
-        trigger,
-    }));
-
-    const usedR = new Set(pairs.map((p) => p.r.i));
-    const restL = left.filter((a) => !usedL.has(a.i));
-    const restR = right.filter((b) => !usedR.has(b.i));
-    const claimed = new Set();
-    for (const b of restR) {
-        let best = -1, score = 0;
-        restL.forEach((a, ix) => {
-            if (claimed.has(ix)) return;
-            const s = resemblance(a.r, b.r);
-            if (s > score) {
-                score = s;
-                best = ix;
-            }
-        });
-        /* Same name, same detector or same actions means this is the same rule,
-           edited. Anything less is a different rule that simply took its place. */
-        if (best >= 0 && score >= 2) {
-            claimed.add(best);
-            const was = restL[best].r;
-            rows.push({ status: changeKind(was, b.r), index: b.i, rule: b.r, was, trigger, details: ruleDetails(was, b.r) });
-        } else rows.push({ status: "added", index: b.i, rule: b.r, trigger });
-    }
-    restL.forEach((a, ix) => {
-        if (!claimed.has(ix)) rows.push({ status: "removed", index: a.i, rule: a.r, trigger });
+        if (!stayed.has(k)) { marks.push("moved"); notes.push(`was ${ordinal(a.i + 1)}`); }
+        return { status: marks[0] || "same", marks, index: b.i, rule: b.r, was: a.r, section, notes, details: marks.includes("changed") ? details(a.r, b.r) : [] };
     });
-
-    rows.sort((a, b) => a.index - b.index);
-    return { rows };
+    right.filter((b) => !takenR.has(b.i)).forEach((b) => rows.push({ status: "added", marks: ["added"], index: b.i, rule: b.r, section, notes: [] }));
+    left.filter((a) => !takenL.has(a.i)).forEach((a) => rows.push({ status: "removed", marks: ["removed"], index: a.i, rule: a.r, section, notes: [] }));
+    return rows;
 }
 
-/* Indices of a longest increasing subsequence, as a Set. */
-function longestIncreasing(seq) {
-    const best = seq.map(() => 1), prev = seq.map(() => -1);
-    let endAt = -1, longest = 0;
-    for (let i = 0; i < seq.length; i++) {
-        for (let j = 0; j < i; j++)
-            if (seq[j] < seq[i] && best[j] + 1 > best[i]) {
-                best[i] = best[j] + 1;
-                prev[i] = j;
-            }
-        if (best[i] > longest) {
-            longest = best[i];
-            endAt = i;
-        }
-    }
+/* Positions of a longest increasing run, as a Set. */
+function longestRun(seq) {
+    const len = seq.map(() => 1), prev = seq.map(() => -1);
+    let end = -1;
+    seq.forEach((x, i) => {
+        for (let j = 0; j < i; j++) if (seq[j] < x && len[j] + 1 > len[i]) { len[i] = len[j] + 1; prev[i] = j; }
+        if (end < 0 || len[i] > len[end]) end = i;
+    });
     const out = new Set();
-    for (let i = endAt; i >= 0; i = prev[i]) out.add(i);
+    for (let i = end; i >= 0; i = prev[i]) out.add(i);
     return out;
 }
 
-/* A secret as the diff shows it: its last four characters. */
-const secretHint = (v) => (v ? `…${String(v).slice(-4)}` : "empty");
+function changeCount() {
+    const d = changes(st.baseline, config());
+    return d.settings.length + d.rows.filter((x) => x.status !== "same").length;
+}
 
-const label = (n) => `${spec(C, n.type).g} ${spec(C, n.type).t}`;
+const secretTail = (v) => (v ? `…${String(v).slice(-4)}` : "empty");
 
-function ruleDetails(a, b) {
+function details(a, b) {
     const out = [];
-    if ((a.name || "") !== (b.name || "") && changeKind(a, b) === "changed")
-        out.push({ text: `name: “${a.name || ""}” → “${b.name || ""}”` });
-    if (isOn(a) !== isOn(b) && changeKind(a, b) === "changed") out.push({ text: isOn(b) ? "turned on" : "turned off" });
-    if (actionWords(a) !== actionWords(b)) out.push({ text: `actions: ${actionWords(a)} → ${actionWords(b)}` });
+    if (actionWords(a) !== actionWords(b)) out.push({ text: `actions: ${actionWords(a) || "none"} → ${actionWords(b) || "none"}` });
     if (!a.condition !== !b.condition) out.push({ text: `condition: ${condWords(a)} → ${condWords(b)}` });
-    else if (a.condition) conditionDetails(a.condition, b.condition, out);
+    else if (a.condition) treeDetails(a.condition, b.condition, out, "");
     return out;
 }
 
-/* Walks two condition trees side by side. A shrinking list is called out
-   separately: it is the one change that would otherwise slip through. */
-function conditionDetails(a, b, out, where = "") {
-    if (!a || !b || out.length > 8) return;
-    if (a.type !== b.type) {
-        out.push({ text: `${spec(C, a.type).t} → ${spec(C, b.type).t}` });
-        return;
-    }
-    for (const f of spec(C, a.type).p) {
-        const x = a[f.k], y = b[f.k];
-        if (f.kind === "child") conditionDetails(x, y, out, where);
-        else if (f.kind === "children") childrenDetails(spec(C, a.type).t, x || [], y || [], out);
-        else if (f.kind === "strlist") {
-            /* A net "+1" can hide five entries leaving and six arriving, so the
-               two directions are counted separately. */
-            const was = x || [], now = y || [];
-            if (canon(was) === canon(now)) continue;
-            const wasSet = new Set(was), nowSet = new Set(now);
-            const removed = was.filter((v) => !nowSet.has(v));
-            const added = now.filter((v) => !wasSet.has(v));
-            if (!removed.length && !added.length) {
-                out.push({ text: `${where}${f.k}: same ${was.length} entries, reordered` });
-                continue;
-            }
-            const parts = [];
-            if (removed.length) parts.push(`${removed.length} removed`);
-            if (added.length) parts.push(`${added.length} added`);
-            out.push({
-                text: `${where}${f.k}: ${parts.join(", ")} (${was.length} → ${now.length})`,
-                alarm: removed.length > 0,
-                removed,
-                added,
+/* Two trees side by side. A list that lost entries is called out in red: it is
+   the change that would otherwise slip through. */
+function treeDetails(a, b, out, where) {
+    if (out.length > 8) return;
+    if (a.type !== b.type) return out.push({ text: `${where}${cond(a.type).title} → ${cond(b.type).title}` });
+    for (const f of cond(a.type).fields) {
+        const x = a[f.key], y = b[f.key];
+        if (f.kind === "child") treeDetails(x, y, out, where);
+        else if (f.kind === "children") childDetails(cond(a.type).title, x || [], y || [], out);
+        else if (f.kind === "list") {
+            if (canon(x) === canon(y)) continue;
+            const removed = (x || []).filter((v) => !(y || []).includes(v)), added = (y || []).filter((v) => !(x || []).includes(v));
+            if (!removed.length && !added.length) out.push({ text: `${where}${f.key}: same ${(x || []).length} entries, reordered` });
+            else out.push({
+                text: `${where}${f.key}: ${[removed.length && `${removed.length} removed`, added.length && `${added.length} added`].filter(Boolean).join(", ")} (${(x || []).length} → ${(y || []).length})`,
+                alarm: removed.length > 0, removed, added,
             });
-        } else if (f.kind === "password") {
-            if (x !== y) out.push({ text: `${where}${f.k}: replaced (${secretHint(x)} → ${secretHint(y)})` });
-        } else if (f.kind === "textarea") {
-            if (x !== y) out.push({ text: `${where}${f.k}: rewritten (${String(x ?? "").length} → ${String(y ?? "").length} characters)` });
-        } else if (f.kind === "choice") {
-            if (x !== y) out.push({ text: `${where}${f.label}: ${choiceText(f, x)} → ${choiceText(f, y)}` });
-        } else if (x !== y) out.push({ text: `${where}${f.k}: ${x} → ${y}` });
+        } else if (f.kind === "secret") { if (x !== y) out.push({ text: `${where}${f.key}: replaced (${secretTail(x)} → ${secretTail(y)})` }); }
+        else if (f.kind === "prose") { if (x !== y) out.push({ text: `${where}${f.key}: rewritten (${String(x ?? "").length} → ${String(y ?? "").length} characters)` }); }
+        else if (f.kind === "choice") { if (x !== y) out.push({ text: `${where}${f.label}: ${choiceText(f, x)} → ${choiceText(f, y)}` }); }
+        else if (x !== y) out.push({ text: `${where}${f.key}: ${x} → ${y}` });
     }
 }
 
-/* A composite's children carry no id either, so the rules' own pairing applies
-   one level down: identical children first, then what is left, by type. Order
-   inside All/Any changes nothing the bot does, so a pure reorder says
-   nothing. */
-function childrenDetails(title, xs, ys, out) {
-    const left = xs.map((n, i) => ({ n, i, key: canon(n) }));
-    const right = ys.map((n, i) => ({ n, i, key: canon(n) }));
-    const same = new Set();
-    const restR = right.filter((b) => {
-        const m = left.find((a) => !same.has(a.i) && a.key === b.key);
+/* A container's children are paired like rules: identical first, then by
+   type; their order means nothing to the bot. */
+function childDetails(title, xs, ys, out) {
+    const left = xs.map((n, i) => ({ n, i, key: canon(n) })), same = new Set(), edited = new Set(), pairs = [], added = [];
+    const rest = ys.filter((n) => {
+        const m = left.find((a) => !same.has(a.i) && a.key === canon(n));
         if (m) same.add(m.i);
         return !m;
     });
-
-    const edited = new Set(), pairs = [], added = [];
-    for (const b of restR) {
-        const m = left.find((a) => !same.has(a.i) && !edited.has(a.i) && a.n.type === b.n.type);
-        if (m) {
-            edited.add(m.i);
-            pairs.push([m.n, b.n]);
-        } else added.push(b.n);
+    for (const n of rest) {
+        const m = left.find((a) => !same.has(a.i) && !edited.has(a.i) && a.n.type === n.type);
+        if (m) { edited.add(m.i); pairs.push([m.n, n]); } else added.push(n);
     }
     const removed = left.filter((a) => !same.has(a.i) && !edited.has(a.i)).map((a) => a.n);
-
     if (xs.length !== ys.length) out.push({ text: `${title}: ${xs.length} → ${ys.length} conditions` });
-    for (const n of removed) out.push({ text: `removed: ${label(n)}`, node: n, alarm: true });
-    for (const n of added) {
-        if (out.length > 8) break;
-        out.push({ text: `added: ${label(n)}`, node: n });
-    }
-    for (const [a, b] of pairs) conditionDetails(a, b, out, `${spec(C, b.type).t} · `);
+    removed.forEach((n) => out.push({ text: `removed: ${cond(n.type).emoji} ${cond(n.type).title}`, node: n, alarm: true }));
+    added.forEach((n) => out.length <= 8 && out.push({ text: `added: ${cond(n.type).emoji} ${cond(n.type).title}`, node: n }));
+    pairs.forEach(([a, b]) => treeDetails(a, b, out, `${cond(b.type).title} · `));
 }
 
-/* ----------------------------- apply dialog ----------------------------- */
+const PREVIEW = 40;
+const chipsOf = (xs, cls) =>
+    xs.slice(0, PREVIEW).map((x) => `<span class="${cls}">${esc(x)}</span>`).join("") + (xs.length > PREVIEW ? `<span class="more-n">+${xs.length - PREVIEW} more</span>` : "");
 
-const dlg = document.getElementById("applydlg");
-
-/* How many entries one side of a list change shows before it stops listing. */
-const LIST_PREVIEW = 40;
-
-function chipList(items, kind) {
-    return (
-        items
-            .slice(0, LIST_PREVIEW)
-            .map((v) => `<span class="dlchip ${kind}">${esc(v)}</span>`)
-            .join("") +
-        (items.length > LIST_PREVIEW ? `<span class="dlmore">+${items.length - LIST_PREVIEW} more</span>` : "")
-    );
-}
-
-/* A list change is a line like any other until you click it. */
 function detailHtml(x) {
-    if (x.node) return nodeHtml(x);
-    if (!x.removed && !x.added) return `<span class="d${x.alarm ? " alarm" : ""}">${esc(x.text)}</span>`;
-    return `<details class="dlist"><summary class="d${x.alarm ? " alarm" : ""}">${esc(x.text)}</summary>
-    <div class="dlbody">
-      ${x.removed.length
-            ? `<div class="dlgroup"><span class="dlk rm">removed</span><span class="dlchips">${chipList(x.removed, "rm")}</span></div>`
-            : ""
-        }
-      ${x.added.length
-            ? `<div class="dlgroup"><span class="dlk ad">added</span><span class="dlchips">${chipList(x.added, "ad")}</span></div>`
-            : ""
-        }
-    </div></details>`;
-}
-
-function nodeHtml(x) {
-    const n = x.node, kind = x.alarm ? "rm" : "ad";
-    const fields = spec(C, n.type).p;
-    const head = `<span class="d${x.alarm ? " alarm" : ""}">${esc(x.text)}</span>`;
-    if (!fields.length) return head;
-    const lists = fields
-        .filter((f) => f.kind === "strlist" && (n[f.k] || []).length)
-        .map(
-            (f) =>
-                `<div class="dlgroup"><span class="dlk ${kind}">${esc(f.k)}</span><span class="dlchips">${chipList(n[f.k], kind)}</span></div>`
-        )
-        .join("");
-    return `<details class="dlist"><summary class="d${x.alarm ? " alarm" : ""}">${esc(x.text)}</summary>
-    <div class="dlbody"><span class="d">${esc(say(n))}</span>${lists}</div></details>`;
+    const line = `<span class="d${x.alarm ? " alarm" : ""}">${esc(x.text)}</span>`;
+    if (x.node) {
+        const lists = cond(x.node.type).fields.filter((f) => f.kind === "list" && (x.node[f.key] || []).length);
+        return `<details class="d-more"><summary>${line}</summary><div><p>${esc(phraseOf(x.node))}</p>${lists
+            .map((f) => `<p class="d-list"><b>${esc(f.key)}</b>${chipsOf(x.node[f.key], x.alarm ? "rm" : "ad")}</p>`).join("")}</div></details>`;
+    }
+    if (!x.removed) return line;
+    return `<details class="d-more"><summary>${line}</summary><div>
+      ${x.removed.length ? `<p class="d-list"><b class="rm-k">removed</b>${chipsOf(x.removed, "rm")}</p>` : ""}
+      ${x.added.length ? `<p class="d-list"><b class="ad-k">added</b>${chipsOf(x.added, "ad")}</p>` : ""}</div></details>`;
 }
 
 function ruleLine(r) {
-    const name = r.name || (issueOf(r) ? "New rule" : "");
-    const phrase = issueOf(r) && !r.condition && !(r.actions || []).length
-        ? ""
+    const name = r.name || (missing(r) ? "New rule" : "");
+    const words = !r.condition && !(r.actions || []).length ? ""
         : `<span class="kw if">IF</span> ${esc(condWords(r))} <span class="kw then">THEN</span> ${esc(actionWords(r) || "—")}`;
-    return `${name ? `<b class="dname">${esc(name)}</b> ` : ""}${phrase}`;
+    return `${name ? `<b>${esc(name)}</b> ` : ""}${words}`;
 }
 
-/* The bot reads the link out of one chat message, so the message is the budget:
-   `MESSAGE_MAX_LENGTH_IN_BYTES` in drivers/simplex/consts.rs, mirrored into the
+/* The link travels in one chat message, and that is its budget:
+   `MESSAGE_MAX_LENGTH_IN_BYTES` in drivers/simplex/consts.rs, mirrored in the
    schema. */
-function linkWarning() {
+function sizeWarning() {
     const limit = (SCHEMA.options && SCHEMA.options.message_max_bytes) || 15000;
     const bytes = new TextEncoder().encode(linkMessage()).length;
     if (bytes <= limit * 0.7) return "";
-    const pct = Math.round((bytes / limit) * 100);
+    const n = (x) => x.toLocaleString("en-US");
     return bytes > limit
-        ? `<div class="dwarn over">This link is ${bytes.toLocaleString("en-US")} bytes — past the ${limit.toLocaleString("en-US")} a single chat message can carry. The bot will not be able to read it. Shorten a long list before sending.</div>`
-        : `<div class="dwarn">This link is ${bytes.toLocaleString("en-US")} bytes, ${pct}% of what a single chat message can carry. Once it passes ${limit.toLocaleString("en-US")}, the bot will no longer be able to read it.</div>`;
+        ? `<p class="alert bad">This link is ${n(bytes)} bytes — past the ${n(limit)} a single chat message can carry. The bot will not be able to read it. Shorten a long list before sending.</p>`
+        : `<p class="alert warn">This link is ${n(bytes)} bytes, ${Math.round((bytes / limit) * 100)}% of what a single chat message can carry. Once it passes ${n(limit)}, the bot will no longer be able to read it.</p>`;
 }
 
-/* How a setting's value reads in the diff. */
 function settingText(f, v) {
     if (f.kind === "choice") return choiceText(f, v);
     if (f.kind === "bool") return v ? "on" : "off";
     return String(v);
 }
 
-/* The message the owner sends: the bot finds the URL anywhere in it and stops
-   at ")" or a space, which is why a markdown link is safe to paste. */
-const linkMessage = () =>
-    `[Settings for ${state.groupName ? state.groupName.replace(/[[\]]/g, "") : `group ${state.botId}`}](${EDITOR_URL_BASE}#${hashParts()})`;
+function openApply() {
+    const d = changes(st.baseline, config());
+    const shown = d.rows.filter((x) => x.status !== "same");
+    const same = d.rows.filter((x) => x.status === "same").map((x) => titleOf(x.rule));
+    $("apply-meta").textContent = `${st.baseline.rules.length} → ${st.rules.length} rules`;
 
-const STATUS = { changed: "changed", added: "added", removed: "removed", moved: "moved", renamed: "renamed", "turned off": "turned off", "turned on": "turned on" };
-
-function openApplyDialog() {
-    const d = diffConfig(state.baseline, config());
-    const body = document.getElementById("applydlg-body");
-    const foot = document.getElementById("applydlg-foot");
-    document.getElementById("applydlg-meta").textContent = `${state.baseline.rules.length} → ${state.rules.length} rules`;
-
-    const shown = d.rows.filter((r) => r.status !== "same");
-    const same = d.rows.filter((r) => r.status === "same").map((r) => titleOf(r.rule));
-    /* A setting is one value, so its change is one line, above the rules it
-       applies to. */
-    const settings = d.settings
-        .map(
-            (f) => `<div class="drow"><span class="st changed">changed</span>
-        <span class="txt">${esc(f.label)}: ${esc(settingText(f, state.baseline[f.k]))} → <b>${esc(settingText(f, state.settings[f.k]))}</b></span></div>`
-        )
-        .join("");
-
+    const settings = d.settings.map((f) => `<div class="change"><span class="marks"><span class="mark changed">changed</span></span>
+      <span class="what">${esc(f.label)}: ${esc(settingText(f, st.baseline[f.key]))} → <b>${esc(settingText(f, st.settings[f.key]))}</b></span></div>`).join("");
     const sections = T.map((t) => {
-        const rows = shown.filter((r) => r.trigger === t.v).sort((a, b) => a.index - b.index);
-        if (!rows.length) return "";
-        return `<h3 class="dsec">${esc(t.section)}</h3>` + rows
-            .map((r) => {
-                const notes = [];
-                if (r.status === "moved") notes.push(`was ${ordinal(r.from + 1)}`);
-                if (r.status === "renamed") notes.push(`was “${r.was.name || ""}”`);
-                if (r.wasTrigger) notes.push(`was ${(T.find((x) => x.v === r.wasTrigger) || T[0]).section}`);
-                return `<div class="drow">
-          <span class="st ${r.status.replace(" ", "-")}">${STATUS[r.status]}</span>
-          <span class="txt">${ruleLine(r.rule)}${notes.map((n) => `<span class="d">${esc(n)}</span>`).join("")}${(r.status === "changed" ? r.details || [] : []).map(detailHtml).join("")
-                    }</span></div>`;
-            })
-            .join("");
+        const rows = shown.filter((x) => x.section === t.v).sort((a, b) => a.index - b.index);
+        return rows.length ? `<h3>${esc(t.section)}</h3>` + rows.map((x) => `<div class="change">
+          <span class="marks">${x.marks.map((m) => `<span class="mark ${m.replace(" ", "-")}">${m}</span>`).join("")}</span>
+          <span class="what">${ruleLine(x.rule)}${x.notes.map((n) => `<span class="d">${esc(n)}</span>`).join("")}${(x.details || []).map(detailHtml).join("")}</span></div>`).join("") : "";
     }).join("");
 
-    body.innerHTML =
-        linkWarning() +
-        settings +
-        (shown.length
-            ? sections + (same.length ? `<div class="dquiet">Unchanged: ${esc(same.join(", "))}</div>` : "")
-            : settings
-                ? ""
-                : `<div class="dempty">Nothing has changed since you opened this page. You can still copy the link and send it again.</div>`);
+    $("apply-body").innerHTML = sizeWarning() + settings + (shown.length
+        ? sections + (same.length ? `<p class="quiet">Unchanged: ${esc(same.join(", "))}</p>` : "")
+        : settings ? "" : `<p class="quiet">Nothing has changed since you opened this page. You can still copy the link and send it again.</p>`);
 
     /* A rule the bot would refuse is not sent at all (US-G14). */
-    const bad = state.rules.find(issueOf);
-    foot.innerHTML = bad
-        ? `<p class="dblock" role="alert">“${esc(titleOf(bad))}” has no ${issueOf(bad)} yet. Finish it or delete it before sending.</p>
-       <button class="btn" id="applydlg-cancel" type="button">Cancel</button>`
-        : `<button class="btn" id="applydlg-cancel" type="button">Cancel</button>
-       <button class="btn primary" id="applydlg-ok" type="button">Copy the link</button>`;
-    dlg.showModal();
+    const k = st.rules.findIndex(missing);
+    $("apply-foot").innerHTML = k >= 0
+        ? `<p class="blocked" role="alert">“${esc(titleOf(st.rules[k]))}” has no ${missing(st.rules[k])} yet. Finish it or delete it before sending.</p>
+       <button class="btn" type="button" data-close>Cancel</button>
+       <button class="btn primary" type="button" id="apply-open" data-i="${k}">Open “${esc(titleOf(st.rules[k]))}”</button>`
+        : `<button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="button" id="apply-copy">Copy the link</button>`;
+    $("applydlg").showModal();
 }
 
-/* Copying is the last step of the flow, so it is also where the baseline moves:
-   what the owner just sent becomes the new "before". */
-function copyEditorLink() {
-    return navigator.clipboard.writeText(linkMessage()).then(() => {
-        state.baseline = snapshot();
-        renderFrame();
-    });
-}
+$("apply").addEventListener("click", openApply);
 
-dlg.addEventListener("click", (e) => {
+$("applydlg").addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b) return;
-    if (b.id === "applydlg-cancel") {
-        dlg.close();
+    if (b.id === "apply-open") {
+        $("applydlg").close();
+        go("rule", { sel: +b.dataset.i });
         return;
     }
-    if (b.id === "applydlg-ok") {
-        copyEditorLink()
-            .then(() => {
-                document.getElementById("applydlg-body").innerHTML =
-                    `<div class="dsuccess" role="status"><b>Link copied.</b> Paste it into your chat with the bot and send it — that is what applies the changes.</div>`;
-                document.getElementById("applydlg-meta").textContent = "";
-                document.getElementById("applydlg-foot").innerHTML =
-                    `<button class="btn primary" id="applydlg-cancel" type="button">Close</button>`;
-            })
-            .catch(() => {
-                document.getElementById("applydlg-body").innerHTML =
-                    `<div class="dsuccess bad" role="alert"><b>Could not reach the clipboard.</b> Copy the whole address from the address bar and send that to the bot.</div>`;
-            });
-    }
+    if (b.id !== "apply-copy") return;
+    /* Copying is the last step, so the baseline moves to what was copied. */
+    navigator.clipboard.writeText(linkMessage())
+        .then(() => {
+            st.baseline = snapshot();
+            renderBar();
+            $("apply-meta").textContent = "";
+            $("apply-body").innerHTML = `<p class="done" role="status"><b>Link copied.</b> Paste it into your chat with the bot and send it — that is what applies the changes.</p>`;
+            $("apply-foot").innerHTML = `<button class="btn primary" type="button" data-close>Close</button>`;
+        })
+        .catch(() => {
+            $("apply-body").innerHTML = `<p class="alert bad" role="alert"><b>Could not reach the clipboard.</b> Copy the whole address from the address bar and send that to the bot.</p>`;
+        });
 });
 
-/* ------------------------------- startup ------------------------------- */
+/* -------------------------------------------------------------------------- */
+/* Start                                                                       */
+/* -------------------------------------------------------------------------- */
 
-document.getElementById("apply").addEventListener("click", openApplyDialog);
+function readSettings(obj) {
+    const errors = [], out = Object.fromEntries(S.map((f) => [f.key, clone(f.def)]));
+    for (const k of Object.keys(obj)) if (!S.some((f) => f.key === k)) errors.push(`There is no setting “${k}”.`);
+    for (const f of S) {
+        if (!(f.key in obj)) continue;
+        const v = obj[f.key];
+        const ok = f.kind === "choice" ? f.choices.some((c) => c.v === v) || (f.num && Number.isInteger(v))
+            : f.kind === "bool" ? typeof v === "boolean" : f.kind === "int" ? Number.isInteger(v) : typeof v === "string";
+        if (ok) out[f.key] = v;
+        else errors.push(`${f.label}: “${JSON.stringify(v)}” is not a value it can take.`);
+    }
+    return errors.length ? { errors } : { settings: out };
+}
 
-async function init() {
+async function start() {
     if (typeof LZString === "undefined") throw new Error("lz-string failed to load");
     SCHEMA = await fetch("rules-schema.json").then((r) => {
         if (!r.ok) throw new Error(`rules-schema.json: HTTP ${r.status}`);
         return r.json();
     });
-
-    const ruleProps = SCHEMA.properties.rules.items.properties;
-    RULE = ruleProps;
-    T = buildTriggers(ruleProps.trigger);
-    const firstTrigger = [ruleProps.trigger.default || T[0].v];
-    C = buildRegistry(SCHEMA.definitions.condition.oneOf, firstTrigger);
-    A = buildRegistry(SCHEMA.definitions.action.oneOf, firstTrigger);
-    S = buildSettings(SCHEMA);
-    state.settings = clone(S.def);
+    R = SCHEMA.properties.rules.items.properties;
+    T = R.trigger.oneOf.map((b) => {
+        const o = b.options || {};
+        return {
+            v: b.const, title: b.title, section: o.section || b.title, newRule: o.new_rule || b.title,
+            empty: o.empty || "No rules yet.", incompatible: o.incompatible || "Doesn't work here",
+            incomplete: o.incomplete || "Pick a condition and at least one action.", prompt: o.prompt || b.title,
+            optional: !!o.condition_optional, everyone: o.everyone || "Always",
+        };
+    });
+    const firstOnly = [R.trigger.default || T[0].v];
+    C = registry(SCHEMA.definitions.condition.oneOf, firstOnly, false);
+    A = registry(SCHEMA.definitions.action.oneOf, firstOnly, true);
+    S = Object.entries(SCHEMA.properties).filter(([k]) => k !== "rules").map(([k, pr]) => fieldOf(k, pr));
+    st.settings = Object.fromEntries(S.map((f) => [f.key, clone(f.def)]));
     const lim = SCHEMA.definitions.condition.options || {};
-    state.limits = { depth: lim.max_depth || 8, nodes: lim.max_nodes || 64 };
+    st.limits = { depth: lim.max_depth || 8, nodes: lim.max_nodes || 64 };
 
-    const { bot_id, group, config: packed } = parseHash();
-    state.botId = bot_id || null;
-    try {
-        state.groupName = group ? decodeURIComponent(group) : null;
-    } catch (e) {
-        state.groupName = null;
-    }
-    let unreadable = false;
-    if (packed) {
+    const hash = Object.fromEntries(location.hash.slice(1).split("&").filter((p) => p.includes("=")).map((p) => [p.slice(0, p.indexOf("=")), p.slice(p.indexOf("=") + 1)]));
+    st.botId = hash.bot_id || null;
+    try { st.group = hash.group ? decodeURIComponent(hash.group) : null; } catch (e) { st.group = null; }
+    if (hash.config) {
         try {
-            const { rules, ...settings } = JSON.parse(LZString.decompressFromEncodedURIComponent(packed));
-            const checked = validateSettings(settings);
-            if (!Array.isArray(rules) || checked.errors) throw new Error((checked.errors || ["no rules"]).join(" "));
-            /* Every rule says its trigger, so two links that differ only in
-               leaving the default out compare equal. */
-            state.rules = rules.map((r) => ({ ...r, trigger: trig(r) }));
-            state.settings = checked.settings;
+            const { rules, ...settings } = JSON.parse(LZString.decompressFromEncodedURIComponent(hash.config));
+            const read = readSettings(settings);
+            if (!Array.isArray(rules) || read.errors) throw new Error((read.errors || ["no rules"]).join(" "));
+            /* Every rule names its trigger, so a link that leaves the default
+               out compares equal to one that writes it. */
+            st.rules = rules.map((r) => ({ ...r, trigger: triggerOf(r).v }));
+            st.settings = read.settings;
         } catch (err) {
-            console.warn("Could not restore the config from the URL hash:", err);
-            unreadable = true;
+            console.warn("Could not read the settings in the link:", err);
+            st.unreadable = true;
         }
     }
+    st.baseline = snapshot();
 
-    state.baseline = snapshot();
-
-    if (!state.botId) document.getElementById("nobot").hidden = false;
-    else document.getElementById("apply").hidden = false;
-    document.getElementById("boot").hidden = true;
-    document.getElementById("app").hidden = false;
-    history.replaceState({ v: "overview" }, "", location.hash);
+    $("nobot").hidden = !!st.botId;
+    $("apply").hidden = !st.botId;
+    $("boot").hidden = true;
+    $("app").hidden = false;
+    history.replaceState({ view: "home" }, "", location.hash);
     render();
-    if (unreadable) toast("The settings in this link could not be read. Starting from scratch.");
-    /* ai.js and transfer.js wait for this: the registry and the rules have to
-       exist first. */
     document.dispatchEvent(new CustomEvent("editor:ready"));
 }
 
-init().catch((err) => {
-    const boot = document.getElementById("boot");
-    boot.className = "boot failed";
-    boot.textContent = `Failed to load the editor: ${err.message}`;
+start().catch((err) => {
+    $("boot").textContent = `Failed to load the editor: ${err.message}`;
+    $("boot").classList.add("failed");
 });

@@ -3,174 +3,139 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Group Moderator — Group Settings</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#ffffff">
+    <title>Moderation settings</title>
     <link rel="stylesheet" href="editor.css">
 </head>
 
 <body>
-    <div class="wrap">
-        <!-- The same header on every page: the group, and what applies to all of
-             it — undo, redo and Apply. The overview adds its ⋯ menu. -->
-        <header class="top">
-            <div class="titles">
-                <h1 id="gtitle">Moderation settings</h1>
-                <p class="sub">Moderation settings · <a
-                        href="https://simplex-directory.asriyan.me/#/bots/63d110f4-9f70-4128-b0e7-5a8958299f96"
-                        target="_blank" rel="noopener">Moderator Bot</a></p>
-            </div>
-            <div class="hactions" id="hactions">
+    <!-- The bar every page shares: where you are, and what applies to the whole
+         configuration — undo, redo, the ⋯ menu and Apply. -->
+    <header class="appbar">
+        <div class="appbar-in">
+            <div class="where" id="where"></div>
+            <div class="bar-actions" id="bar-actions">
                 <button class="btn" id="undo" type="button" data-op="undo" hidden
                     aria-keyshortcuts="Control+Z">Undo</button>
                 <button class="btn" id="redo" type="button" data-op="redo" hidden
                     aria-keyshortcuts="Control+Shift+Z">Redo</button>
-                <div class="menu" id="gmenu-wrap" hidden>
-                    <button class="btn" type="button" data-op="menu" data-p="global" aria-haspopup="menu"
-                        aria-expanded="false" aria-label="More">⋯</button>
-                    <div class="pop" role="menu" id="gmenu" hidden>
-                        <button role="menuitem" type="button" id="ai-open">Edit all with AI</button>
-                        <button role="menuitem" type="button" id="imp-open">Import JSON</button>
-                        <button role="menuitem" type="button" id="exp-btn">Export JSON</button>
-                    </div>
-                </div>
+                <div class="menu" id="gmenu" hidden></div>
                 <button class="btn primary" id="apply" type="button" hidden>Apply changes</button>
             </div>
-        </header>
+        </div>
+    </header>
 
-        <p class="err" id="nobot" hidden>No bot ID found in the URL. Open the link the bot sent you in a direct
+    <div class="page">
+        <p class="alert bad" id="nobot" hidden>No bot ID found in the URL. Open the link the bot sent you in a direct
             message — a link opened by hand cannot be applied.</p>
-        <div class="banner" id="banner" role="status" hidden></div>
-
-        <div class="boot" id="boot">Loading editor…</div>
-
-        <!-- One of three pages, by state.view: the overview, a rule, or New rule. -->
-        <main class="app" id="app" data-view="overview" hidden></main>
-
-        <footer class="foot">
-            <a href="https://github.com/ed-asriyan/simplex-chat-group-moderator" target="_blank" rel="noopener">Source
-                code on GitHub</a>
-        </footer>
+        <p class="alert dry" id="banner" role="status" hidden></p>
+        <p class="loading" id="boot">Loading editor…</p>
+        <main id="app" hidden></main>
+        <footer class="foot"><a href="https://github.com/ed-asriyan/simplex-chat-group-moderator" target="_blank"
+                rel="noopener">Source code on GitHub</a></footer>
     </div>
 
-    <!-- Picks a condition's or an action's type, for a new one or a change. -->
-    <dialog id="pickdlg" aria-labelledby="pickdlg-title">
-        <div class="dlg-head">
-            <b id="pickdlg-title">Pick a condition</b>
-            <button class="dlg-x" id="pickdlg-x" type="button" aria-label="Close">&times;</button>
+    <!-- A condition's or an action's type, for a new one or a change. -->
+    <dialog class="sheet" id="pickdlg" aria-labelledby="pick-title">
+        <div class="sheet-head">
+            <h2 id="pick-title">Pick a condition</h2>
+            <button class="x" type="button" data-close aria-label="Close">×</button>
         </div>
-        <div class="dlg-body pick-body" id="pickdlg-body"></div>
+        <div class="sheet-tools">
+            <input type="search" id="pick-q" placeholder="Search" aria-label="Search the types" autocomplete="off">
+        </div>
+        <div class="sheet-body" id="pick-body"></div>
     </dialog>
 
-    <dialog id="impdlg" aria-labelledby="impdlg-title">
-        <div class="dlg-head">
-            <b id="impdlg-title">Import settings from JSON</b>
-            <button class="dlg-x" id="impdlg-x" type="button" aria-label="Close">&times;</button>
+    <!-- Edit with AI, for everything (US-G9), one rule (US-G17) or a new rule
+         (US-G16): one panel, worded by ai.js for its scope. -->
+    <dialog class="sheet" id="aidlg" aria-labelledby="ai-title">
+        <div class="sheet-head">
+            <h2 id="ai-title">Edit your settings with AI</h2>
+            <button class="x" type="button" data-close aria-label="Close">×</button>
         </div>
-        <div class="dlg-body imp-body">
-            <label class="fld" for="imp-text">
-                <span class="flabel">Paste the group's settings: its mode and its rules</span>
-            </label>
-            <textarea id="imp-text" rows="10" spellcheck="false"
-                placeholder='{"mode":"notifications","rules":[{"name":"Blank","trigger":"message_posted","actions":[{"type":"ModerateMessage"}],"condition":{"type":"IsBlank"}}]}'></textarea>
-            <div class="imp-file-row">
-                <input id="imp-file" type="file" accept=".json,application/json" hidden>
-                <button class="btn" id="imp-file-btn" type="button">Choose JSON file</button>
-            </div>
-            <div class="airesult" id="imp-result" role="status" hidden></div>
+        <div class="sheet-body">
+            <ol class="steps">
+                <li id="ai-describe" hidden>
+                    <h3><label for="ai-intent">What should the rule do?</label></h3>
+                    <textarea id="ai-intent" rows="3"
+                        placeholder="Kick anyone whose name advertises a casino"></textarea>
+                </li>
+                <li>
+                    <h3>Copy the question</h3>
+                    <p id="ai-copy-text"></p>
+                    <button class="btn" id="ai-copy" type="button">Copy the prompt</button>
+                    <p class="note bad" id="ai-copy-result" role="status" hidden></p>
+                    <details class="more" id="ai-adv" hidden>
+                        <summary id="ai-adv-sum">Long lists</summary>
+                        <p>Long lists travel as a placeholder, so the AI cannot rewrite them by hand. Tick one to send
+                            its entries in full — needed only if you want the AI to remove or fix entries inside it.</p>
+                        <div class="checks" id="ai-lists"></div>
+                    </details>
+                </li>
+                <li>
+                    <h3><label for="ai-paste">Paste what it answers</label></h3>
+                    <p id="ai-paste-text"></p>
+                    <textarea id="ai-paste" rows="4" spellcheck="false"
+                        placeholder="Paste the AI's reply here"></textarea>
+                    <div class="note" id="ai-result" role="status" hidden></div>
+                    <div class="row">
+                        <button class="btn" id="ai-load" type="button">Load into the editor</button>
+                        <button class="btn quiet" id="ai-clear" type="button" hidden>Clear</button>
+                    </div>
+                </li>
+            </ol>
         </div>
-        <div class="dlg-foot">
-            <button class="btn" id="impdlg-close" type="button">Cancel</button>
+        <div class="sheet-foot">
+            <button class="btn" id="ai-undo" type="button" hidden>Undo the load</button>
+            <button class="btn" type="button" data-close>Close</button>
+        </div>
+    </dialog>
+
+    <dialog class="sheet" id="impdlg" aria-labelledby="imp-title">
+        <div class="sheet-head">
+            <h2 id="imp-title">Import settings from JSON</h2>
+            <button class="x" type="button" data-close aria-label="Close">×</button>
+        </div>
+        <div class="sheet-body">
+            <label class="label" for="imp-text">Paste the group's settings: its mode and its rules</label>
+            <textarea id="imp-text" class="code" rows="10" spellcheck="false"
+                placeholder='{"mode":"notifications","rules":[{"name":"Blank","trigger":"message_posted","condition":{"type":"IsBlank"},"actions":[{"type":"ModerateMessage"}]}]}'></textarea>
+            <input id="imp-file" type="file" accept=".json,application/json" hidden>
+            <div class="row"><button class="btn" id="imp-file-btn" type="button">Choose JSON file</button></div>
+            <div class="note" id="imp-result" role="status" hidden></div>
+        </div>
+        <div class="sheet-foot">
+            <button class="btn" type="button" data-close>Cancel</button>
             <button class="btn primary" id="imp-load" type="button">Load settings</button>
         </div>
     </dialog>
 
-    <dialog id="expdlg" aria-labelledby="expdlg-title">
-        <div class="dlg-head">
-            <b id="expdlg-title">Export settings as JSON</b>
-            <button class="dlg-x" id="expdlg-x" type="button" aria-label="Close">&times;</button>
+    <dialog class="sheet" id="expdlg" aria-labelledby="exp-title">
+        <div class="sheet-head">
+            <h2 id="exp-title">Export settings as JSON</h2>
+            <button class="x" type="button" data-close aria-label="Close">×</button>
         </div>
-        <div class="dlg-body exp-body">
-            <label class="chk">
-                <input id="exp-clear-secrets" type="checkbox" checked>
-                <span>Clear secret values (API keys)</span>
-            </label>
+        <div class="sheet-body">
+            <label class="check"><input id="exp-clear-secrets" type="checkbox" checked>
+                <span>Clear secret values (API keys)</span></label>
         </div>
-        <div class="dlg-foot">
-            <button class="btn" id="expdlg-close" type="button">Cancel</button>
+        <div class="sheet-foot">
+            <button class="btn" type="button" data-close>Cancel</button>
             <button class="btn" id="exp-copy" type="button">Copy JSON</button>
             <button class="btn primary" id="exp-download" type="button">Download JSON</button>
         </div>
     </dialog>
 
-    <!-- Edit with AI, for the whole configuration (US-G9), one rule (US-G17)
-         or a new rule (US-G16): the same panel, built by ai.js for each. -->
-    <dialog id="aidlg" aria-labelledby="aidlg-title">
-        <div class="dlg-head">
-            <b id="aidlg-title">Edit your settings with AI</b>
-            <button class="dlg-x" id="aidlg-x" type="button" aria-label="Close">&times;</button>
+    <!-- Everything that changed since the page opened, before the link is copied. -->
+    <dialog class="modal" id="applydlg" aria-labelledby="apply-title">
+        <div class="sheet-head">
+            <h2 id="apply-title">Changes before you send them</h2>
+            <span class="meta" id="apply-meta"></span>
         </div>
-        <div class="dlg-body">
-            <div class="aistep" id="ai-describe" hidden>
-                <span class="sn" aria-hidden="true">1</span>
-                <div class="sbody">
-                    <h3><label for="ai-intent">What should the rule do?</label></h3>
-                    <textarea id="ai-intent" rows="3" spellcheck="true"
-                        placeholder="Kick anyone whose name advertises a casino"></textarea>
-                </div>
-            </div>
-            <div class="aistep">
-                <span class="sn" aria-hidden="true" id="ai-sn-copy">1</span>
-                <div class="sbody">
-                    <h3>Copy the question</h3>
-                    <p id="ai-copy-text">Paste it into ChatGPT, Gemini, Claude or any other AI chat. It will explain
-                        your settings and rules in plain language and can change them for you.</p>
-                    <button class="btn" id="ai-copy" type="button">Copy the prompt</button>
-                    <div class="airesult" id="ai-copy-result" role="status" hidden></div>
-                    <!-- Long lists are an expert's problem: the button above must be the
-                         only thing to read here, so the checkboxes wait behind a summary. -->
-                    <details class="aiadv" id="ai-adv" hidden>
-                        <summary id="ai-adv-sum">Long lists</summary>
-                        <p>Long lists travel as a placeholder, so the AI cannot rewrite them by hand.
-                            Tick one to send its entries in full — needed only if you want the AI to
-                            remove or fix entries inside it.</p>
-                        <div class="slists" id="ai-lists"></div>
-                    </details>
-                </div>
-            </div>
-            <div class="aistep">
-                <span class="sn" aria-hidden="true" id="ai-sn-paste">2</span>
-                <div class="sbody">
-                    <h3><label for="ai-paste">Paste what it answers</label></h3>
-                    <p id="ai-paste-text">Only needed if you asked for a change. Paste the whole reply — the editor
-                        finds the settings in it.</p>
-                    <textarea id="ai-paste" rows="4" spellcheck="false"
-                        placeholder="Paste the AI's reply here"></textarea>
-                    <div class="airesult" id="ai-result" role="status" hidden></div>
-                    <div class="aibtns">
-                        <button class="btn" id="ai-load" type="button">Load into the editor</button>
-                        <button class="btn ghost" id="ai-clear" type="button" hidden>Clear</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="dlg-foot">
-            <button class="btn" id="ai-undo" type="button" hidden>Undo the load</button>
-            <button class="btn" id="aidlg-close" type="button">Close</button>
-        </div>
-    </dialog>
-
-    <!-- Everything that changed since the page opened, shown before the link is copied. -->
-    <dialog id="applydlg" aria-labelledby="applydlg-title">
-        <div class="dlg-head">
-            <b id="applydlg-title">Changes before you send them</b>
-            <span class="dlg-meta" id="applydlg-meta"></span>
-        </div>
-        <div class="dlg-body" id="applydlg-body"></div>
-        <div class="dlg-foot" id="applydlg-foot"></div>
+        <div class="sheet-body" id="apply-body"></div>
+        <div class="sheet-foot" id="apply-foot"></div>
     </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
