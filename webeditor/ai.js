@@ -841,6 +841,9 @@ function setupAi() {
     function loadOne(parsed) {
         const creating = ai.mode === "create";
         const found = rulesIn(parsed);
+        /* A whole configuration is more than this scope may change (US-G17). */
+        if (!creating && parsed && typeof parsed === "object" && !Array.isArray(parsed) && Array.isArray(parsed.rules))
+            return setResult("bad", `The answer has ${found.length} rule${found.length === 1 ? "" : "s"} — ask the AI for this one rule only.`);
         if (!found || !found.length)
             return setResult("bad", "No rule found in that text. Copy the AI's whole reply, or just its code block.");
         if (found.length > 1)
@@ -858,7 +861,7 @@ function setupAi() {
             paste.value = "";
             emphasise();
             dlg.close();
-            goTo("rule", { sel: i });
+            goTo("rule", { sel: i }, state.view === "new");
             render();
             toast(`Added “${titleOf(rule)}”. Press Apply changes when you are ready.`);
             return;

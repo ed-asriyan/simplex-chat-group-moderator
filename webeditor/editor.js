@@ -170,7 +170,9 @@ function unknownSpec(type) {
         g: "❓",
         grp: "Other",
         t: `${type} (unknown)`,
+        name: `${type} (unknown)`,
         full: `${type} (unknown)`,
+        gist: "",
         help: "This type is not in this editor's schema. It is kept as it is — leave it alone unless you mean to replace it.",
         p: [],
         rank: 0,
@@ -476,14 +478,14 @@ function syncHash() {
 
 /* Each page is an entry in the history, so the browser's Back goes back a
    page instead of leaving the editor (US-G3). */
-function goTo(view, extra = {}) {
+function goTo(view, extra = {}, replace = false) {
     state.view = view;
     if (extra.sel !== undefined) state.sel = extra.sel;
     if (extra.trigger !== undefined) state.newTrigger = extra.trigger;
     state.showTemplates = !!extra.templates;
     state.focus = null;
     state.menu = null;
-    history.pushState({ v: view, i: state.sel, t: state.newTrigger }, "", location.hash);
+    history[replace ? "replaceState" : "pushState"]({ v: view, i: state.sel, t: state.newTrigger }, "", location.hash);
     window.scrollTo(0, 0);
 }
 
@@ -742,7 +744,6 @@ function node(n, path, d, r) {
     const collapsed = state.collapsed.has(path);
     const sum = s.sum(n);
     const hasParams = s.p.some((f) => f.kind !== "children" && f.kind !== "child");
-    const isRoot = !path.includes(".condition.");
 
     let kids = "";
     if (!collapsed && many) {
@@ -757,11 +758,11 @@ function node(n, path, d, r) {
     if (!collapsed && one && n[one]) kids = `<div class="kids">${node(n[one], `${path}.${one}`, d + 1, r)}</div>`;
 
     const items = [
-        ...(s.unknown ? [] : [["Change type…", `data-op="pick" data-mode="retype" data-p="${path}"`]]),
+        ["Change type…", `data-op="pick" data-mode="retype" data-p="${path}"`],
         ["Wrap in NOT", `data-op="wrap" data-p="${path}" data-t="Not"`],
         ["Wrap in AND", `data-op="wrap" data-p="${path}" data-t="All"`],
         ...(composite ? [["Unwrap", `data-op="unwrap" data-p="${path}"`]] : []),
-        ...(isRoot && !tinfo(r).optional ? [] : [["Delete", `data-op="del" data-p="${path}"`, "del"]]),
+        ["Delete", `data-op="del" data-p="${path}"`, "del"],
     ];
 
     return `<div class="node" data-d="${d}">
@@ -810,7 +811,7 @@ function actionRows(r, ri) {
           ${covered ? `<span class="badge">covered</span>` : ""}</span>
           <button class="ico" type="button" data-op="help" data-p="${path}" aria-expanded="${state.helped.has(path)}" aria-label="About “${esc(s.name)}”">ⓘ</button>
           ${menuHtml(`a:${path}`, `More for “${s.name}”`, "⋮", [
-                ...(s.unknown ? [] : [["Change type…", `data-op="pick" data-mode="aretype" data-p="${path}"`]]),
+                ["Change type…", `data-op="pick" data-mode="aretype" data-p="${path}"`],
                 ["Delete", `data-op="adel" data-p="${path}"`, "del"],
             ])}
         </div>
@@ -1144,7 +1145,7 @@ document.addEventListener("click", (e) => {
             const x = templatesFor(state.newTrigger)[+b.dataset.j];
             const i = addRule(clone(x.rule));
             recordUndo(before);
-            goTo("rule", { sel: i });
+            goTo("rule", { sel: i }, true);
             render();
             /* A template with an empty list opens on it, to fill in (US-G15). */
             if (x.focus) refocus(`f-rules.${i}.condition-${x.focus}`);
@@ -1153,7 +1154,7 @@ document.addEventListener("click", (e) => {
         case "build": {
             const i = addRule({ trigger: state.newTrigger, actions: [] });
             recordUndo(before);
-            goTo("rule", { sel: i });
+            goTo("rule", { sel: i }, true);
             render();
             openPicker("addroot");
             return;
@@ -1259,8 +1260,8 @@ document.addEventListener("click", (e) => {
         }
         case "del": {
             const { o, k } = parentOf(p);
-            /* The rule's own condition: a trigger that can do without one lets
-               it go (US-G3); the delete is not offered otherwise. */
+            /* The rule's own condition: without it, a rule whose trigger needs
+               one is incomplete until it gets another (US-G14). */
             if (!Array.isArray(o)) {
                 delete o[k];
                 state.focus = null;
@@ -1289,7 +1290,8 @@ document.addEventListener("click", (e) => {
     render();
     /* A menu opened by keyboard puts the focus on its first item. */
     if (op === "menu" && state.menu) {
-        const first = document.querySelector(".pop [role=menuitem]");
+        const btn = document.querySelector(`[data-op="menu"][data-p="${CSS.escape(state.menu)}"]`);
+        const first = btn && btn.parentElement.querySelector(".pop [role=menuitem]");
         if (first && e.detail === 0) first.focus();
     }
 });

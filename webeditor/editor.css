@@ -579,9 +579,10 @@ button {
 }
 
 .rrow.off .rtitle,
-.rrow.off .menu-sp {
-    width: var(--hit);
+.rrow.off .ricons {
+    opacity: .5;
 }
+
 
 .ricons {
     opacity: .5;
