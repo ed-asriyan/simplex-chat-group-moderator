@@ -29,7 +29,6 @@
     <div class="page">
         <p class="alert bad" id="nobot" hidden>No bot ID found in the URL. Open the link the bot sent you in a direct
             message — a link opened by hand cannot be applied.</p>
-        <p class="alert dry" id="banner" role="status" hidden></p>
         <p class="loading" id="boot">Loading editor…</p>
         <main id="app" hidden></main>
         <footer class="foot"><a href="https://github.com/ed-asriyan/simplex-chat-group-moderator" target="_blank"
@@ -42,10 +41,24 @@
             <h2 id="pick-title">Pick a condition</h2>
             <button class="x" type="button" data-close aria-label="Close">×</button>
         </div>
-        <div class="sheet-tools">
+        <div class="sheet-tools" id="pick-tools">
             <input type="search" id="pick-q" placeholder="Search" aria-label="Search the types" autocomplete="off">
+            <div class="tabs" id="pick-tabs" role="tablist" aria-label="Subjects"></div>
         </div>
-        <div class="sheet-body" id="pick-body"></div>
+        <div class="sheet-body" id="pick-body" role="tabpanel"></div>
+    </dialog>
+
+    <!-- The templates for a trigger, from New rule (US-G15). -->
+    <dialog class="sheet" id="tpldlg" aria-labelledby="tpl-title">
+        <div class="sheet-head">
+            <h2 id="tpl-title">Start from a template</h2>
+            <button class="x" type="button" data-close aria-label="Close">×</button>
+        </div>
+        <div class="sheet-body">
+            <p class="sub" id="tpl-sub"></p>
+            <div id="tpl-body"></div>
+        </div>
+        <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button></div>
     </dialog>
 
     <!-- Edit with AI, for everything (US-G9), one rule (US-G17) or a new rule
@@ -80,16 +93,14 @@
                     <textarea id="ai-paste" rows="4" spellcheck="false"
                         placeholder="Paste the AI's reply here"></textarea>
                     <div class="note" id="ai-result" role="status" hidden></div>
-                    <div class="row">
-                        <button class="btn" id="ai-load" type="button">Load into the editor</button>
-                        <button class="btn quiet" id="ai-clear" type="button" hidden>Clear</button>
-                    </div>
+                    <div class="row"><button class="btn quiet" id="ai-clear" type="button" hidden>Clear</button></div>
                 </li>
             </ol>
         </div>
         <div class="sheet-foot">
             <button class="btn" id="ai-undo" type="button" hidden>Undo the load</button>
-            <button class="btn" type="button" data-close>Close</button>
+            <button class="btn" type="button" data-close>Cancel</button>
+            <button class="btn" id="ai-load" type="button">Load into the editor</button>
         </div>
     </dialog>
 

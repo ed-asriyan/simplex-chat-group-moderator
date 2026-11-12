@@ -59,8 +59,12 @@ const st = {
     view: "home",
     sel: 0,
     trigger: null,
-    templates: false,
     how: false,
+    /* The step of the history a page was opened at: Undo on a rule's page goes
+       back to there and no further, so it never changes a rule that is not on
+       the screen (US-G6). */
+    mark: 0,
+    more: new Set(),
     menu: null,
     folded: new Set(),
     help: new Set(),
@@ -105,6 +109,11 @@ const ordinal = (n) => {
 };
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/* The first sentence of a description: what a field or a type is for, in a
+   line. A full stop ends it unless it belongs to "e.g." or "i.e.". */
+const SENTENCE_END = /(?<=[a-z0-9)"'`”’?!]\.)(?<!\be\.g\.)(?<!\bi\.e\.)\s+(?=[A-Z*_"“(])/;
+const firstSentence = (text) => String(text).split(SENTENCE_END)[0];
 
 const ICON = {
     more: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="4" cy="10" r="1.6"/><circle cx="10" cy="10" r="1.6"/><circle cx="16" cy="10" r="1.6"/></svg>',
@@ -203,7 +212,7 @@ function registry(entries, triggersByDefault, isAction) {
             title,
             subject: isAction ? "Actions" : SUBJECTS[emoji] || "Combine",
             help: e.description || "",
-            gist: e.description ? e.description.split(/(?<=[a-z)`]\.)\s+(?=[A-Z*_])/)[0] : "",
+            gist: e.description ? firstSentence(e.description) : "",
             triggers: o.triggers || triggersByDefault,
             rank: o.execution_rank || 0,
             coveredBy: o.covered_by || [],
@@ -355,8 +364,11 @@ function travel(from, to, word) {
     toast(word);
 }
 
-const undo = () => travel(st.history, st.future, "Undone.");
-const redo = () => travel(st.future, st.history, "Redone.");
+/* On the overview, Undo goes through every change; on a rule's page, through
+   the ones made there (US-G6). */
+const canUndo = () => st.history.length > (st.view === "home" ? 0 : st.mark);
+const undo = () => canUndo() && travel(st.history, st.future, "Undone.");
+const redo = () => st.future.length && travel(st.future, st.history, "Redone.");
 
 function hashOf() {
     const packed = LZString.compressToEncodedURIComponent(JSON.stringify(config()));
@@ -372,9 +384,10 @@ function go(view, { sel, trigger, replace } = {}) {
     st.view = view;
     if (sel !== undefined) st.sel = sel;
     if (trigger !== undefined) st.trigger = trigger;
-    st.templates = false;
     st.menu = null;
     st.only = null;
+    st.mark = st.history.length;
+    st.future = [];
     history[replace ? "replaceState" : "pushState"]({ view, sel: st.sel, trigger: st.trigger }, "", location.hash);
     render();
     window.scrollTo(0, 0);
@@ -387,8 +400,9 @@ window.addEventListener("popstate", (e) => {
     st.view = s.view === "rule" && st.rules[s.sel] ? "rule" : s.view === "new" ? "new" : "home";
     if (typeof s.sel === "number") st.sel = s.sel;
     if (s.trigger) st.trigger = s.trigger;
-    st.templates = false;
     st.menu = null;
+    st.mark = st.history.length;
+    st.future = [];
     render();
 });
 
@@ -435,10 +449,12 @@ function renderBar() {
         st.view === "home"
             ? `<h1 id="page-h" tabindex="-1">${esc(groupTitle())}</h1>
          <p>Moderation settings · <a href="https://simplex-directory.asriyan.me/#/bots/63d110f4-9f70-4128-b0e7-5a8958299f96" target="_blank" rel="noopener">Moderator Bot</a></p>`
-            : `<button class="back" type="button" data-op="home" id="back">${ICON.back}<span>${esc(groupTitle())}</span></button>`;
+            : `<button class="back" type="button" data-op="home" id="back">${ICON.back}<span>Back to rules</span></button>`;
     document.title = `${groupTitle()} — Moderation settings`;
-    $("undo").hidden = !st.history.length;
+    $("undo").hidden = !canUndo();
     $("redo").hidden = !st.future.length;
+    /* What applies to the whole configuration is on the overview alone. */
+    $("apply").hidden = st.view !== "home" || !st.botId;
     const n = changeCount();
     $("apply").textContent = n ? `Apply ${plural(n, "change")}` : "Apply changes";
     const g = $("gmenu");
@@ -448,14 +464,6 @@ function renderBar() {
         ["Import JSON", 'data-op="import"'],
         ["Export JSON", 'data-op="export"'],
     ]);
-
-    /* A setting's value may carry a banner, shown on every page while it holds
-       (US-G2, Dry). */
-    const banners = S.filter((f) => f.kind === "choice")
-        .map((f) => (f.choices.find((c) => c.v === st.settings[f.key]) || { o: {} }).o.banner)
-        .filter(Boolean);
-    $("banner").hidden = !banners.length;
-    $("banner").textContent = banners.join(" ");
 }
 
 /* ---------------------------- the group ---------------------------------- */
@@ -464,7 +472,6 @@ function settingsHtml() {
     return S.map((f) => {
         const pr = SCHEMA.properties[f.key];
         const id = `set-${f.key}`;
-        const name = (pr.title || f.key).replace(/^\S+\s/, "");
         /* A few named values whose titles read "Name — what it does" are a row
            of choices, each with its line (US-G2). */
         const segmented = f.kind === "choice" && !f.num && f.choices.every((c) => c.t.includes(" — "));
@@ -479,28 +486,25 @@ function settingsHtml() {
                 .join("")}</div>`
             : `<div class="fields">${fieldsHtml([f], st.settings, "settings")}</div>`;
         return `<section class="block" aria-labelledby="${id}-h">
-        <div class="block-head"><h2 id="${id}-h">${esc(pr.title || f.key)}</h2>
-          ${pr.description ? `<button class="icon" type="button" id="help-${id}" data-op="help" data-key="${id}" aria-expanded="${st.help.has(id)}" aria-label="About ${esc(name)}">${ICON.info}</button>` : ""}
-        </div>
-        ${st.help.has(id) ? `<div class="help">${md(pr.description)}</div>` : ""}
+        <div class="block-head"><h2 id="${id}-h">${esc(pr.title || f.key)}</h2></div>
         ${body}</section>`;
     }).join("");
 }
 
 function rowHtml(r, i, pos, total) {
     const title = titleOf(r), gap = missing(r), on = isOn(r);
-    const words = r.name ? actionWords(r) : "";
-    const sub = words || gap || !on;
     return `<li class="item${on ? "" : " off"}" data-i="${i}">
       <button class="grip" type="button" id="grip-${i}" data-drag="${i}" aria-label="Move “${esc(title)}”" aria-describedby="move-hint">${ICON.grip}</button>
-      <button class="item-main" type="button" id="open-${i}" data-op="open" data-i="${i}" aria-labelledby="t-${i}"${sub ? ` aria-describedby="d-${i}"` : ""}>
+      <button class="item-main" type="button" id="open-${i}" data-op="open" data-i="${i}" aria-labelledby="t-${i}"${gap || !on ? ` aria-describedby="d-${i}"` : ""}>
         <span class="item-title${r.name ? "" : " plain"}" id="t-${i}">${esc(title)}</span>
-        ${sub ? `<span class="item-sub" id="d-${i}">${words ? `<span>${esc(words)}</span>` : ""}${gap ? `<span class="tag warn">Incomplete</span>` : ""}${on ? "" : `<span class="tag">Off</span>`}</span>` : ""}
+        ${gap || !on ? `<span class="item-sub" id="d-${i}">${gap ? `<span class="tag warn">Incomplete</span>` : ""}${on ? "" : `<span class="tag">Off</span>`}</span>` : ""}
       </button>
       <button class="switch" type="button" role="switch" id="sw-${i}" aria-checked="${on}" data-op="toggle" data-i="${i}" aria-label="${esc(title)}"><span></span></button>
       ${menu(`r${i}`, `More for “${title}”`, [
         ...(pos > 0 ? [["Move up", `data-op="move" data-i="${i}" data-d="-1"`]] : []),
         ...(pos < total - 1 ? [["Move down", `data-op="move" data-i="${i}" data-d="1"`]] : []),
+        [on ? "Disable" : "Enable", `data-op="toggle" data-i="${i}"`],
+        ["Delete", `data-op="drop" data-i="${i}"`, true],
     ])}
     </li>`;
 }
@@ -533,12 +537,22 @@ function homePage() {
 
 /* ------------------------------ fields ----------------------------------- */
 
+/* A field's description: its first sentence, in view, and the rest behind
+   More (US-G3). */
+function hintHtml(f, id) {
+    if (!f.hint) return "";
+    const head = firstSentence(f.hint), more = f.hint.length > head.length, open = st.more.has(id);
+    return `<p class="hint" id="${id}-h">${md(open || !more ? f.hint : head)}${more
+        ? ` <button class="link small" type="button" id="${id}-more" data-op="more" data-key="${id}" aria-expanded="${open}" aria-controls="${id}-h">${open ? "Less" : "More"}</button>`
+        : ""}</p>`;
+}
+
 function fieldsHtml(fields, value, path) {
     return fields
         .filter((f) => f.kind !== "child" && f.kind !== "children")
         .map((f) => {
             const id = `f-${path}-${f.key}`;
-            const hint = f.hint ? `<p class="hint" id="${id}-h">${md(f.hint)}</p>` : "";
+            const hint = hintHtml(f, id);
             const desc = f.hint ? ` aria-describedby="${id}-h"` : "";
             const label = `<label class="label" for="${id}">${esc(f.label)}</label>`;
             const v = value[f.key];
@@ -710,7 +724,7 @@ function rulePage() {
       </div>
     </div>
     ${isOn(r) ? "" : `<p class="alert off" role="status"><span>⏸ This rule is off — the bot skips it.</span>
-      <button class="btn" type="button" id="turn-on" data-op="toggle" data-i="${i}">Turn on</button></p>`}
+      <button class="btn" type="button" id="enable" data-op="toggle" data-i="${i}">Enable</button></p>`}
     ${gap ? `<p class="alert warn" role="status">${esc(t.incomplete)}</p>` : ""}
 
     <ol class="flow">
@@ -759,38 +773,60 @@ const templatesOf = (v) => ((SCHEMA.options && SCHEMA.options.templates) || []).
 function newPage() {
     const t = T.find((x) => x.v === st.trigger) || T[0];
     const ways = [
-        ["templates", "📋", "Start from a template", "A ready rule to adjust.", ` aria-expanded="${st.templates}" aria-controls="templates"`],
-        ["ai-new", "✨", "Describe it to AI", "Say what it should do; your AI chat writes it.", ""],
+        ["templates", "📋", "Start from a template", "A ready rule to adjust.", ' aria-haspopup="dialog"'],
+        ["ai-new", "✨", "Create with AI", "Say what it should do; your AI chat writes it.", ' aria-haspopup="dialog"'],
         ["build", "🛠", "Build it myself", "Pick its condition and actions.", ""],
     ];
     return `
     <div class="page-head"><h1 id="page-h" tabindex="-1">New rule</h1><p class="sub">${esc(t.newRule)}</p></div>
     <div class="ways">${ways
             .map(([op, icon, name, line, extra]) => `<button class="way" type="button" id="way-${op}" data-op="${op}"${extra}>
-          <span class="way-icon" aria-hidden="true">${icon}</span><span><b>${name}</b><span>${line}</span></span></button>`)
-            .join("")}</div>
-    ${st.templates
-            ? `<section class="block" id="templates" aria-labelledby="tpl-h"><div class="block-head"><h2 id="tpl-h">Templates</h2></div>
-        <ul class="templates">${templatesOf(t.v)
-                .map((x, j) => `<li><button type="button" id="tpl-${j}" data-op="template" data-j="${j}"><b>${esc(x.title)}</b><span>${esc(sentence(x.rule))}</span></button></li>`)
-                .join("")}</ul></section>`
-            : ""}`;
+          <span class="way-icon" aria-hidden="true">${icon}</span><span><span class="way-name">${name}</span><span class="way-line">${line}</span></span></button>`)
+            .join("")}</div>`;
 }
+
+/* The templates of the trigger, in a sheet over the page (US-G15). */
+function openTemplates() {
+    const t = T.find((x) => x.v === st.trigger) || T[0];
+    $("tpl-sub").textContent = t.newRule;
+    $("tpl-body").innerHTML = `<ul class="templates">${templatesOf(t.v)
+        .map((x, j) => `<li><button type="button" id="tpl-${j}" data-j="${j}"><span class="ttitle">${esc(x.title)}</span><span class="tline">${esc(sentence(x.rule))}</span></button></li>`)
+        .join("")}</ul>`;
+    $("tpldlg").showModal();
+}
+
+function useTemplate(j) {
+    const x = templatesOf(st.trigger)[j];
+    const k = edit(() => st.rules.push({ ...clone(x.rule), name: uniqueName(x.rule.name) }) - 1);
+    go("rule", { sel: k, replace: true });
+    /* A template with an empty list opens on it, to fill in (US-G15). */
+    const list = x.focus && $(`f-rules.${k}.condition-${x.focus}`);
+    if (list) list.focus();
+}
+
+$("tpl-body").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-j]");
+    if (!b) return;
+    $("tpldlg").close();
+    useTemplate(+b.dataset.j);
+});
 
 /* -------------------------------------------------------------------------- */
 /* The type picker                                                             */
 /* -------------------------------------------------------------------------- */
 
-const pick = { mode: null, path: null };
+const pick = { mode: null, path: null, tab: "All" };
 const isActionPick = () => pick.mode === "action" || pick.mode === "reaction";
 
-/* The types the rule's trigger takes, grouped by subject (US-G3, US-G4). */
+/* The types the rule's trigger takes, with a search and a tab for each subject
+   (US-G3, US-G4). */
 function openPicker(mode, path) {
     pick.mode = mode;
     pick.path = path;
+    pick.tab = "All";
     $("pick-title").textContent = { retype: "Change the condition's type", reaction: "Change the action's type", action: "Pick an action" }[mode] || "Pick a condition";
     $("pick-q").value = "";
-    $("pick-q").parentElement.hidden = isActionPick();
+    $("pick-tools").hidden = isActionPick();
     drawPicker();
     $("pickdlg").showModal();
     if (!isActionPick()) $("pick-q").focus();
@@ -801,24 +837,52 @@ function drawPicker() {
     const current = pick.mode === "retype" || pick.mode === "reaction" ? at(pick.path).type : null;
     const taken = new Set(isActionPick() ? r.actions.map((a) => a.type) : []);
     const q = $("pick-q").value.trim().toLowerCase();
+    const all = Object.values(isActionPick() ? A : C).filter((spec) => fits(spec, r) && (!taken.has(spec.type) || spec.type === current));
+    const subjects = [...new Set(all.map((s) => s.subject))];
+    if (pick.tab !== "All" && !subjects.includes(pick.tab)) pick.tab = "All";
+
+    $("pick-tabs").innerHTML = ["All", ...subjects]
+        .map((name, k) => `<button type="button" role="tab" id="tab-${k}" data-tab="${esc(name)}" aria-selected="${name === pick.tab}"
+          aria-controls="pick-body" tabindex="${name === pick.tab ? 0 : -1}">${esc(name)}</button>`)
+        .join("");
+    $("pick-body").setAttribute("aria-labelledby", `tab-${["All", ...subjects].indexOf(pick.tab)}`);
+
+    const shown = all.filter((s) => (pick.tab === "All" || s.subject === pick.tab) && (!q || `${s.title} ${s.gist}`.toLowerCase().includes(q)));
     const groups = new Map();
-    for (const spec of Object.values(isActionPick() ? A : C)) {
-        if (!fits(spec, r) || (taken.has(spec.type) && spec.type !== current)) continue;
-        if (q && !`${spec.title} ${spec.gist}`.toLowerCase().includes(q)) continue;
+    for (const spec of shown) {
         if (!groups.has(spec.subject)) groups.set(spec.subject, []);
         groups.get(spec.subject).push(spec);
     }
     $("pick-body").innerHTML = groups.size
         ? [...groups]
-            .map(([subject, specs]) => `<section aria-label="${esc(subject)}">${isActionPick() ? "" : `<h3>${esc(subject)}</h3>`}<ul class="types">${specs
+            .map(([subject, specs]) => `<section aria-label="${esc(subject)}">${isActionPick() || pick.tab !== "All" ? "" : `<h3>${esc(subject)}</h3>`}<ul class="types">${specs
                 .map((s) => `<li><button type="button" data-type="${esc(s.type)}"${s.type === current ? ' aria-current="true"' : ""}>
-              <span class="emoji" aria-hidden="true">${s.emoji}</span><span><b>${esc(s.title)}</b><span>${md(s.gist)}</span></span></button></li>`)
+              <span class="emoji" aria-hidden="true">${s.emoji}</span><span><span class="ptitle">${esc(s.title)}</span><span class="pgist">${md(s.gist)}</span></span></button></li>`)
                 .join("")}</ul></section>`)
             .join("")
         : `<p class="empty">${isActionPick() ? "Every action this rule can take is on it already." : "Nothing matches."}</p>`;
 }
 
 $("pick-q").addEventListener("input", drawPicker);
+
+$("pick-tabs").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-tab]");
+    if (!b) return;
+    pick.tab = b.dataset.tab;
+    drawPicker();
+    $(b.id).focus();
+});
+
+/* The arrow keys, Home and End move between the tabs. */
+$("pick-tabs").addEventListener("keydown", (e) => {
+    const tabs = [...$("pick-tabs").querySelectorAll("[role=tab]")], k = tabs.indexOf(e.target);
+    const to = { ArrowRight: (k + 1) % tabs.length, ArrowLeft: (k - 1 + tabs.length) % tabs.length, Home: 0, End: tabs.length - 1 }[e.key];
+    if (k < 0 || to === undefined) return;
+    e.preventDefault();
+    pick.tab = tabs[to].dataset.tab;
+    drawPicker();
+    $(`tab-${to}`).focus();
+});
 
 $("pick-body").addEventListener("click", (e) => {
     const b = e.target.closest("[data-type]");
@@ -910,6 +974,7 @@ document.addEventListener("click", (e) => {
             }
             return;
         case "how": st.how = !st.how; break;
+        case "more": st.more.has(b.dataset.key) ? st.more.delete(b.dataset.key) : st.more.add(b.dataset.key); break;
         case "help": st.help.has(b.dataset.key) ? st.help.delete(b.dataset.key) : st.help.add(b.dataset.key); break;
         case "fold": st.folded.has(path) ? st.folded.delete(path) : st.folded.add(path); break;
         case "fold-all": {
@@ -925,19 +990,10 @@ document.addEventListener("click", (e) => {
             st.bulk.has(b.dataset.key) ? st.bulk.delete(b.dataset.key) : st.bulk.add(b.dataset.key);
             delete st.filter[b.dataset.key];
             break;
-        case "templates": st.templates = !st.templates; break;
+        case "templates": return openTemplates();
         case "pick":
             render();
             return openPicker(b.dataset.mode, path);
-        case "template": {
-            const x = templatesOf(st.trigger)[+b.dataset.j];
-            const k = edit(() => st.rules.push({ ...clone(x.rule), name: uniqueName(x.rule.name) }) - 1);
-            go("rule", { sel: k, replace: true });
-            /* A template with an empty list opens on it, to fill in (US-G15). */
-            const list = x.focus && $(`f-rules.${k}.condition-${x.focus}`);
-            if (list) list.focus();
-            return;
-        }
         case "build": {
             const k = edit(() => st.rules.push({ trigger: st.trigger, actions: [] }) - 1);
             go("rule", { sel: k, replace: true });
@@ -949,8 +1005,15 @@ document.addEventListener("click", (e) => {
                 if (isOn(x)) x.enabled = false;
                 else delete x.enabled;
             });
-            if (b.id === "turn-on") after = "r-name";
+            if (b.id === "enable") after = "r-name";
+            else if (b.getAttribute("role") === "menuitem") after = `m-r${i}`;
             break;
+        case "drop": {
+            const section = triggerOf(st.rules[i]).v;
+            edit(() => st.rules.splice(i, 1));
+            after = `add-${section}`;
+            break;
+        }
         case "move": {
             const to = moveRule(i, +b.dataset.d);
             if (to !== null) after = `open-${to}`;
@@ -1496,7 +1559,6 @@ async function start() {
     st.baseline = snapshot();
 
     $("nobot").hidden = !!st.botId;
-    $("apply").hidden = !st.botId;
     $("boot").hidden = true;
     $("app").hidden = false;
     history.replaceState({ view: "home" }, "", location.hash);

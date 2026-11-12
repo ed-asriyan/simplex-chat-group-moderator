@@ -404,8 +404,7 @@ svg {
     color: var(--danger);
 }
 
-.alert.warn,
-.alert.dry {
+.alert.warn {
     background: var(--warn-soft);
     border: 1px solid var(--warn-line);
     color: var(--warn);
@@ -1158,13 +1157,14 @@ textarea::placeholder {
     background: var(--accent-soft);
 }
 
-.way b {
+.way-name {
     display: block;
     font-size: 17px;
     font-weight: 650;
 }
 
-.way b+span {
+.way-line {
+    display: block;
     color: var(--ink-2);
     font-size: 14px;
 }
@@ -1200,11 +1200,11 @@ textarea::placeholder {
     background: var(--hover);
 }
 
-.templates b {
+.ttitle {
     font-weight: 600;
 }
 
-.templates span {
+.tline {
     color: var(--ink-2);
     font-size: 13px;
 }
@@ -1268,6 +1268,50 @@ dialog::backdrop {
 
 .sheet-tools {
     padding: 12px 20px 0;
+}
+
+.tabs {
+    display: flex;
+    gap: 6px;
+    margin: 12px -20px 0;
+    padding: 0 20px 12px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    border-bottom: 1px solid var(--line);
+}
+
+.tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.tabs button {
+    flex-shrink: 0;
+    min-height: 34px;
+    padding: 0 14px;
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    background: var(--card);
+    font-size: 14px;
+    font-weight: 550;
+    white-space: nowrap;
+}
+
+.tabs button:hover {
+    background: var(--hover);
+}
+
+.tabs button[aria-selected="true"] {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #fff;
+}
+
+.hint .link {
+    padding: 0 2px;
+}
+
+#tpl-body .templates {
+    margin-top: 8px;
 }
 
 .sheet-body {
@@ -1364,12 +1408,13 @@ dialog::backdrop {
     text-align: center;
 }
 
-.types b {
+.ptitle {
     display: block;
     font-weight: 600;
 }
 
-.types b+span {
+.pgist {
+    display: block;
     color: var(--ink-2);
     font-size: 13px;
 }
@@ -1404,13 +1449,13 @@ dialog::backdrop {
     font-weight: 700;
 }
 
-.steps>li+li {
+.steps>li:not([hidden])~li:not([hidden]) {
     margin-top: 20px;
     padding-top: 20px;
     border-top: 1px solid var(--line);
 }
 
-.steps>li+li::before {
+.steps>li:not([hidden])~li:not([hidden])::before {
     top: 19px;
 }
 

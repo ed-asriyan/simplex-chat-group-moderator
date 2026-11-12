@@ -1916,10 +1916,7 @@
                 },
                 {
                     "const": "dry",
-                    "title": "Dry — only tell me what it would do",
-                    "options": {
-                        "banner": "🧪 Dry mode: the bot only tells you what it would do. Nothing is deleted, and no one is restricted or kicked."
-                    }
+                    "title": "Dry — only tell me what it would do"
                 }
             ]
         },
@@ -1947,17 +1944,17 @@
                         "type": "string",
                         "title": "When",
                         "default": "message_posted",
-                        "description": "What makes the bot check this rule: a message a member posts, or someone joining the group.",
+                        "description": "What makes the bot check this rule: someone sending a message, or someone joining the group.",
                         "oneOf": [
                             {
                                 "const": "message_posted",
-                                "title": "💬 A member posts a message",
+                                "title": "💬 Someone sends a message",
                                 "options": {
-                                    "section": "💬 When a member posts",
-                                    "new_rule": "When a member posts a message",
+                                    "section": "💬 When someone sends a message",
+                                    "new_rule": "When someone sends a message",
                                     "empty": "No rules yet. Nothing is moderated until you add one.",
-                                    "incompatible": "Doesn't work when a member posts",
-                                    "prompt": "a member posts a message (or edits one)",
+                                    "incompatible": "Doesn't work with this trigger",
+                                    "prompt": "someone sends a message (or edits one)",
                                     "incomplete": "Pick a condition and at least one action — the bot takes no rule without them."
                                 }
                             },
@@ -1968,7 +1965,7 @@
                                     "section": "🚪 When someone joins",
                                     "new_rule": "When someone joins",
                                     "empty": "No rules yet. Nobody is checked when they join.",
-                                    "incompatible": "Doesn't work when someone joins",
+                                    "incompatible": "Doesn't work with this trigger",
                                     "prompt": "someone joins the group as a member or an observer",
                                     "condition_optional": true,
                                     "everyone": "Everyone who joins",
