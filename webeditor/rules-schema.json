@@ -1,7 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Group Settings",
-    "description": "1️⃣ Choose the group's mode. 2️⃣ Add rules: each one says when it runs, what it looks for and what the bot does then. 3️⃣ Press *Apply changes* and send the copied link back to the bot.",
     "definitions": {
         "action": {
             "type": "object",

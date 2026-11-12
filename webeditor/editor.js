@@ -59,7 +59,6 @@ const st = {
     view: "home",
     sel: 0,
     trigger: null,
-    how: false,
     /* The step of the history a page was opened at: Undo on a rule's page goes
        back to there and no further, so it never changes a rule that is not on
        the screen (US-G6). */
@@ -427,6 +426,32 @@ function render() {
     app.innerHTML = st.view === "rule" ? rulePage() : st.view === "new" ? newPage() : homePage();
     history.replaceState(history.state, "", "#" + hashOf());
     if (focused && $(focused) && document.activeElement === document.body) $(focused).focus({ preventScroll: true });
+    placeMenu();
+}
+
+/* An open menu goes where it fits: below its button, or above it when the
+   screen ends first — the bar on a phone included —, and never past a side
+   (US-G12). */
+function placeMenu() {
+    if (!st.menu) return;
+    const button = $(`m-${st.menu}`), pop = button && button.parentElement.querySelector(".pop");
+    if (!pop) return;
+    const fixedBar = $("bar-actions");
+    const room = () => {
+        const b = button.getBoundingClientRect(), bar = getComputedStyle(fixedBar).position === "fixed" && !fixedBar.hidden ? fixedBar.getBoundingClientRect().top : innerHeight;
+        return { below: Math.min(innerHeight, bar) - b.bottom - 8, above: b.top - document.querySelector(".appbar").getBoundingClientRect().bottom - 8 };
+    };
+    pop.classList.remove("up");
+    let { below, above } = room();
+    /* Neither side has room: bring the button to the middle of the screen. */
+    if (pop.offsetHeight > below && pop.offsetHeight > above) {
+        button.scrollIntoView({ block: "center" });
+        ({ below, above } = room());
+    }
+    if (pop.offsetHeight > below && above > below) pop.classList.add("up");
+    const box = pop.getBoundingClientRect();
+    if (box.left < 8) pop.style.right = `${box.left - 8}px`;
+    else if (box.right > innerWidth - 8) pop.style.right = `${box.right - innerWidth + 8}px`;
 }
 
 /* A ⋯ or ⋮ button and the menu it opens; `items` are [label, attributes,
@@ -464,6 +489,8 @@ function renderBar() {
         ["Import JSON", 'data-op="import"'],
         ["Export JSON", 'data-op="export"'],
     ]);
+    /* An empty bar would be a strip across the phone's screen. */
+    $("bar-actions").hidden = [...$("bar-actions").children].every((c) => c.hidden);
 }
 
 /* ---------------------------- the group ---------------------------------- */
@@ -493,11 +520,15 @@ function settingsHtml() {
 
 function rowHtml(r, i, pos, total) {
     const title = titleOf(r), gap = missing(r), on = isOn(r);
+    /* A rule with a name says what it does under it; one without says it as
+       its name (US-G1). */
+    const words = r.name ? actionWords(r) : "";
+    const sub = words || gap || !on;
     return `<li class="item${on ? "" : " off"}" data-i="${i}">
       <button class="grip" type="button" id="grip-${i}" data-drag="${i}" aria-label="Move “${esc(title)}”" aria-describedby="move-hint">${ICON.grip}</button>
-      <button class="item-main" type="button" id="open-${i}" data-op="open" data-i="${i}" aria-labelledby="t-${i}"${gap || !on ? ` aria-describedby="d-${i}"` : ""}>
+      <button class="item-main" type="button" id="open-${i}" data-op="open" data-i="${i}" aria-labelledby="t-${i}"${sub ? ` aria-describedby="d-${i}"` : ""}>
         <span class="item-title${r.name ? "" : " plain"}" id="t-${i}">${esc(title)}</span>
-        ${gap || !on ? `<span class="item-sub" id="d-${i}">${gap ? `<span class="tag warn">Incomplete</span>` : ""}${on ? "" : `<span class="tag">Off</span>`}</span>` : ""}
+        ${sub ? `<span class="item-sub" id="d-${i}">${words ? `<span>${esc(words)}</span>` : ""}${gap ? `<span class="tag warn">Incomplete</span>` : ""}${on ? "" : `<span class="tag">Off</span>`}</span>` : ""}
       </button>
       <button class="switch" type="button" role="switch" id="sw-${i}" aria-checked="${on}" data-op="toggle" data-i="${i}" aria-label="${esc(title)}"><span></span></button>
       ${menu(`r${i}`, `More for “${title}”`, [
@@ -526,10 +557,6 @@ function homePage() {
 
     return `
       ${st.unreadable ? `<p class="alert bad" role="alert">The settings in this link could not be read. Starting from scratch.</p>` : ""}
-      <div class="how">
-        <button class="link" type="button" id="how" data-op="how" aria-expanded="${st.how}" aria-controls="how-text">How this works</button>
-        <p id="how-text"${st.how ? "" : " hidden"}>${md(SCHEMA.description)}</p>
-      </div>
       ${settingsHtml()}
       ${sections}
       <p class="sr-only" id="move-hint">Drag to move it up or down, or use the arrow keys.</p>`;
@@ -973,7 +1000,6 @@ document.addEventListener("click", (e) => {
                 if (first) first.focus();
             }
             return;
-        case "how": st.how = !st.how; break;
         case "more": st.more.has(b.dataset.key) ? st.more.delete(b.dataset.key) : st.more.add(b.dataset.key); break;
         case "help": st.help.has(b.dataset.key) ? st.help.delete(b.dataset.key) : st.help.add(b.dataset.key); break;
         case "fold": st.folded.has(path) ? st.folded.delete(path) : st.folded.add(path); break;
