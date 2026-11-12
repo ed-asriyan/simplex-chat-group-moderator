@@ -33,12 +33,21 @@ export class Person {
     public bot = 0,
   ) {}
 
-  /** A new person, not yet connected to the bot. */
-  static async create(name: string): Promise<Person> {
+  /**
+   * A new person, not yet connected to the bot. Their display name is `name`
+   * made unique: the token goes where `{}` is in it, or at its end. A name
+   * with spaces (`Free Casino Bonus`) is a display name with spaces, as
+   * SimpleX allows; `fullName` is the profile's full name.
+   */
+  static async create(name: string, fullName = ''): Promise<Person> {
     const c = await shared();
-    const unique = `${name}${++count}x${Date.now() % 100000}`;
+    const token = `${++count}x${Date.now() % 100000}`;
+    const unique = name.includes('{}') ? name.replace('{}', token) : `${name}${token}`;
     const events = c.listen(unique);
-    const created = await c.command(`/create user ${unique}`);
+    const plain = !/\s/.test(unique) && fullName === '';
+    const created = await c.command(
+      plain ? `/create user ${unique}` : `/_create user ${JSON.stringify({ profile: { displayName: unique, fullName }, pastTimestamp: false })}`,
+    );
     if (created.type !== 'activeUser') throw new Error(`create ${unique}: ${JSON.stringify(created)}`);
     return new Person(c, unique, created.user.userId, events);
   }
@@ -58,10 +67,11 @@ export class Person {
     this.bot = connected.contact.contactId;
   }
 
-  private links = new Map<number, string>();
+  private links = new Map<string, string>();
 
   private async activate() {
-    const r = await this.cli.command(`/user ${this.name}`);
+    // A name with spaces cannot be typed as a command: the user's id can.
+    const r = await this.cli.command(/\s/.test(this.name) ? `/_user ${this.userId}` : `/user ${this.name}`);
     if (r.type !== 'activeUser') throw new Error(`activate ${this.name}: ${JSON.stringify(r)}`);
   }
 
@@ -153,15 +163,16 @@ export class Person {
     return { group, link };
   }
 
-  /** A link to join the group as a member; a group has one, made the first time. */
-  async groupLink(group: number): Promise<string> {
-    const made = this.links.get(group);
+  /** A link to join the group with `role` (a member by default); a group has one for each role, made the first time. */
+  async groupLink(group: number, role = 'member'): Promise<string> {
+    const key = `${group}/${role}`;
+    const made = this.links.get(key);
     if (made) return made;
     await this.activate();
-    const r = await this.cli.command(`/_create link #${group} member`);
+    const r = await this.cli.command(`/_create link #${group} ${role}`);
     const link = JSON.stringify(r).match(/"connShortLink":"([^"]+)"/) || JSON.stringify(r).match(/"connFullLink":"([^"]+)"/);
     if (!link) throw new Error(`group link: ${JSON.stringify(r)}`);
-    this.links.set(group, link[1]);
+    this.links.set(key, link[1]);
     return link[1];
   }
 
@@ -172,6 +183,19 @@ export class Person {
     if (r.type !== 'sentInvitation' && r.type !== 'sentConfirmation') throw new Error(`join: ${JSON.stringify(r)}`);
     const joined = await this.until((e) => e.type === 'userJoinedGroup');
     await this.until((e) => e.type === 'connectedToGroupMember', PATIENCE).catch(() => undefined);
+    return joined.groupInfo.groupId;
+  }
+
+  /**
+   * Joins a group by its link and returns its id as soon as this person is in:
+   * what the bot does to them next (a role changed, their removal) is still to
+   * be seen with `seesInGroup`, which `joinGroup` would have read past.
+   */
+  async joinGroupAndWatch(link: string): Promise<number> {
+    await this.activate();
+    const r = await this.cli.command(`/c ${link}`);
+    if (r.type !== 'sentInvitation' && r.type !== 'sentConfirmation') throw new Error(`join: ${JSON.stringify(r)}`);
+    const joined = await this.until((e) => e.type === 'userJoinedGroup');
     return joined.groupInfo.groupId;
   }
 
@@ -252,8 +276,9 @@ export function botId(link: string): string {
 }
 
 /** The editor link carrying `config` for the bot's group `id`, as the editor copies it. */
-export function settingsLink(id: string, config: unknown): string {
-  return `[Settings for group ${id}](${EDITOR}/#bot_id=${id}&config=${LZ.compressToEncodedURIComponent(JSON.stringify(config))})`;
+export function settingsLink(id: string, config: unknown, group?: string): string {
+  const named = group === undefined ? '' : `&group=${encodeURIComponent(group)}`;
+  return `[Settings for ${group ?? `group ${id}`}](${EDITOR}/#bot_id=${id}${named}&config=${LZ.compressToEncodedURIComponent(JSON.stringify(config))})`;
 }
 
 /** The configuration in an editor link. */

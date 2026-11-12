@@ -1,7 +1,7 @@
 // What the stories share: a moderated group with a member in it, the owner's
 // notification, and the editor opened on a link.
 import { expect, Page } from '@playwright/test';
-import { Person, botId, settingsLink } from '../harness/person';
+import { Person, botId, configOf, settingsLink } from '../harness/person';
 
 export const ISSUE = 'https://github.com/ed-asriyan/simplex-chat-group-moderator/issues/new?template=moderation-rule-bug.yml';
 
@@ -17,11 +17,11 @@ export interface Scene {
   link: string;
 }
 
-export async function scene(config?: unknown, role = 'owner'): Promise<Scene> {
+export async function scene(config?: unknown, role = 'owner', memberName: string | [string, string] = 'Bob'): Promise<Scene> {
   const owner = await Person.join('Alice');
   await owner.message();
   const { group, link } = await owner.moderatedGroup('Crypto Chat', role);
-  const member = await Person.create('Bob');
+  const member = Array.isArray(memberName) ? await Person.create(memberName[0], memberName[1]) : await Person.create(memberName);
   const memberGroup = await member.joinGroup(await owner.groupLink(group));
   const s = { owner, member, ownerGroup: group, memberGroup, id: botId(link), link };
   if (config) await apply(s, config);
@@ -33,9 +33,19 @@ export async function apply(s: Scene, config: unknown) {
   expect(await s.owner.ask(settingsLink(s.id, config))).toBe('✅ Group settings updated.');
 }
 
-/** One rule: `condition` and `actions` (by default, moderate the message). */
+/** One rule for when someone sends a message: `condition` and `actions` (by default, moderate the message). */
 export function rule(condition: unknown, actions: unknown[] = [{ type: 'ModerateMessage' }]) {
   return { actions, condition };
+}
+
+/** A rule with a name, a trigger and, if it is off, `enabled: false` (US-G13). */
+export function named(name: string, trigger: 'message_posted' | 'member_joined', condition: unknown, actions: unknown[], enabled = true) {
+  return { name, trigger, ...(condition === undefined ? {} : { condition }), actions, ...(enabled ? {} : { enabled: false }) };
+}
+
+/** A rule for when someone joins; no `condition` matches everyone who joins. */
+export function joinRule(condition: unknown, actions: unknown[], name?: string) {
+  return { ...(name ? { name } : {}), trigger: 'member_joined', ...(condition === undefined ? {} : { condition }), actions };
 }
 
 export function rules(...list: unknown[]) {
@@ -60,6 +70,11 @@ export async function moderated(s: Scene, content: string | Record<string, unkno
 /** A message as the notification quotes it: cut after 300 characters. */
 export function quoted(text: string | null): string | null {
   return text !== null && [...text].length > 300 ? `${[...text].slice(0, 300).join('')}...` : text;
+}
+
+/** The owner's notification of a join (US-D6): what the bot did, and to whom. */
+export function joinNotice(did: string, member: string, reasons: string[], group = 'Crypto Chat') {
+  return `🛡 I ${did} when they joined **${group}**.\n\n**The member:** ${member}\n\n**Reason:**\n${reasons.map((r) => `- ${r}`).join('\n')}\n\nIf it's a false positive, please [file an issue](${ISSUE}).`;
 }
 
 /** A notification with the spaces at the ends of its lines left out: the story does not say how a line ends. */
@@ -89,6 +104,16 @@ export async function untouched(s: Scene, content: string | Record<string, unkno
 }
 
 // ---- the editor ----
+// Every element is reached as a person does: by its role and its accessible name.
+
+export const MESSAGES = '💬 When someone sends a message';
+export const JOINS = '🚪 When someone joins';
+
+/** The bot's group 7 is the editor's, at a fixed id, for the screenshots; a link from the bot carries its own. */
+export function editorUrl(config: unknown, id: string | null = '7', group: string | null = 'Crypto Chat') {
+  const link = settingsLink(id ?? '7', config, group ?? undefined).match(/\((http[^)]+)\)/)![1];
+  return id === null ? link.replace(/bot_id=\d+&/, '') : link;
+}
 
 /** Opens the editor on an empty configuration of the bot's group 7. */
 export async function emptyEditor(page: Page) {
@@ -115,15 +140,58 @@ export async function currentLink(s: Scene): Promise<string> {
   return (await s.owner.message()).match(/\((http[^)]+)\)/)![1];
 }
 
-export function editorUrl(config: unknown, id: string | null = '7') {
-  const link = settingsLink(id ?? '7', config).match(/\((http[^)]+)\)/)![1];
-  return id === null ? link.replace(/bot_id=\d+&/, '') : link;
+export const section = (page: Page, name: string) => page.getByRole('region', { name, exact: true });
+
+/** The section's *+ Add rule*: the page for a new rule. */
+export async function newRule(page: Page, trigger: 'messages' | 'joins' = 'messages') {
+  await page.getByRole('button', { name: trigger === 'messages' ? '+ Add rule when someone sends a message' : '+ Add rule when someone joins', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'New rule', level: 1 })).toBeVisible();
 }
 
-/** Adds a rule and makes its condition `type` (the picker's label); returns the rule pane. */
-export async function addCondition(page: Page, type: string) {
-  await page.getByRole('button', { name: '+ Add rule' }).click();
-  const pane = page.getByRole('region', { name: 'Rule', exact: true });
-  await pane.getByRole('combobox', { name: 'Condition type' }).first().selectOption({ label: type });
-  return pane;
+/** A type in the picker, by its title in the stories. */
+export const pickable = (page: Page, title: string) =>
+  page.getByRole('dialog', { name: /^(Pick a condition|Pick an action|Change the condition's type|Change the action's type)$/ }).getByRole('button', { name: new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}\\s`) });
+
+/** From the group's page: a new rule for `trigger` built by hand, its condition `title` picked; its page is open. */
+export async function addCondition(page: Page, title: string, trigger: 'messages' | 'joins' = 'messages') {
+  await newRule(page, trigger);
+  await page.getByRole('button', { name: /^Build it myself/ }).click();
+  await pickable(page, title).click();
+}
+
+/** The same, from an empty editor. */
+export async function conditionEditor(page: Page, title: string, trigger: 'messages' | 'joins' = 'messages') {
+  await emptyEditor(page);
+  await addCondition(page, title, trigger);
+}
+
+/** The group's page, from a rule's or New rule's. */
+export async function toGroup(page: Page) {
+  await page.getByRole('button', { name: 'Back to rules' }).click();
+}
+
+/** Opens the rule called `name` from the group's page. */
+export async function openRule(page: Page, name: string | RegExp) {
+  await page.getByRole('button', { name, exact: typeof name === 'string' }).click();
+}
+
+/** The condition `title` is in the rule's page. */
+export const conditionRow = (page: Page, title: string) => page.getByRole('button', { name: `About “${title}”`, exact: true });
+
+/** *Apply changes*, or *Apply N changes*: its dialog. */
+export async function applyDialog(page: Page) {
+  await page.getByRole('button', { name: /^Apply (changes|\d+ changes?)$/ }).click();
+  return page.getByRole('dialog', { name: 'Changes before you send them' });
+}
+
+/** The configuration the editor would send now: through *Apply changes* and *Copy the link*. */
+export async function savedConfig(page: Page): Promise<any> {
+  // Apply is on the group's page alone.
+  if (await page.getByRole('button', { name: 'Back to rules' }).isVisible()) await toGroup(page);
+  const dialog = await applyDialog(page);
+  await dialog.getByRole('button', { name: 'Copy the link' }).click();
+  await expect(dialog.getByText('Link copied.')).toBeVisible();
+  const config = configOf(await page.evaluate(() => navigator.clipboard.readText()));
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  return config;
 }
