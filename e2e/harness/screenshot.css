@@ -1,0 +1,2 @@
+/* Applied while a screenshot is taken: what comes and goes on its own timer. */
+.toast { visibility: hidden !important; }

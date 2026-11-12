@@ -53,6 +53,22 @@ services:
     volumes:
       - ./webeditor:/usr/share/nginx/html:ro
 
+  # The tests' browser, in the image of the Playwright the tests run (the
+  # harness sets E2E_PLAYWRIGHT_VERSION from e2e/node_modules), so a page
+  # renders the same on every machine and screenshots compare. It serves the
+  # tests' own Playwright, read from their node_modules; the tests connect to
+  # it and let it reach their localhost, where the editor is.
+  browser:
+    image: mcr.microsoft.com/playwright:v${E2E_PLAYWRIGHT_VERSION:-0}-noble
+    init: true
+    user: pwuser
+    working_dir: /e2e
+    command: ["node", "node_modules/@playwright/test/cli.js", "run-server", "--port", "3000", "--host", "0.0.0.0"]
+    volumes:
+      - ./e2e/node_modules:/e2e/node_modules:ro
+    ports:
+      - "127.0.0.1:${E2E_BROWSER_PORT:-13000}:3000"
+
   # The people of the tests: a SimpleX CLI the tests drive through its
   # websocket API, one user profile per person, on the real clock.
   person:
