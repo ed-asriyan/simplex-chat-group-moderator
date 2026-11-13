@@ -33,7 +33,7 @@ const HELP: &str = "\
    - **Admin** — to also set violators as observers.
    - **Owner** — to also kick violators out of the group.
 2. Once I join, send /groups to list your groups and open the visual editor.
-3. I watch the chat and act according to your rules.
+3. I watch the chat and everyone who joins, and act according to your rules.
 
 To stop me moderating a group, just remove me from it.
 
@@ -70,6 +70,7 @@ Hi! I'm an **automated moderation** bot for SimpleX groups.
 - 🔗 **Links** — block specific sites, allow only a list, or allow just the Top 100 sites.
 - ⏱ **Rate limits** — too many messages, or repeated violations, in a time window.
 - 🌊 **Screen flooding** — long messages, empty or invisible text, line floods.
+- 🚪 **Newcomers** — names with banned words or links, checked the moment they join.
 
 …and much more — this is just a glimpse.
 

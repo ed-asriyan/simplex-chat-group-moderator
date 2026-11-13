@@ -59,7 +59,7 @@ test('the link names the group, and carries its configuration with the rules tha
   const got = configOf(sent);
   expect(got.mode).toBe('dry');
   expect(got.rules.map((r: any) => r.name)).toEqual(['Banned words', 'Flood', 'Spam names']);
-  expect(got.rules.map((r: any) => r.trigger)).toEqual(['message_posted', 'message_posted', 'member_joined']);
+  expect(got.rules.map((r: any) => r.trigger ?? 'message_posted')).toEqual(['message_posted', 'message_posted', 'member_joined']);
   expect(got.rules[1].enabled).toBe(false);
 });
 

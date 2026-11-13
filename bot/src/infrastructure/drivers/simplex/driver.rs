@@ -418,11 +418,16 @@ async fn handle_event(
         Event::GroupDeleted(group) => Ok(vec![SimplexEvent::RemovedFromGroup {
             group_id: group.group_info.group_id,
         }]),
-        Event::JoinedGroupMember(joined) => {
-            if matches!(
-                joined.member.member_role,
-                GroupMemberRole::Member | GroupMemberRole::Observer
-            ) {
+        // The bot is told of a newcomer when its own connection to them is up,
+        // so it can act on them; `Post` is a member who came after the bot,
+        // not one it met when it joined.
+        Event::ConnectedToGroupMember(joined) => {
+            if matches!(joined.member.member_category, GroupMemberCategory::Post)
+                && matches!(
+                    joined.member.member_role,
+                    GroupMemberRole::Member | GroupMemberRole::Observer
+                )
+            {
                 Ok(vec![SimplexEvent::MemberJoined {
                     group_id: joined.group_info.group_id,
                     group_name: joined.group_info.group_profile.display_name.clone(),

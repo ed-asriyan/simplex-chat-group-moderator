@@ -66,7 +66,7 @@ impl GroupOperations for CrossDomainRouter {
         json: &str,
     ) -> Result<(), BotDmErr> {
         let config: GroupConfig =
-            serde_json::from_str(json).map_err(|e| -> BotDmErr { e.to_string().into() })?;
+            serde_json::from_str(json).map_err(|e| -> BotDmErr { reason_of(&e).into() })?;
         self.group_administration
             .set_group_config(user_id, group_id, config)
             .await
@@ -84,5 +84,16 @@ impl GroupOperations for CrossDomainRouter {
             .await
             .map_err(|e| -> BotDmErr { e.to_string().into() })?;
         serde_json::to_string(&config).map_err(|e| -> BotDmErr { e.to_string().into() })
+    }
+}
+
+/// What a configuration that does not parse says, in the words of the rule
+/// that was refused: serde adds where in the JSON it was found, which an owner
+/// reading the refusal in the chat cannot use (US-C2).
+fn reason_of(error: &serde_json::Error) -> String {
+    let text = error.to_string();
+    match text.rsplit_once(" at line ") {
+        Some((reason, place)) if place.contains(" column ") => reason.to_string(),
+        _ => text,
     }
 }

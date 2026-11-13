@@ -151,17 +151,6 @@ test('a moderator, an admin or an owner is never checked', async () => {
   }
 });
 
-// US-D5
-test('a moderator, an admin or an owner who joins is never checked either', async () => {
-  const s = await scene(rules(joinRule(undefined, [{ type: 'KickAuthor', delete_all_messages: false }], 'Everyone out')));
-  for (const role of ['moderator', 'admin']) {
-    const person = await Person.create(role);
-    await person.joinGroupAndWatch(await s.owner.groupLink(s.ownerGroup, role));
-    await person.seesNothing(5000);
-    await s.owner.hearsNothing(0);
-  }
-});
-
 // US-D5: joining is no event for a moderator, an admin or an owner, whichever way they come in.
 test('someone the owner adds as a moderator, an admin or an owner is never checked', async () => {
   const s = await scene(rules(joinRule(undefined, [{ type: 'KickAuthor', delete_all_messages: false }], 'Everyone out')));
@@ -197,15 +186,16 @@ test('a join is checked against the rules for when someone joins, and told in no
 // US-D6
 test('a rule with no condition matches everyone who joins, and a rule without a name gives what matched alone', async () => {
   const s = await scene(rules(
-    joinRule({ type: 'MemberNameContainsWords', keywords: ['casino'] }, [{ type: 'SetAuthorObserver', duration_minutes: 60 }]),
+    // The shorter time first: it matches everyone, and the longer one is not covered by it.
     joinRule(undefined, [{ type: 'SetAuthorObserver', duration_minutes: 10 }], 'Quarantine newcomers'),
+    joinRule({ type: 'MemberNameContainsWords', keywords: ['casino'] }, [{ type: 'SetAuthorObserver', duration_minutes: 60 }]),
   ));
   const bob = await Person.create(FREE);
   await bob.joinGroupAndWatch(await s.owner.groupLink(s.ownerGroup));
   expect(await bob.seesInGroup()).toEqual({ kind: 'role', role: 'observer' });
   // Every rule that matches contributes; a longer observer time covers a shorter one (US-F4).
   expect(await s.owner.message()).toBe(
-    joinNotice('set the member as observer for 60 minutes', bob.name, ["name contains word: 'casino'", '**Quarantine newcomers**: everyone who joins']),
+    joinNotice('set the member as observer for 60 minutes', bob.name, ['**Quarantine newcomers**: everyone who joins', "name contains word: 'casino'"]),
   );
   // The observer time is up: they are a member again (US-F2).
   advance(61);
@@ -259,7 +249,9 @@ test('dry mode tells what it would do on a join, and does nothing', async () => 
 // US-D6
 test('someone added to the group by another member is checked as one who joins by its link', async () => {
   const s = await scene(rules(joinRule({ type: 'MemberNameContainsWords', keywords: ['casino'] }, [{ type: 'KickAuthor', delete_all_messages: false }], 'Spam names')));
-  // Bob, a member, adds a contact of his.
+  // Bob, an admin, adds a contact of his: a member cannot add people.
+  await s.owner.setRole(s.ownerGroup, s.member.name, 'admin');
+  expect(await s.member.seesInGroup()).toEqual({ kind: 'role', role: 'admin' });
   const carol = await Person.create(FREE);
   await s.member.befriend(carol);
   await s.member.addToGroup(s.memberGroup, carol);

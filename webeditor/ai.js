@@ -99,11 +99,15 @@ function hideIn(rules) {
     return rules.map((r) => walk(r, titleOf(r)));
 }
 
-function coverage() {
+/* The relations among the actions a trigger takes (all of them, with none). */
+function coverage(trigger) {
     const lines = [];
+    const taken = (n) => !trigger || A[n].triggers.includes(trigger);
     for (const [name, spec] of Object.entries(A))
         for (const c of spec.coveredBy) {
-            const type = typeof c === "string" ? c : c.type, when = typeof c === "string" ? null : c.when;
+            const type = typeof c === "string" ? c : c.type;
+            if (!taken(name) || !taken(type)) continue;
+            const when = typeof c === "string" ? null : c.when;
             const cond_ = when ? ` with ${Object.entries(when).map(([k, v]) => `${k} set to ${v}`).join(" and ")}` : "";
             lines.push(`- ${type}${cond_} already does what ${name} does. A rule listing both runs only ${type}, so do not suggest adding ${name} next to it.`);
         }
@@ -266,7 +270,7 @@ CONDITION CATALOGUE
 ${catalogue("condition", t.v)}
 
 ACTION CATALOGUE
-${catalogue("action", t.v)}${coverage()}${creating ? "" : `
+${catalogue("action", t.v)}${coverage(t.v)}${creating ? "" : `
 
 MY RULE
 \`\`\`json
@@ -512,7 +516,8 @@ function setupAi() {
     }
 
     document.addEventListener("ai:open", (e) => {
-        const { mode, index, trigger } = e.detail;
+        const { mode, index } = e.detail;
+        const trigger = mode === "rule" ? triggerOf(st.rules[index]).v : e.detail.trigger;
         if (ai.mode !== mode || ai.index !== index || ai.trigger !== trigger) {
             ai.include = new Set();
             ai.loaded = null;
@@ -522,7 +527,7 @@ function setupAi() {
         }
         ai.mode = mode;
         ai.index = index;
-        ai.trigger = mode === "rule" ? triggerOf(st.rules[index]).v : trigger;
+        ai.trigger = trigger;
         const creating = mode === "create", one = mode === "rule";
         $("ai-title").textContent = creating ? "Create a rule with AI" : one ? `Edit “${titleOf(st.rules[index])}” with AI` : "Edit your settings with AI";
         $("ai-describe").hidden = !creating;

@@ -67,8 +67,6 @@ export class Person {
     this.bot = connected.contact.contactId;
   }
 
-  private links = new Map<string, string>();
-
   private async activate() {
     // A name with spaces cannot be typed as a command: the user's id can.
     const r = await this.cli.command(/\s/.test(this.name) ? `/_user ${this.userId}` : `/user ${this.name}`);
@@ -198,16 +196,22 @@ export class Person {
     return joined.groupInfo.groupId;
   }
 
-  /** A link to join the group with `role` (a member by default); a group has one for each role, made the first time. */
+  /** The links made so far: a group has one, with the role it was last given. */
+  private groupLinks = new Map<number, { link: string; role: string }>();
+
+  /**
+   * The link to join the group with `role`, a member or an observer (SimpleX has
+   * no other): a group has one link, made the first time and given the role asked
+   * for each time after.
+   */
   async groupLink(group: number, role = 'member'): Promise<string> {
-    const key = `${group}/${role}`;
-    const made = this.links.get(key);
-    if (made) return made;
     await this.activate();
-    const r = await this.cli.command(`/_create link #${group} ${role}`);
+    const made = this.groupLinks.get(group);
+    if (made?.role === role) return made.link;
+    const r = await this.cli.command(made ? `/_set link role #${group} ${role}` : `/_create link #${group} ${role}`);
     const link = JSON.stringify(r).match(/"connShortLink":"([^"]+)"/) || JSON.stringify(r).match(/"connFullLink":"([^"]+)"/);
     if (!link) throw new Error(`group link: ${JSON.stringify(r)}`);
-    this.links.set(key, link[1]);
+    this.groupLinks.set(group, { link: link[1], role });
     return link[1];
   }
 
@@ -296,7 +300,9 @@ export class Person {
       if (left <= 0) return;
       const e = await this.events.next(left);
       if (!e) return;
-      if (['chatItemsDeleted', 'memberRole', 'deletedMemberUser'].includes(e.type)) throw new Error(`${this.name}: expected nothing, saw ${e.type}`);
+      if (['chatItemsDeleted', 'deletedMemberUser'].includes(e.type)) throw new Error(`${this.name}: expected nothing, saw ${e.type}`);
+      // Another member's role changing is not something that happens to this person.
+      if (e.type === 'memberRole' && e.member?.groupMemberId === e.groupInfo?.membership?.groupMemberId) throw new Error(`${this.name}: expected nothing, saw ${e.type}`);
       if (e.type === 'newChatItems')
         for (const item of e.chatItems)
           if (item.chatInfo?.type === 'direct' && item.chatItem?.content?.type === 'rcvMsgContent')

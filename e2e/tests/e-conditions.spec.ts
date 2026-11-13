@@ -309,10 +309,10 @@ test("member's name contains any of these words", async ({ page }) => {
 test("member's name contains a link outside this list", async ({ page }) => {
   await list(await adding(page, "Member's Name Contains a Link Outside This List"), 'Websites', 'Up to 10000 entries, 100 characters each.');
   await adding(page, "Member's Name Contains a Link Outside This List", 'joins');
-  const s = await scene(rules(rule({ type: 'MemberNameContainsLinksOutsideList', domains: ['simplex.chat'] })), 'owner', 'Bob{} | spam [dot] example');
+  const s = await scene(rules(rule({ type: 'MemberNameContainsLinksOutsideList', domains: ['simplex.chat'] })), 'owner', ['Bob{}', 'Bob | spam [dot] example']);
   await moderated(s, 'hello', ['name links to spam.example']);
   // A link in the list does not match; with an empty list, any link does.
-  const t = await scene(rules(rule({ type: 'MemberNameContainsLinksOutsideList', domains: ['simplex.chat'] })), 'owner', 'Bob{} (simplex.chat)');
+  const t = await scene(rules(rule({ type: 'MemberNameContainsLinksOutsideList', domains: ['simplex.chat'] })), 'owner', ['Bob{}', 'Bob (simplex.chat)']);
   await untouched(t, 'hello');
   await apply(t, rules(rule({ type: 'MemberNameContainsLinksOutsideList', domains: [] })));
   await moderated(t, 'hello', ['name links to simplex.chat']);

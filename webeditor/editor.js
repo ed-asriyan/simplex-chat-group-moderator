@@ -859,6 +859,11 @@ function openPicker(mode, path) {
     if (!isActionPick()) $("pick-q").focus();
 }
 
+/* A closed picker holds nothing, so what it lists is not on the page twice. */
+$("pickdlg").addEventListener("close", () => {
+    $("pick-body").innerHTML = "";
+});
+
 function drawPicker() {
     const r = st.rules[st.sel];
     const current = pick.mode === "retype" || pick.mode === "reaction" ? at(pick.path).type : null;

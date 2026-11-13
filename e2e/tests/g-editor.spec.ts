@@ -135,9 +135,9 @@ test('the mode is picked on the overview, each of three with its line', async ({
   await emptyEditor(page);
   const group = page.getByRole('radiogroup', { name: '🛡 Mode' });
   await expect(group.getByRole('radio')).toHaveCount(3);
-  await expect(mode(page, 'Notifications')).toContainText('Act and tell me');
-  await expect(mode(page, 'Silent')).toContainText('Act without telling me');
-  await expect(mode(page, 'Dry')).toContainText('Only tell me what it would do');
+  await expect(mode(page, 'Notifications')).toHaveAccessibleName(/Act and tell me/);
+  await expect(mode(page, 'Silent')).toHaveAccessibleName(/Act without telling me/);
+  await expect(mode(page, 'Dry')).toHaveAccessibleName(/Only tell me what it would do/);
   await expect(mode(page, 'Notifications')).toBeChecked();
   await mode(page, 'Silent').check();
   await looks(page, 'mode-silent');
