@@ -1,4 +1,5 @@
-//! Single-purpose message filter for the moderator bounded context.
+//! The word filter: whether a text contains any of the owner's words, shared by
+//! every condition that looks for words — in a message, in a name.
 //!
 //! Given an incoming message text and a list of keywords, decides whether the
 //! message contains any of them.
@@ -44,7 +45,7 @@
 use icu_normalizer::ComposingNormalizerBorrowed;
 use std::sync::LazyLock;
 
-use super::upside_down;
+mod upside_down;
 
 /// Returns the first keyword found in `text`, given the list of `keywords`,
 /// or `None` if no keyword matches.

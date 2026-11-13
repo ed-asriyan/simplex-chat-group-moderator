@@ -37,6 +37,10 @@ impl Action for KickAuthor {
     fn execution_rank(&self) -> u8 {
         2
     }
+
+    fn title(&self) -> &'static str {
+        "Kick the member"
+    }
 }
 
 #[async_trait]

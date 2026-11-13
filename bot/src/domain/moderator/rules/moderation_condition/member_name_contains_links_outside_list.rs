@@ -11,7 +11,9 @@ mod tests;
 
 use super::{Condition, ConditionContext, ConditionOn};
 use crate::domain::moderator::ports::Err;
+use crate::domain::moderator::rules::common::domains::{self, find_domains, find_outside_list};
 use crate::domain::moderator::rules::common::member::Member;
+use crate::domain::moderator::rules::common::checks;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -24,18 +26,27 @@ pub struct MemberNameContainsLinksOutsideList {
 
 impl Condition for MemberNameContainsLinksOutsideList {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
-        todo!()
+        checks::normalize_list(&mut self.domains);
+        checks::check_list(
+            &self.domains,
+            domains::MAX_DOMAIN_LENGTH,
+            "domains",
+            "Domain",
+        )
     }
 
     fn describe(&self) -> String {
-        todo!()
+        "name links to a website outside the list".into()
     }
 }
 
 #[async_trait]
 impl<S: Member + ?Sized> ConditionOn<S> for MemberNameContainsLinksOutsideList {
     async fn should_moderate(&self, ctx: &ConditionContext<'_, S>) -> Result<Option<String>, Err> {
-        let _ = ctx;
-        todo!()
+        let member = ctx.subject;
+        Ok([member.display_name(), member.full_name()]
+            .into_iter()
+            .find_map(|part| find_outside_list(&find_domains(part.trim()), &self.domains))
+            .map(|domain| format!("name links to {domain}")))
     }
 }

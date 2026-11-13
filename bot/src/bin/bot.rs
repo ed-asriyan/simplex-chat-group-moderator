@@ -5,7 +5,7 @@ use bot::domain::bot_dm::ports::{
 use bot::domain::moderator::ports::{
     GroupAdministration, GroupCharacterActivityRepository, GroupLineActivityRepository,
     GroupMessage, GroupMessageActivityRepository, GroupMessageHistoryRepository, GroupModerator,
-    MemberRestoreRepository, MemberRestoreRunner, MessageAttachment, MessengerGroup,
+    MemberJoin, MemberRestoreRepository, MemberRestoreRunner, MessageAttachment, MessengerGroup,
     ModerationEngine, ModerationNotifier, ModerationRepository, OpenAi, OpenRouter,
     UserCharacterActivityRepository, UserLineActivityRepository, UserMessageActivityRepository,
     UserModerationActivityRepository,
@@ -79,6 +79,7 @@ async fn handle_event(
             group_name,
             author_id,
             author_name,
+            author_full_name,
             message_id,
             timestamp,
             text,
@@ -94,7 +95,7 @@ async fn handle_event(
                 message_id,
                 author_id,
                 author_name,
-                author_full_name: String::new(),
+                author_full_name,
                 text,
                 attachment: attachment.map(|attachment| match attachment {
                     DriverAttachment::Image => MessageAttachment::Image,
@@ -107,6 +108,27 @@ async fn handle_event(
                 is_edit,
             };
             moderator.process_group_message(group_message).await?;
+        }
+        SimplexEvent::MemberJoined {
+            group_id,
+            group_name,
+            member_id,
+            display_name,
+            full_name,
+            timestamp,
+        } => {
+            moderator
+                .process_member_join(MemberJoin {
+                    group: MessengerGroup {
+                        id: group_id,
+                        name: group_name,
+                    },
+                    member_id,
+                    display_name,
+                    full_name,
+                    timestamp,
+                })
+                .await?;
         }
         SimplexEvent::Connected { user_id } => {
             dm_receiver

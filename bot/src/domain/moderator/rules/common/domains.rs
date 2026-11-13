@@ -46,7 +46,7 @@ static BARE_DOMAIN_RE: LazyLock<Regex> = LazyLock::new(|| {
         r"network|agency|pro|plus|group|team|gov|edu|mil|int|mobi|name|",
         r"coop|aero|tel|cloud|digital|online|site|web|space|world|today|",
         r"top|win|trade|work|vip|club|guru|solutions|company|business|",
-        r"services|email|global|chat|social|ai|ygg))\b",
+        r"services|email|global|chat|social|ai|ygg|example))\b",
     ))
     .expect("valid BARE_DOMAIN_RE")
 });

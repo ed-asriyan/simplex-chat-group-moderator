@@ -17,7 +17,7 @@ mod tests;
 use super::trigger::Trigger;
 use super::trigger::member_joined::{JoinAction, JoinCondition};
 use super::trigger::message_posted::{MessageAction, MessageCondition};
-use super::{KeyUse, ModerationAction, ModerationCondition};
+use super::{KeyUse, ModerationAction, ModerationCondition, action_planner};
 use crate::domain::moderator::ports::Err;
 use serde::{Deserialize, Serialize};
 
@@ -66,7 +66,15 @@ impl ModerationRule {
     /// The API keys the rule's conditions carry, and what each is for, so they
     /// can be checked when an owner saves the rule (US-C4).
     pub fn key_uses(&self) -> Vec<KeyUse> {
-        todo!()
+        match &self.body {
+            TriggeredRule::MessagePosted { condition, .. } => {
+                ModerationCondition::from(condition.clone()).key_uses()
+            }
+            TriggeredRule::MemberJoined { condition, .. } => condition
+                .clone()
+                .map(|condition| ModerationCondition::from(condition).key_uses())
+                .unwrap_or_default(),
+        }
     }
 
     /// Checks what an owner saved and rewrites it into the canonical form that
@@ -83,7 +91,30 @@ impl ModerationRule {
     /// that is off is checked the same: the owner can turn it on at any time
     /// without saving it again.
     pub fn normalize_and_validate(&mut self) -> Result<(), Err> {
-        todo!()
+        if let Some(name) = &self.name {
+            if name.chars().count() > MAX_RULE_NAME_CHARS {
+                return Err(format!(
+                    "A rule's name is longer than {MAX_RULE_NAME_CHARS} characters."
+                )
+                .into());
+            }
+            if name.trim().is_empty() {
+                self.name = None;
+            }
+        }
+        match &mut self.body {
+            TriggeredRule::MessagePosted { condition, actions } => {
+                *actions = normalized_actions(actions)?;
+                *condition = normalized_condition(condition.clone())?;
+            }
+            TriggeredRule::MemberJoined { condition, actions } => {
+                *actions = normalized_actions(actions)?;
+                if let Some(inner) = condition.take() {
+                    *condition = Some(normalized_condition(inner)?);
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -95,13 +126,24 @@ impl ModerationRule {
 pub struct RuleDraft {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    #[serde(default)]
+    /// Written only when it is not the default, so a message rule reads as it
+    /// always has.
+    #[serde(default, skip_serializing_if = "is_default_trigger")]
     pub trigger: Trigger,
-    #[serde(default = "enabled_by_default")]
+    /// Written only when the rule is off.
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_enabled")]
     pub enabled: bool,
+    pub actions: Vec<ModerationAction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<ModerationCondition>,
-    pub actions: Vec<ModerationAction>,
+}
+
+fn is_default_trigger(trigger: &Trigger) -> bool {
+    *trigger == Trigger::default()
+}
+
+fn is_enabled(enabled: &bool) -> bool {
+    *enabled
 }
 
 fn enabled_by_default() -> bool {
@@ -118,14 +160,97 @@ impl TryFrom<RuleDraft> for ModerationRule {
     /// checks nothing else: the rest is
     /// [`ModerationRule::normalize_and_validate`]'s.
     fn try_from(draft: RuleDraft) -> Result<Self, Self::Error> {
-        let _ = draft;
-        todo!()
+        let RuleDraft {
+            name,
+            trigger,
+            enabled,
+            condition,
+            actions,
+        } = draft;
+        let body = match trigger {
+            Trigger::MessagePosted => TriggeredRule::MessagePosted {
+                condition: condition
+                    .ok_or_else(|| -> Err {
+                        "A rule for when someone sends a message has no condition. Add one, or remove the rule."
+                            .into()
+                    })?
+                    .try_into()?,
+                actions: narrowed(actions)?,
+            },
+            Trigger::MemberJoined => TriggeredRule::MemberJoined {
+                condition: condition.map(TryInto::try_into).transpose()?,
+                actions: narrowed(actions)?,
+            },
+        };
+        Ok(Self {
+            name,
+            enabled,
+            body,
+        })
     }
 }
 
 impl From<ModerationRule> for RuleDraft {
     fn from(rule: ModerationRule) -> Self {
-        let _ = rule;
-        todo!()
+        let (trigger, condition, actions) = match rule.body {
+            TriggeredRule::MessagePosted { condition, actions } => (
+                Trigger::MessagePosted,
+                Some(condition.into()),
+                actions.into_iter().map(Into::into).collect(),
+            ),
+            TriggeredRule::MemberJoined { condition, actions } => (
+                Trigger::MemberJoined,
+                condition.map(Into::into),
+                actions.into_iter().map(Into::into).collect(),
+            ),
+        };
+        Self {
+            name: rule.name,
+            trigger,
+            enabled: rule.enabled,
+            condition,
+            actions,
+        }
     }
+}
+
+/// A trigger's actions from the actions as written; the first one the trigger
+/// does not take refuses the rule.
+fn narrowed<A: TryFrom<ModerationAction, Error = Err>>(
+    actions: Vec<ModerationAction>,
+) -> Result<Vec<A>, Err> {
+    actions.into_iter().map(A::try_from).collect()
+}
+
+/// A trigger's actions checked and put into the canonical form: each action's
+/// own settings first, then the planner's merge and order (US-F4).
+fn normalized_actions<A>(actions: &[A]) -> Result<Vec<A>, Err>
+where
+    A: Copy + TryFrom<ModerationAction, Error = Err>,
+    ModerationAction: From<A>,
+{
+    if actions.is_empty() {
+        return Err(
+            "A rule has no actions. Add at least one action to it, or remove the rule.".into(),
+        );
+    }
+    let mut written: Vec<ModerationAction> = actions.iter().copied().map(Into::into).collect();
+    for action in &mut written {
+        action.normalize_and_validate()?;
+    }
+    action_planner::normalize_actions(&written)
+        .into_iter()
+        .map(A::try_from)
+        .collect()
+}
+
+/// A trigger's condition tree checked and put into the canonical form.
+fn normalized_condition<C>(condition: C) -> Result<C, Err>
+where
+    C: TryFrom<ModerationCondition, Error = Err>,
+    ModerationCondition: From<C>,
+{
+    let mut written = ModerationCondition::from(condition);
+    written.normalize_and_validate()?;
+    C::try_from(written)
 }

@@ -10,8 +10,8 @@ use crate::domain::moderator::ports::{
     UserModerationActivityRepository,
 };
 use crate::domain::moderator::rules::{
-    ActionPorts, ConditionPorts, execute_message_actions, record_activity, record_moderated,
-    record_outcome, should_moderate_message,
+    ActionPorts, ConditionPorts, execute_join_actions, execute_message_actions, record_activity,
+    record_moderated, record_outcome, should_moderate_join, should_moderate_message,
 };
 
 #[cfg(test)]
@@ -168,7 +168,55 @@ impl ModerationEngine for MessageModerationApplication {
     }
 
     async fn process_member_join(&self, join: MemberJoin) -> Result<(), Err> {
-        let _ = join;
-        todo!()
+        let Some(group) = self
+            .repository
+            .get_group_by_messenger_id(&join.group.id)
+            .await?
+        else {
+            return Ok(());
+        };
+        let rules: Vec<ModerationRule> = self
+            .repository
+            .get_group_rules_by_messenger_id(&join.group.id)
+            .await?
+            .into_iter()
+            .map(|owned| owned.rule)
+            .collect();
+
+        let mut bookkeeping: Option<Err> = None;
+        if let Some(matched) = should_moderate_join(&join, &rules, &self.ports()).await? {
+            if group.mode.executes_actions() {
+                let outcome =
+                    execute_join_actions(&join, &matched.actions, &self.action_ports()).await?;
+                // As for a message: the bot's own records failing must not call
+                // off the owner's notification.
+                bookkeeping = outcome.bookkeeping_error;
+            }
+            if group.mode.notifies_owner() {
+                // Best-effort: a failed notification must not undo moderation.
+                let _ = self
+                    .notifier
+                    .notify_moderation(
+                        group.owner_id,
+                        &group,
+                        &ModerationReport {
+                            event: TriggerEvent::MemberJoined,
+                            member_name: join.display_name.clone(),
+                            actions: matched.actions_as_written(),
+                            reasons: matched.reasons.clone(),
+                        },
+                    )
+                    .await;
+            }
+        }
+
+        self.repository
+            .set_group_name(&join.group.id, &join.group.name)
+            .await?;
+
+        match bookkeeping {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 }

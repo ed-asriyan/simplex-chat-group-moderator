@@ -11,6 +11,8 @@ mod tests;
 use super::{Condition, ConditionContext, ConditionOn};
 use crate::domain::moderator::ports::Err;
 use crate::domain::moderator::rules::common::member::Member;
+use crate::domain::moderator::rules::common::words as filter;
+use crate::domain::moderator::rules::common::checks;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -21,20 +23,29 @@ pub struct MemberNameContainsWords {
     pub keywords: Vec<String>,
 }
 
+/// Maximum length (in characters) of a single word.
+const MAX_KEYWORD_LENGTH: usize = 100;
+
 impl Condition for MemberNameContainsWords {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
-        todo!()
+        checks::normalize_list(&mut self.keywords);
+        checks::check_list(&self.keywords, MAX_KEYWORD_LENGTH, "keywords", "Keyword")
     }
 
     fn describe(&self) -> String {
-        todo!()
+        "name contains one of the listed words".into()
     }
 }
 
 #[async_trait]
 impl<S: Member + ?Sized> ConditionOn<S> for MemberNameContainsWords {
     async fn should_moderate(&self, ctx: &ConditionContext<'_, S>) -> Result<Option<String>, Err> {
-        let _ = ctx;
-        todo!()
+        // Each part of the name on its own: a word must not be found across
+        // where one ends and the other begins.
+        let member = ctx.subject;
+        Ok([member.display_name(), member.full_name()]
+            .into_iter()
+            .find_map(|part| filter::should_moderate(part.trim(), &self.keywords))
+            .map(|keyword| format!("name contains word: '{keyword}'")))
     }
 }

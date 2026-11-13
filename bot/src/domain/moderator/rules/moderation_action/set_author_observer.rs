@@ -51,6 +51,10 @@ impl Action for SetAuthorObserver {
     fn execution_rank(&self) -> u8 {
         0
     }
+
+    fn title(&self) -> &'static str {
+        "Set the member as observer"
+    }
 }
 
 #[async_trait]

@@ -1,14 +1,12 @@
 //! `ContainsWords`: the message contains any of the owner's words, seen
 //! through obfuscation.
 
-mod filter;
-mod upside_down;
-
 #[cfg(test)]
 mod tests;
 
 use super::{Condition, ConditionContext, ConditionOn};
 use crate::domain::moderator::ports::{Err, GroupMessage};
+use crate::domain::moderator::rules::common::words as filter;
 use crate::domain::moderator::rules::common::checks;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

@@ -12,3 +12,4 @@ pub mod invisible;
 pub mod member;
 pub mod rate_limit;
 pub mod screen_lines;
+pub mod words;

@@ -27,6 +27,10 @@ impl Action for ModerateMessage {
     fn execution_rank(&self) -> u8 {
         1
     }
+
+    fn title(&self) -> &'static str {
+        "Moderate the message"
+    }
 }
 
 #[async_trait]

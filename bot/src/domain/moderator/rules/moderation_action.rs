@@ -56,6 +56,10 @@ pub(in crate::domain::moderator::rules) trait Action:
     /// deliberately does not come from the order the owner listed the actions
     /// in: a rule's action list is a set.
     fn execution_rank(&self) -> u8;
+
+    /// The action as the editor titles it, without the emoji: what an owner is
+    /// told about it when a rule's trigger does not take it (US-C2).
+    fn title(&self) -> &'static str;
 }
 
 /// An action carried out on `S`, the subject of a trigger: a `GroupMessage`
@@ -167,7 +171,7 @@ macro_rules! trigger_actions {
                     $(Any_::$variant(action) => Ok(Self::$variant(action)),)*
                     #[allow(unreachable_patterns)]
                     other => Err($crate::domain::moderator::rules::trigger::not_taken(
-                        other.type_name(),
+                        other.title(),
                         $trigger,
                     )),
                 }
@@ -198,6 +202,11 @@ impl ModerationAction {
 
     pub(in crate::domain::moderator::rules) fn execution_rank(&self) -> u8 {
         self.as_leaf().execution_rank()
+    }
+
+    /// The action as the editor titles it, without the emoji.
+    pub(in crate::domain::moderator::rules) fn title(&self) -> &'static str {
+        self.as_leaf().title()
     }
 }
 

@@ -16,6 +16,7 @@ use crate::domain::moderator::ports::conditions::{
     ContainsWords, ExceedsMaxCharacters, ExceedsMaxLines, ExceedsMaxWords, FlaggedByOmniModeration,
     FlaggedByOpenRouterInstruction, GroupHitsCharacterRateLimit, GroupHitsLineRateLimit,
     GroupHitsMessageRateLimit, IsBlank, MatchesExactMessage, MatchesRegex,
+    MemberNameContainsLinksOutsideList, MemberNameContainsWords,
 };
 use std::collections::HashMap;
 
@@ -89,7 +90,8 @@ fn load_condition_lists(
            FROM {table} s
            JOIN moderation_conditions c ON c.id = s.condition_id
            JOIN moderation_rules r ON r.id = c.rule_id
-          WHERE r.group_id = ?1"
+          WHERE r.group_id = ?1
+          ORDER BY s.rowid"
     );
     let mut stmt = guard.prepare(&sql)?;
     let rows = stmt.query_map(params![gid], |row| {
@@ -177,6 +179,8 @@ fn load_openai_category_triggers(
 /// Settings loaded for every condition node of one group, keyed by condition id.
 struct ConditionData {
     words: HashMap<i64, Vec<String>>,
+    name_words: HashMap<i64, Vec<String>>,
+    name_links_outside_list: HashMap<i64, Vec<String>>,
     exact_messages: HashMap<i64, Vec<String>>,
     exact_message_settings: HashMap<i64, bool>,
     regex_patterns: HashMap<i64, Vec<String>>,
@@ -207,6 +211,18 @@ impl ConditionData {
                 guard,
                 "moderation_condition__contains_words__keywords",
                 "keyword",
+                gid,
+            )?,
+            name_words: load_condition_lists(
+                guard,
+                "moderation_condition__member_name_contains_words__keywords",
+                "keyword",
+                gid,
+            )?,
+            name_links_outside_list: load_condition_lists(
+                guard,
+                "moderation_condition__member_name_contains_links_outside_list__domains",
+                "domain",
                 gid,
             )?,
             exact_messages: load_condition_lists(
@@ -422,6 +438,22 @@ fn build_condition(
         "ContainsWords" => Ok(ModerationCondition::ContainsWords(ContainsWords {
             keywords: data.words.get(&id).cloned().unwrap_or_default(),
         })),
+        "MemberNameContainsWords" => Ok(ModerationCondition::MemberNameContainsWords(
+            MemberNameContainsWords {
+                keywords: data.name_words.get(&id).cloned().unwrap_or_default(),
+            },
+        )),
+        "MemberNameContainsLinksOutsideList" => {
+            Ok(ModerationCondition::MemberNameContainsLinksOutsideList(
+                MemberNameContainsLinksOutsideList {
+                    domains: data
+                        .name_links_outside_list
+                        .get(&id)
+                        .cloned()
+                        .unwrap_or_default(),
+                },
+            ))
+        }
         "MatchesExactMessage" => Ok(ModerationCondition::MatchesExactMessage(
             MatchesExactMessage {
                 messages: data.exact_messages.get(&id).cloned().unwrap_or_default(),
@@ -621,12 +653,15 @@ pub(crate) fn load_rules_for_group(
 ) -> Result<Vec<OwnedModerationRule>, Err> {
     let guard = conn.lock().expect("moderation repo connection poisoned");
 
-    let mut stmt =
-        guard.prepare("SELECT id FROM moderation_rules WHERE group_id = ?1 ORDER BY rank, id")?;
-    let rule_ids: Vec<i64> = stmt
-        .query_map(params![gid], |row| row.get::<_, i64>(0))?
+    let mut stmt = guard.prepare(
+        "SELECT id, name, trigger, enabled FROM moderation_rules WHERE group_id = ?1 ORDER BY rank, id",
+    )?;
+    let rule_rows: Vec<(i64, Option<String>, String, bool)> = stmt
+        .query_map(params![gid], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?
         .collect::<Result<_, _>>()?;
-    if rule_ids.is_empty() {
+    if rule_rows.is_empty() {
         return Ok(Vec::new());
     }
 
@@ -673,27 +708,41 @@ pub(crate) fn load_rules_for_group(
     let data = ConditionData::load(&guard, gid)?;
     let mut actions_by_rule = load_actions(&guard, gid)?;
 
-    let mut rules = Vec::with_capacity(rule_ids.len());
-    for rule_id in rule_ids {
-        let Some(root) = roots.get(&rule_id) else {
-            // A rule with no condition cannot be evaluated and cannot be shown
-            // back to the owner. Skip it rather than failing every other rule.
-            log::warn!("rule {rule_id} has no root condition, skipping it");
-            continue;
+    let mut rules = Vec::with_capacity(rule_rows.len());
+    for (rule_id, name, trigger, enabled) in rule_rows {
+        let trigger = Trigger::from_name(&trigger).ok_or_else(|| -> Err {
+            format!("unknown trigger '{trigger}' on rule {rule_id}").into()
+        })?;
+        let condition = match roots.get(&rule_id) {
+            Some(root) => Some(build_condition(*root, &nodes, &children, &data)?),
+            // Only a rule for joins may have no condition: it matches everyone.
+            None if trigger == Trigger::MemberJoined => None,
+            None => {
+                // A rule with no condition cannot be evaluated and cannot be
+                // shown back to the owner. Skip it rather than failing every
+                // other rule.
+                log::warn!("rule {rule_id} has no root condition, skipping it");
+                continue;
+            }
         };
         // A rule with no readable action row would detect something and then do
         // nothing; moderating the message is what such a rule used to mean before
-        // actions were configurable, so it stays the fallback.
+        // actions were configurable, so it stays the fallback for a message rule.
         let actions = actions_by_rule
             .remove(&rule_id)
-            .unwrap_or_else(|| vec![ModerationAction::ModerateMessage(ModerateMessage {})]);
+            .unwrap_or_else(|| match trigger {
+                Trigger::MessagePosted => {
+                    vec![ModerationAction::ModerateMessage(ModerateMessage {})]
+                }
+                Trigger::MemberJoined => Vec::new(),
+            });
         rules.push(OwnedModerationRule {
             id: rule_id as usize,
             rule: ModerationRule::try_from(RuleDraft {
-                name: None,
-                trigger: Trigger::MessagePosted,
-                enabled: true,
-                condition: Some(build_condition(*root, &nodes, &children, &data)?),
+                name,
+                trigger,
+                enabled,
+                condition,
                 actions,
             })?,
         });

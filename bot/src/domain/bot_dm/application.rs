@@ -199,18 +199,34 @@ fn quote(text: &str) -> String {
         .join("\n")
 }
 
+/// `encodeURIComponent`: everything but letters, digits and `-_.!~*'()` as `%XX`
+/// of its UTF-8 bytes.
+fn percent_encode(text: &str) -> String {
+    let mut out = String::new();
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
 impl BotDmApplication {
-    /// The editor link for a group: its whole configuration, compressed into
-    /// the hash.
-    async fn editor_url(&self, user_id: UserId, group_id: GroupId) -> Result<String, Err> {
+    /// The editor link for a group (US-B4): its id, its name as it is now and
+    /// its whole configuration, compressed into the hash. The name is
+    /// percent-encoded as the editor's `encodeURIComponent` reads it back.
+    async fn editor_url(&self, user_id: UserId, group: &Group) -> Result<String, Err> {
         let json = self
             .group_operator
-            .get_config_json(user_id, group_id)
+            .get_config_json(user_id, group.id)
             .await?;
         Ok(format!(
-            "{}#bot_id={}&config={}",
+            "{}#bot_id={}&group={}&config={}",
             self.webeditor_base_url.trim_end_matches('/'),
-            group_id,
+            group.id,
+            percent_encode(&group.name),
             lz_compress(&json)
         ))
     }
@@ -269,7 +285,7 @@ impl BotDmReceiver for BotDmApplication {
                         .await?;
                 } else {
                     for group in &groups {
-                        let editor_url = self.editor_url(user_id, group.id).await?;
+                        let editor_url = self.editor_url(user_id, group).await?;
                         self.messenger
                             .send_dm(&user_id, &render_group(group, &editor_url))
                             .await?;
@@ -333,7 +349,7 @@ impl BotDmReceiver for BotDmApplication {
                         "✅ I joined the group. Open the editor below to set up its rules.",
                     )
                     .await?;
-                let editor_url = self.editor_url(user_id, group.id).await?;
+                let editor_url = self.editor_url(user_id, &group).await?;
                 self.messenger
                     .send_dm(&user_id, &render_group(&group, &editor_url))
                     .await?;
@@ -369,40 +385,40 @@ fn describe_actions(actions: &[ModerationAction], dry_mode: bool) -> String {
                     duration_minutes: 0,
                 },
                 _,
-            ) => "set the author as observer".to_owned(),
+            ) => "set the member as observer".to_owned(),
             (
                 ModerationAction::SetAuthorObserver {
                     duration_minutes: 1,
                 },
                 _,
-            ) => "set the author as observer for 1 minute".to_owned(),
+            ) => "set the member as observer for 1 minute".to_owned(),
             (ModerationAction::SetAuthorObserver { duration_minutes }, _) => {
-                format!("set the author as observer for {duration_minutes} minutes")
+                format!("set the member as observer for {duration_minutes} minutes")
             }
             (
                 ModerationAction::KickAuthor {
                     delete_all_messages: false,
                 },
                 false,
-            ) => "kicked the author".to_owned(),
+            ) => "kicked the member".to_owned(),
             (
                 ModerationAction::KickAuthor {
                     delete_all_messages: false,
                 },
                 true,
-            ) => "kick the author".to_owned(),
+            ) => "kick the member".to_owned(),
             (
                 ModerationAction::KickAuthor {
                     delete_all_messages: true,
                 },
                 false,
-            ) => "kicked the author and deleted all their messages".to_owned(),
+            ) => "kicked the member and deleted all their messages".to_owned(),
             (
                 ModerationAction::KickAuthor {
                     delete_all_messages: true,
                 },
                 true,
-            ) => "kick the author and delete all their messages".to_owned(),
+            ) => "kick the member and delete all their messages".to_owned(),
         })
         .collect();
 
@@ -430,43 +446,43 @@ impl ModerationNotificationReceiver for BotDmApplication {
         group: &Group,
         notification: &ModerationNotification,
     ) -> Result<(), Err> {
-        let ModerationNotification {
-            event,
-            performed,
-            actions,
-            reasons,
-            ..
-        } = notification;
-        let performed = *performed;
-        let TriggerEvent::MessagePosted { message } = event else {
-            todo!()
-        };
-        let reasons: Vec<&str> = reasons.iter().map(|r| r.reason.as_str()).collect();
-        let message = if message.chars().count() > MAX_MESSAGE_LENGTH {
-            format!(
-                "{}...",
-                message.chars().take(MAX_MESSAGE_LENGTH).collect::<String>()
-            )
-        } else {
-            message.to_owned()
-        };
-        let actions_text = describe_actions(actions, !performed);
-        // Quoted, so the member's own text can neither pass for the bot's nor
-        // break out of its place in the message.
-        let message = if message.trim().is_empty() {
-            "_(no text)_".to_owned()
-        } else {
-            quote(&message)
-        };
-        let reasons = reasons
+        let actions_text = describe_actions(&notification.actions, !notification.performed);
+        let reasons = notification
+            .reasons
             .iter()
-            .map(|x| format!("- {}", x))
+            .map(|reason| match &reason.rule_name {
+                Some(name) => format!("- **{}**: {}", name, reason.reason),
+                None => format!("- {}", reason.reason),
+            })
             .collect::<Vec<_>>()
             .join("\n");
-        let text = format!(
-            "{} in **{}**.\n\n**The message:**\n{}\n\n**Reason:**\n{}\n\nIf it's a false positive, please [file an issue]({}).",
-            actions_text, group.name, message, reasons, ISSUE_URL,
-        );
+        let text = match &notification.event {
+            TriggerEvent::MessagePosted { message } => {
+                let message = if message.chars().count() > MAX_MESSAGE_LENGTH {
+                    format!(
+                        "{}...",
+                        message.chars().take(MAX_MESSAGE_LENGTH).collect::<String>()
+                    )
+                } else {
+                    message.to_owned()
+                };
+                // Quoted, so the member's own text can neither pass for the
+                // bot's nor break out of its place in the message.
+                let message = if message.trim().is_empty() {
+                    "_(no text)_".to_owned()
+                } else {
+                    quote(&message)
+                };
+                format!(
+                    "{} in **{}**.\n\n**The message:**\n{}\n\n**Reason:**\n{}\n\nIf it's a false positive, please [file an issue]({}).",
+                    actions_text, group.name, message, reasons, ISSUE_URL,
+                )
+            }
+            TriggerEvent::MemberJoined => format!(
+                "{} when they joined **{}**.\n\n**The member:** {}\n\n**Reason:**\n{}\n\nIf it's a false positive, please [file an issue]({}).",
+                actions_text, group.name, notification.member_name, reasons, ISSUE_URL,
+            ),
+        };
         self.messenger.send_dm(&user_id, &text).await
     }
 }

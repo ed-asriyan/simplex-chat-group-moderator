@@ -114,7 +114,7 @@ The **engine** is everything else, generic over a trigger's types (`TriggerCondi
 - `action_planner/` — merges the matched rules' actions by what each `effect()` achieves and orders them by `execution_rank()`;
 - `moderation_action.rs` — `execute_actions`, which carries out the plan on the subject.
 
-`rules/common/` holds what two leaves share (rate-limit windows, domain matching, screen lines, API key checks, the `Member` a subject concerns); it knows no leaf and nothing of the engine. The application builds `ConditionPorts` and `ActionPorts` from what it was wired with and calls the engine, so it never names a condition or an action: in the domain, adding one touches its own module, its registry line and the list of each trigger that takes it, nothing else.
+`rules/common/` holds what two leaves share (rate-limit windows, domain matching, the word filter, screen lines, API key checks, the `Member` a subject concerns); it knows no leaf and nothing of the engine. The application builds `ConditionPorts` and `ActionPorts` from what it was wired with and calls the engine, so it never names a condition or an action: in the domain, adding one touches its own module, its registry line and the list of each trigger that takes it, nothing else.
 
 ### `webeditor` — the rules editor
 **Responsible for:** showing and editing a group's configuration in the browser, from the link's hash; the review of the changes, and the link that carries them back; editing with an AI chat the owner already uses; JSON import and export.

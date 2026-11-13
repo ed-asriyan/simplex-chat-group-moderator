@@ -31,6 +31,7 @@ mod tests;
 
 use crate::domain::moderator::ports::Err;
 use async_trait::async_trait;
+use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
 pub(in crate::domain::moderator::rules) use context::ConditionContext;
@@ -111,6 +112,9 @@ pub(in crate::domain::moderator::rules) trait TriggerCondition:
     type Subject: Sync;
 
     fn node(&self) -> Node<'_, Self>;
+
+    /// What the condition looks for, as `ModerationCondition::describe` says.
+    fn describe(&self) -> String;
 }
 
 /// What a key a condition carries is for: which provider to ask about it when
@@ -231,6 +235,11 @@ macro_rules! trigger_conditions {
         impl $crate::domain::moderator::rules::moderation_condition::TriggerCondition for $name {
             type Subject = $subject;
 
+            fn describe(&self) -> String {
+                $crate::domain::moderator::rules::ModerationCondition::from(self.clone())
+                    .describe()
+            }
+
             fn node(
                 &self,
             ) -> $crate::domain::moderator::rules::moderation_condition::Node<'_, Self> {
@@ -270,7 +279,7 @@ macro_rules! trigger_conditions {
                     $(Any_::$variant(leaf) => Ok(Self::$variant(leaf)),)*
                     #[allow(unreachable_patterns)]
                     other => Err($crate::domain::moderator::rules::trigger::not_taken(
-                        other.type_name(),
+                        &other.title(),
                         $trigger,
                     )),
                 }
@@ -386,6 +395,132 @@ impl ModerationCondition {
                 Some(condition) => condition.describe(),
                 None => unreachable!("composites are matched above"),
             },
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Evaluation
+// ---------------------------------------------------------------------------
+
+/// One evaluation of a trigger's rules on one subject: what the leaves are
+/// checked with, and what the evaluation keeps for itself.
+pub(in crate::domain::moderator::rules) struct Evaluation<'a, T: TriggerCondition> {
+    pub ctx: ConditionContext<'a, T::Subject>,
+
+    /// While set, every condition that depends on the other rules evaluates to
+    /// "no match". The pre-pass uses this to answer "is this message moderated
+    /// by anything else" without asking such a condition about itself.
+    pub pre_pass: bool,
+
+    /// Results of conditions already evaluated for this subject. Only subtrees
+    /// that do not depend on the other rules are stored, since those are the
+    /// only ones whose result does not depend on `pre_pass`. It keeps the
+    /// guarantee that every distinct condition is evaluated at most once.
+    memo: std::collections::HashMap<T, Option<String>>,
+}
+
+impl<'a, T: TriggerCondition> Evaluation<'a, T> {
+    pub fn new(subject: &'a T::Subject, ports: &'a ConditionPorts<'a>) -> Self {
+        Self {
+            ctx: ConditionContext {
+                subject,
+                ports,
+                moderated_by_other_rules: false,
+            },
+            pre_pass: false,
+            memo: std::collections::HashMap::new(),
+        }
+    }
+}
+
+/// Whether a leaf anywhere in `condition` depends on what the other rules do.
+pub(in crate::domain::moderator::rules) fn depends_on_other_rules<T: TriggerCondition>(
+    condition: &T,
+) -> bool {
+    match condition.node() {
+        Node::All(children) | Node::Any(children) => children.iter().any(depends_on_other_rules),
+        Node::Not(inner) => depends_on_other_rules(inner),
+        Node::Leaf(leaf) => leaf.depends_on_other_rules(),
+    }
+}
+
+/// Evaluate one condition, reusing the memo.
+///
+/// Returns the reason the subject matched, or `None` when it did not.
+///
+/// Boxed because the composites make this mutually recursive with
+/// `evaluate`, and an `async fn` that (indirectly) awaits itself has no
+/// finite size.
+pub(in crate::domain::moderator::rules) fn check_condition<'a, 'e, T: TriggerCondition>(
+    evaluation: &'a mut Evaluation<'e, T>,
+    condition: &'a T,
+) -> BoxFuture<'a, Result<Option<String>, Err>> {
+    Box::pin(async move {
+        if let Some(cached) = evaluation.memo.get(condition) {
+            return Ok(cached.clone());
+        }
+        // A subtree that depends on the other rules evaluates differently in
+        // the pre-pass, so its result is not safe to carry between the two
+        // passes.
+        let memoizable = !depends_on_other_rules(condition);
+        let result = evaluate(evaluation, condition).await?;
+        if memoizable {
+            evaluation.memo.insert(condition.clone(), result.clone());
+        }
+        Ok(result)
+    })
+}
+
+async fn evaluate<'a, 'e, T: TriggerCondition>(
+    evaluation: &'a mut Evaluation<'e, T>,
+    condition: &'a T,
+) -> Result<Option<String>, Err> {
+    match condition.node() {
+        Node::All(children) => {
+            // Normalization removes empty composites; treat one as "no match"
+            // anyway rather than letting vacuous truth moderate everyone.
+            if children.is_empty() {
+                return Ok(None);
+            }
+            let mut reasons = Vec::with_capacity(children.len());
+            for child in children {
+                // Short-circuit: condition evaluation has no side effects
+                // (activity is recorded before the rules run), so skipping the
+                // remaining children is unobservable apart from the saved work.
+                let Some(reason) = check_condition(evaluation, child).await? else {
+                    return Ok(None);
+                };
+                reasons.push(reason);
+            }
+            Ok(Some(reasons.join(" and ")))
+        }
+        Node::Any(children) => {
+            for child in children {
+                if let Some(reason) = check_condition(evaluation, child).await? {
+                    return Ok(Some(reason));
+                }
+            }
+            Ok(None)
+        }
+        Node::Not(inner) => {
+            if check_condition(evaluation, inner).await?.is_some() {
+                Ok(None)
+            } else {
+                // The child did not match, so it produced no reason of its own;
+                // describe what was expected instead.
+                Ok(Some(format!("does not match: {}", inner.describe())))
+            }
+        }
+        Node::Leaf(leaf) => {
+            // The pre-pass asks what the other rules do with the subject, so
+            // a condition that depends on them answers "no match" there
+            // rather than about itself.
+            if evaluation.pre_pass && leaf.depends_on_other_rules() {
+                Ok(None)
+            } else {
+                leaf.should_moderate(&evaluation.ctx).await
+            }
         }
     }
 }

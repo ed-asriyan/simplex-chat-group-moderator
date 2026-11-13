@@ -49,10 +49,13 @@ impl Trigger {
     }
 }
 
-/// The refusal for a condition or an action, by its serde tag `type_name`, in
-/// a rule whose `trigger` does not take it (US-C2): `'Moderate the message'
-/// does not work in a rule for when someone joins.`
-pub(in crate::domain::moderator::rules) fn not_taken(type_name: &str, trigger: Trigger) -> Err {
-    let _ = (type_name, trigger);
-    todo!()
+/// The refusal for a condition or an action, by its `title` as the editor
+/// shows it, in a rule whose `trigger` does not take it (US-C2): `'Moderate the
+/// message' does not work in a rule for when someone joins.`
+pub(in crate::domain::moderator::rules) fn not_taken(title: &str, trigger: Trigger) -> Err {
+    let when = match trigger {
+        Trigger::MessagePosted => "sends a message",
+        Trigger::MemberJoined => "joins",
+    };
+    format!("'{title}' does not work in a rule for when someone {when}.").into()
 }
