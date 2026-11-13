@@ -307,6 +307,96 @@ async fn test_an_invitation_as_moderator_is_joined() {
     assert_eq!(attempts, 1);
 }
 
+/// What the bot answers `text` with when the person owns no group, the editor
+/// being at `editor`.
+async fn send_without_groups(text: &str, editor: &str) -> Vec<String> {
+    let messenger = Arc::new(RecordingMessenger::default());
+    let app = BotDmApplication::new(
+        messenger.clone(),
+        Arc::new(CountingJoins::default()),
+        editor.to_string(),
+    );
+    let message = Message {
+        text: text.to_string(),
+        reply_to_message: None,
+    };
+    app.handle_dm(1, &message).await.unwrap();
+    messenger.sent()
+}
+
+fn welcome(editor: &str) -> String {
+    format!(
+        "\
+Hi! I'm a **moderation bot** for SimpleX groups. You set the rules, and I catch:
+
+- 🚫 **Banned words**, even disguised like b@d_w0rd
+- 🔗 **Links** to websites you don't allow
+- 🌊 **Floods**: too many messages, walls of text
+- 🚪 **Spammers joining**, by names that advertise
+- 🤖 **Anything you can describe**, checked by AI with your own key
+
+Then I 🗑 delete the message, 👁 make the member an observer, or 🚪 kick them.
+
+### Get started
+
+Invite me to your group as **Moderator** to delete messages, **Admin** to also make members observers, or **Owner** to also kick them. Then send /groups to set up the rules.
+
+### Not ready to invite me?
+
+[Try the editor on a demo group]({editor}): see exactly what you would set up, without inviting me or giving me any role.
+
+Send /help for the commands and modes. My code is open [on GitHub](https://github.com/ed-asriyan/simplex-chat-group-moderator).
+"
+    )
+}
+
+// US-A1, US-A2: the welcome, its link opening the editor on a demo group.
+#[tokio::test]
+async fn test_start_sends_the_welcome_with_the_link_to_the_demo() {
+    let sent = send_without_groups("/start", EDITOR).await;
+
+    assert_eq!(sent, vec![welcome(EDITOR)]);
+}
+
+// US-A1: the demo link is the editor's address, however it is configured.
+#[tokio::test]
+async fn test_the_welcome_links_the_editor_address_without_a_trailing_slash() {
+    let sent = send_without_groups("/start", "https://editor.example/").await;
+
+    assert_eq!(sent, vec![welcome(EDITOR)]);
+}
+
+// US-A1: the welcome is the same to someone who owns a group.
+#[tokio::test]
+async fn test_start_sends_the_same_welcome_to_an_owner() {
+    let (sent, _) = send("/start").await;
+
+    assert_eq!(sent, vec![welcome(EDITOR)]);
+}
+
+// US-B5
+#[tokio::test]
+async fn test_groups_without_a_group_says_how_to_start_and_links_the_demo() {
+    let sent = send_without_groups("/groups", EDITOR).await;
+
+    assert_eq!(
+        sent,
+        vec![format!(
+            "You don't have any groups yet. Invite me to your group as **moderator** or higher \
+             to get started — /help explains how. Want to look around first? \
+             [Try the editor on a demo group]({EDITOR})."
+        )]
+    );
+}
+
+// US-B5: the demo link has no trailing slash either.
+#[tokio::test]
+async fn test_groups_without_a_group_links_the_editor_address_without_a_trailing_slash() {
+    let sent = send_without_groups("/groups", "https://editor.example/").await;
+
+    assert!(sent[0].ends_with("[Try the editor on a demo group](https://editor.example)."));
+}
+
 /// A notification about a member's message the bot moderated, with unnamed
 /// rules' reasons.
 fn message_notification(
