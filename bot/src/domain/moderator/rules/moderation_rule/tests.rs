@@ -131,7 +131,14 @@ fn test_a_rule_keeps_its_name_and_its_switch() {
     let written = serde_json::to_value(&rule).unwrap();
     assert_eq!(written["name"], "Flood");
     assert_eq!(written["enabled"], false);
-    assert_eq!(written["trigger"], "message_posted");
+    // A message rule is written as it always has been; the trigger is written
+    // when it is another one.
+    assert!(written.get("trigger").is_none());
+    let join = join_rule(vec![kick()], None);
+    assert_eq!(
+        serde_json::to_value(&join).unwrap()["trigger"],
+        "member_joined"
+    );
 }
 
 // US-D6: a rule for joins may have no condition.

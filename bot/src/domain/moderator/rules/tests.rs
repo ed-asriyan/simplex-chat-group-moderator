@@ -3044,13 +3044,14 @@ async fn test_a_join_rule_with_no_condition_matches_everyone() {
 // matched rule gives one reason, in the order of the rules.
 #[tokio::test]
 async fn test_every_matching_join_rule_contributes_and_the_actions_are_merged() {
+    // The shorter time first: it matches, and the longer one is not covered by it.
     let rules = vec![
-        join_rule(vec![observer(60)], Some(name_words("casino"))),
         named(
             join_rule(vec![observer(10)], None),
             "Quarantine newcomers",
             true,
         ),
+        join_rule(vec![observer(60)], Some(name_words("casino"))),
     ];
     let hit = on_join(&rules, &joining("Free Casino Bonus"))
         .await
@@ -3063,8 +3064,8 @@ async fn test_every_matching_join_rule_contributes_and_the_actions_are_merged() 
             .map(|r| (r.rule_name.as_deref(), r.reason.as_str()))
             .collect::<Vec<_>>(),
         vec![
-            (None, "name contains word: 'casino'"),
             (Some("Quarantine newcomers"), "everyone who joins"),
+            (None, "name contains word: 'casino'"),
         ]
     );
 }
