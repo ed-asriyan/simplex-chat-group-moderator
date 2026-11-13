@@ -7,7 +7,9 @@
  * whole configuration — its settings beside its rules. This page edits it,
  * writes it back into the hash on every change, and the owner sends the link
  * back to the bot. `bot_id` and `config` must both be there or the bot ignores
- * the message; `group` only names the group on the page.
+ * the message; `group` only names the group on the page. A link without
+ * `bot_id` is not a group's: the editor opens as a demo of itself (US-G18),
+ * where nothing can be sent.
  *
  * Nothing here knows a condition, an action, a trigger or a group setting by
  * name: every one of them is read from rules-schema.json, so a new rule type is
@@ -53,6 +55,8 @@ const st = {
     history: [],
     future: [],
     botId: null,
+    /* No bot id: the demo (US-G18). */
+    demo: false,
     group: null,
     unreadable: false,
     /* "home", "rule" (sel) or "new" (trigger). */
@@ -414,7 +418,7 @@ window.addEventListener("beforeunload", (e) => {
 /* Rendering                                                                   */
 /* -------------------------------------------------------------------------- */
 
-const groupTitle = () => st.group || (st.botId ? `Group ${st.botId}` : "Group settings");
+const groupTitle = () => (st.demo ? "Demo group" : st.group || `Group ${st.botId}`);
 
 function render() {
     if (st.view === "rule" && !st.rules[st.sel]) st.view = "home";
@@ -479,7 +483,7 @@ function renderBar() {
     $("undo").hidden = !canUndo();
     $("redo").hidden = !st.future.length;
     /* What applies to the whole configuration is on the overview alone. */
-    $("apply").hidden = st.view !== "home" || !st.botId;
+    $("apply").hidden = st.view !== "home";
     const n = changeCount();
     $("apply").textContent = n ? `Apply ${plural(n, "change")}` : "Apply changes";
     const g = $("gmenu");
@@ -1492,7 +1496,7 @@ function openApply() {
 
     $("apply-body").innerHTML = sizeWarning() + settings + (shown.length
         ? sections + (same.length ? `<p class="quiet">Unchanged: ${esc(same.join(", "))}</p>` : "")
-        : settings ? "" : `<p class="quiet">Nothing has changed since you opened this page. You can still copy the link and send it again.</p>`);
+        : settings ? "" : `<p class="quiet">Nothing has changed since you opened this page.${st.demo ? "" : " You can still copy the link and send it again."}</p>`);
 
     /* A rule the bot would refuse is not sent at all (US-G14). */
     const k = st.rules.findIndex(missing);
@@ -1500,7 +1504,10 @@ function openApply() {
         ? `<p class="blocked" role="alert">“${esc(titleOf(st.rules[k]))}” has no ${missing(st.rules[k])} yet. Finish it or delete it before sending.</p>
        <button class="btn" type="button" data-close>Cancel</button>
        <button class="btn primary" type="button" id="apply-open" data-i="${k}">Open “${esc(titleOf(st.rules[k]))}”</button>`
-        : `<button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="button" id="apply-copy">Copy the link</button>`;
+        : st.demo
+            ? `<p class="foot-note">This is a demo, so there is nothing to send. Invite the bot to your group, and the link it sends you opens this editor on your group's rules.</p>
+       <button class="btn primary" type="button" data-close>Close</button>`
+            : `<button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="button" id="apply-copy">Copy the link</button>`;
     $("applydlg").showModal();
 }
 
@@ -1573,6 +1580,7 @@ async function start() {
 
     const hash = Object.fromEntries(location.hash.slice(1).split("&").filter((p) => p.includes("=")).map((p) => [p.slice(0, p.indexOf("=")), p.slice(p.indexOf("=") + 1)]));
     st.botId = hash.bot_id || null;
+    st.demo = !st.botId;
     try { st.group = hash.group ? decodeURIComponent(hash.group) : null; } catch (e) { st.group = null; }
     if (hash.config) {
         try {
@@ -1590,7 +1598,7 @@ async function start() {
     }
     st.baseline = snapshot();
 
-    $("nobot").hidden = !!st.botId;
+    $("demo").hidden = !st.demo;
     $("boot").hidden = true;
     $("app").hidden = false;
     history.replaceState({ view: "home" }, "", location.hash);

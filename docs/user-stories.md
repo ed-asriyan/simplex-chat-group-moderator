@@ -19,35 +19,25 @@ A group owner adds the bot to their [SimpleX Chat](https://simplex.chat) group w
 - **US-A1.** As a person, when I connect to the bot, it sends me the welcome:
 
   ```text
-  Hi! I'm an **automated moderation** bot for SimpleX groups.
+  Hi! I'm a **moderation bot** for SimpleX groups. You set the rules, and I catch:
 
-  ### What I can detect
+  - 🚫 **Banned words**, even disguised like b@d_w0rd
+  - 🔗 **Links** to websites you don't allow
+  - 🌊 **Floods**: too many messages, walls of text
+  - 🚪 **Spammers joining**, by names that advertise
+  - 🤖 **Anything you can describe**, checked by AI with your own key
 
-  - 🚫 **Banned words and exact phrases**, even obfuscated like b@d_w0rd.
-  - 🔗 **Links** — block specific sites, allow only a list, or allow just the Top 100 sites.
-  - ⏱ **Rate limits** — too many messages, or repeated violations, in a time window.
-  - 🌊 **Screen flooding** — long messages, empty or invisible text, line floods.
-  - 🚪 **Newcomers** — names with banned words or links, checked the moment they join.
+  Then I 🗑 delete the message, 👁 make the member an observer, or 🚪 kick them.
 
-  …and much more — this is just a glimpse.
+  ### Get started
 
-  ### What I can do to violators
+  Invite me to your group as **Moderator** to delete messages, **Admin** to also make members observers, or **Owner** to also kick them. Then send /groups to set up the rules.
 
-  - 🗑 **Delete their messages**
-  - 👁 **Make them observers**
-  - 🚪 **Kick them out of the group**
+  ### Not ready to invite me?
 
-  ### How to get started
+  [Try the editor on a demo group](https://ed-asriyan.github.io/simplex-chat-group-moderator): see exactly what you would set up, without inviting me or giving me any role.
 
-  1. Invite me to your group as:
-     - **Moderator** — if you only want me to 🗑 delete messages.
-     - **Admin** — if you also want me to 👁 make members observers.
-     - **Owner** — if you also want me to 🚪 kick members.
-  2. Once I join, send /groups to set up your rules in the visual editor.
-
-  Send /help any time for the commands and modes (like dry mode).
-
-  My code is [available on GitHub](https://github.com/ed-asriyan/simplex-chat-group-moderator).
+  Send /help for the commands and modes. My code is open [on GitHub](https://github.com/ed-asriyan/simplex-chat-group-moderator).
   ```
 - **US-A2.** As a person, when I send `/start`, I get the welcome of US-A1.
 - **US-A3.** As a person, when I send `/help`, I get:
@@ -98,7 +88,7 @@ A group owner adds the bot to their [SimpleX Chat](https://simplex.chat) group w
   ```
 
   The link carries the group's name and its whole current configuration — its mode and its rules, those turned off included —, so the editor opens on exactly what the bot has. The group's name is its current one: the bot takes it from every message posted there.
-- **US-B5.** As a person who owns no group, when I send `/groups`, I get `You don't have any groups yet. Invite me to your group as **moderator** or higher to get started — /help explains how.`
+- **US-B5.** As a person who owns no group, when I send `/groups`, I get `You don't have any groups yet. Invite me to your group as **moderator** or higher to get started — /help explains how. Want to look around first? [Try the editor on a demo group](https://ed-asriyan.github.io/simplex-chat-group-moderator).`
 - **US-B6.** As an owner, when I remove the bot from Crypto Chat, it forgets the group, its mode and its rules: the group is no longer in `/groups`.
 
 ## C. Saving a group's configuration
@@ -227,7 +217,7 @@ The editor has three kinds of page: the group's overview, a rule's page and the 
 
 - **US-G1.** As an owner, when I open Crypto Chat's link (US-B4), the editor opens on the group's overview: the group's name, **Crypto Chat**, with `Moderation settings · Moderator Bot` under it. Below are *🛡 Mode* (US-G2) and the rules in two sections, *💬 When someone sends a message* and *🚪 When someone joins*, each under `Checked top to bottom.` and with its own *+ Add rule* (US-G14). Each rule is one line: its name — or, without one, what it does (`IF contains one of 2 words THEN 🗑 moderate`) —, under a name what it does in short (`👁 observer · 🗑 moderate`), its switch (US-G13) and its ⋯ menu (US-G12); a tap on the name opens its page (US-G3). A rule that is off reads `Off` beside its name, and one that is not finished `Incomplete` (US-G14). An empty section reads `No rules yet. Nothing is moderated until you add one.` under *💬 When someone sends a message*, and `No rules yet. Nobody is checked when they join.` under *🚪 When someone joins*. The overview's ⋯ menu holds *Edit all with AI* (US-G9), *Import JSON* and *Export JSON* (US-G11).
   - A link without `group` shows `Group 7` as the title.
-  - A link with no `bot_id` shows `No bot ID found in the URL. Open the link the bot sent you in a direct message — a link opened by hand cannot be applied.`, and has no *Apply changes*.
+  - A link with no `bot_id` opens the demo (US-G18).
   - A link whose settings cannot be read shows `The settings in this link could not be read. Starting from scratch.`, and the editor opens empty.
 - **US-G2.** As an owner, I set the mode under *🛡 Mode* on the overview by picking one of three, each with its line under it: *Notifications* — `Act and tell me`, *Silent* — `Act without telling me`, *Dry* — `Only tell me what it would do`.
 - **US-G3.** As an owner, when I tap *Links from newcomers* on the overview, its page opens, with `‹ Back to rules` to go back to the overview, as the browser's Back does. From top to bottom:
@@ -274,3 +264,6 @@ The editor has three kinds of page: the group's overview, a rule's page and the 
   2. *Paste what it answers*: I paste the AI's whole reply and press *Load into the rule*, beside *Cancel*. A valid rule replaces this one, and nothing else, as a change I can undo: `Updated “Links from newcomers”. Press Apply changes when you are ready.` A reply with several rules, or a whole configuration, gets `The answer has 3 rules — ask the AI for this one rule only.`; one with no rule gets `No rule found in that text. Copy the AI's whole reply, or just its code block.`; one with mistakes gets `Not loaded — the AI's rule has problems:` and the list of them; nothing pasted gets `Paste the AI's reply first.`
 
   *Undo the load* goes back to the rule I had before pasting (`Reverted to the rule you had before pasting.`); after a later edit it refuses with `You have edited the settings since. Use Undo in the header to step back.`
+- **US-G18.** As a person who has not invited the bot, when I open the link of the welcome (US-A1), `https://ed-asriyan.github.io/simplex-chat-group-moderator`, the editor opens on the overview of a demo group, titled **Demo group**, with `Moderation settings · Moderator Bot` under it. Above every page I read `🧪 This is a demo. Everything works as it will for your own group: add rules, change them, try the AI. Nothing here reaches any group. To moderate yours, invite the bot to it as moderator or higher, and the link it sends you opens this editor on your group's rules.` The demo group has the mode *Notifications* and no rules, so both sections read as empty ones do (US-G1).
+
+  Everything of US-G1–US-G17 works on it, *Apply changes* included: its dialog shows my changes as US-G7 says, but in the place of *Copy the link* it reads `This is a demo, so there is nothing to send. Invite the bot to your group, and the link it sends you opens this editor on your group's rules.`, and with no change at all, `Nothing has changed since you opened this page.` A link with settings but no `bot_id` opens the same demo on those settings.

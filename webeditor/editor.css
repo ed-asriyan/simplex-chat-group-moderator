@@ -415,6 +415,14 @@ svg {
     color: var(--warn);
 }
 
+.alert.demo {
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+}
+
 .alert.off {
     background: var(--card);
     border: 1px dashed var(--line-2);
@@ -1648,6 +1656,13 @@ dialog::backdrop {
     font-weight: 500;
 }
 
+.foot-note {
+    margin-right: auto;
+    color: var(--ink-2);
+    font-size: 14px;
+    font-weight: 500;
+}
+
 .toast {
     position: fixed;
     left: 50%;
@@ -1677,6 +1692,18 @@ dialog::backdrop {
     :root {
         --hit: 44px;
         --field: 16px;
+    }
+
+    /* The count of rules goes under the title instead of squeezing it. */
+    #applydlg .sheet-head {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        padding: 14px 20px 12px;
+    }
+
+    #applydlg .meta {
+        margin-right: 0;
     }
 
     .appbar-in {

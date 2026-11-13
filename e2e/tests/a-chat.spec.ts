@@ -1,38 +1,29 @@
 // A. Talking to the bot.
 import { expect, test } from '@playwright/test';
 import { Person } from '../harness/person';
+import { EDITOR } from '../harness/stack';
 
 const REPO = 'https://github.com/ed-asriyan/simplex-chat-group-moderator';
 
-const WELCOME = `Hi! I'm an **automated moderation** bot for SimpleX groups.
+const WELCOME = `Hi! I'm a **moderation bot** for SimpleX groups. You set the rules, and I catch:
 
-### What I can detect
+- 🚫 **Banned words**, even disguised like b@d_w0rd
+- 🔗 **Links** to websites you don't allow
+- 🌊 **Floods**: too many messages, walls of text
+- 🚪 **Spammers joining**, by names that advertise
+- 🤖 **Anything you can describe**, checked by AI with your own key
 
-- 🚫 **Banned words and exact phrases**, even obfuscated like b@d_w0rd.
-- 🔗 **Links** — block specific sites, allow only a list, or allow just the Top 100 sites.
-- ⏱ **Rate limits** — too many messages, or repeated violations, in a time window.
-- 🌊 **Screen flooding** — long messages, empty or invisible text, line floods.
-- 🚪 **Newcomers** — names with banned words or links, checked the moment they join.
+Then I 🗑 delete the message, 👁 make the member an observer, or 🚪 kick them.
 
-…and much more — this is just a glimpse.
+### Get started
 
-### What I can do to violators
+Invite me to your group as **Moderator** to delete messages, **Admin** to also make members observers, or **Owner** to also kick them. Then send /groups to set up the rules.
 
-- 🗑 **Delete their messages**
-- 👁 **Make them observers**
-- 🚪 **Kick them out of the group**
+### Not ready to invite me?
 
-### How to get started
+[Try the editor on a demo group](${EDITOR}): see exactly what you would set up, without inviting me or giving me any role.
 
-1. Invite me to your group as:
-   - **Moderator** — if you only want me to 🗑 delete messages.
-   - **Admin** — if you also want me to 👁 make members observers.
-   - **Owner** — if you also want me to 🚪 kick members.
-2. Once I join, send /groups to set up your rules in the visual editor.
-
-Send /help any time for the commands and modes (like dry mode).
-
-My code is [available on GitHub](${REPO}).`;
+Send /help for the commands and modes. My code is open [on GitHub](${REPO}).`;
 
 const HELP = `### How to use this bot
 
