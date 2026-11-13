@@ -948,6 +948,7 @@ $("pick-body").addEventListener("click", (e) => {
         }
     });
     $("pickdlg").close();
+    $("pick-body").innerHTML = "";
     render();
     if (focus && $(focus)) $(focus).focus();
 });

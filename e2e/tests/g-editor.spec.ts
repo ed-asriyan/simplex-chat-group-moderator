@@ -585,7 +585,7 @@ test('the copied link, sent to the bot, saves the changes', async ({ page }) => 
   await mode(page, 'Dry').check();
   const dialog = await applyDialog(page);
   await dialog.getByRole('button', { name: 'Copy the link' }).click();
-  expect(await textOf(dialog)).toContain('Link copied. Paste it into your chat with the bot and send it — that is what applies the changes.');
+  await expect(dialog).toContainText('Link copied. Paste it into your chat with the bot and send it — that is what applies the changes.');
   await expect(dialog.getByRole('button', { name: 'Close' })).toBeVisible();
   await looks(page, 'link-copied');
   const copied = await clipboard(page);
