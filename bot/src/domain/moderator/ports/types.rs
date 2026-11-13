@@ -1,8 +1,9 @@
 //! Types the moderator context exchanges across its ports.
 
 pub use crate::domain::moderator::rules::{
-    MAX_RULE_NAME_CHARS, ModerationAction, ModerationCondition, ModerationMatch, ModerationRule,
-    Trigger, actions, conditions,
+    JoinAction, JoinCondition, MAX_RULE_NAME_CHARS, MessageAction, MessageCondition,
+    ModerationAction, ModerationCondition, ModerationMatch, ModerationRule, RuleDraft, Trigger,
+    TriggeredRule, actions, conditions,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

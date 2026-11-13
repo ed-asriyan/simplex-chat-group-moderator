@@ -1,21 +1,22 @@
-//! What makes a message match a rule.
+//! What makes a rule match.
 //!
-//! `ModerationCondition` is the single source of truth for detection types: the
-//! PascalCase variant name is the serde tag used in the rules URL and
-//! `rules-schema.json`, and its snake_case form names the condition's database
-//! table. Each leaf condition is a type of its own, in a module of its own,
-//! implementing [`Condition`]: its parameters, how they are normalized and
-//! checked when an owner saves them, how it describes itself, and how it is
-//! evaluated against a message. This module only lists them (`conditions!`)
-//! and handles what no single condition can: the tree they form.
+//! Every leaf condition is a type of its own, in a module of its own under
+//! `moderation_condition/`: its parameters, how they are normalized and checked
+//! when an owner saves them ([`Condition`]), how it describes itself, and what
+//! it is checked on ([`ConditionOn`]). This module lists them all once
+//! (`conditions!`), which builds [`ModerationCondition`]: a condition as an
+//! owner writes it — in the rules JSON, the editor and the database —, any
+//! leaf in any place. A trigger takes only some of them: its module lists
+//! those (`trigger_conditions!`), which builds the trigger's own tree type, the
+//! one the bot checks, reached from a `ModerationCondition` by `TryFrom`,
+//! which refuses a leaf the trigger does not take (US-C2).
 //!
 //! # Conditions are a tree, not a list
-//! Besides the leaf conditions that inspect a message, there are three composite
-//! variants — [`ModerationCondition::All`], [`ModerationCondition::Any`] and
-//! [`ModerationCondition::Not`] — which carry other conditions. A rule therefore
-//! owns a *tree* of conditions whose root is the rule's `condition` field. The
-//! rule list itself is already a disjunction (any matching rule contributes its
-//! actions), so `Any` only adds expressiveness when nested.
+//! Besides the leaf conditions, there are three composites — `All`, `Any` and
+//! `Not` — which carry other conditions, in every form above. A rule therefore
+//! owns a *tree* of conditions. The rule list itself is already a disjunction
+//! (any matching rule contributes its actions), so `Any` only adds
+//! expressiveness when nested.
 //!
 //! Two invariants keep that tree manageable, both established by
 //! [`ModerationCondition::normalize_and_validate`] before anything is stored:
@@ -28,12 +29,12 @@
 #[cfg(test)]
 mod tests;
 
-use crate::domain::moderator::ports::{Err, Trigger};
+use crate::domain::moderator::ports::Err;
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
-pub(super) use context::ConditionContext;
+pub(in crate::domain::moderator::rules) use context::ConditionContext;
 pub use context::ConditionPorts;
 pub(in crate::domain::moderator::rules) use needs::Needs;
 
@@ -41,13 +42,11 @@ mod context;
 mod needs;
 mod tree;
 
-/// What every leaf condition is to the code that evaluates a rule: a set of
-/// operations, the same for all of them. Nothing outside a condition's own
-/// module knows what one checks or how.
-#[async_trait]
-pub(in crate::domain::moderator::rules) trait Condition:
-    Send + Sync
-{
+/// What every leaf condition is, whatever it is checked on: its settings, how
+/// they are normalized and checked when an owner saves them, and what it asks
+/// of the bot. Nothing outside a condition's own module knows what one checks
+/// or how.
+pub(in crate::domain::moderator::rules) trait Condition: Send + Sync {
     /// Brings the condition's parameters into canonical form and checks them,
     /// when an owner saves the rule. One step on purpose: validating without
     /// normalizing would count blank and duplicate entries towards the
@@ -59,9 +58,6 @@ pub(in crate::domain::moderator::rules) trait Condition:
     /// gives for a match. A `Not` around it needs this: when the `Not`
     /// matches, the condition did not, so it produced no reason of its own.
     fn describe(&self) -> String;
-
-    /// The reason the message matches, or `None` when it does not.
-    async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err>;
 
     /// What the bot has to record about the messages it sees for this
     /// condition to answer. Most need nothing.
@@ -81,13 +77,39 @@ pub(in crate::domain::moderator::rules) trait Condition:
     fn key_uses(&self) -> Vec<KeyUse> {
         Vec::new()
     }
+}
 
-    /// The triggers a rule holding this condition may have; a rule with
-    /// another is refused when an owner saves it (US-C2). Most read a
-    /// message, so work in message rules only.
-    fn triggers(&self) -> &'static [Trigger] {
-        &[Trigger::MessagePosted]
-    }
+/// A leaf condition checked on `S`, the subject of a trigger: a
+/// `GroupMessage` for a condition that reads the message, any
+/// [`Member`](super::common::member::Member) for one that reads only the
+/// member. A trigger lists only conditions that implement this for its
+/// subject, so a condition in the wrong trigger does not compile.
+#[async_trait]
+pub(in crate::domain::moderator::rules) trait ConditionOn<S: ?Sized + Sync>:
+    Condition
+{
+    /// The reason the subject matches, or `None` when it does not.
+    async fn should_moderate(&self, ctx: &ConditionContext<'_, S>) -> Result<Option<String>, Err>;
+}
+
+/// One node of a trigger's condition tree, as the engine walks it: a
+/// composite with its children, or a leaf checked on the trigger's subject.
+pub(in crate::domain::moderator::rules) enum Node<'a, T: TriggerCondition> {
+    All(&'a [T]),
+    Any(&'a [T]),
+    Not(&'a T),
+    Leaf(&'a dyn ConditionOn<T::Subject>),
+}
+
+/// A trigger's condition tree — what `trigger_conditions!` builds for each
+/// trigger —, as the engine evaluates it, whichever trigger it is.
+pub(in crate::domain::moderator::rules) trait TriggerCondition:
+    Clone + Eq + std::hash::Hash + Send + Sync + Sized
+{
+    /// What the trigger's conditions are checked on.
+    type Subject: Sync;
+
+    fn node(&self) -> Node<'_, Self>;
 }
 
 /// What a key a condition carries is for: which provider to ask about it when
@@ -111,7 +133,7 @@ macro_rules! conditions {
             $(pub use super::$module::$variant;)*
         }
 
-        /// Condition/filter criteria for moderation.
+        /// A condition as an owner writes it: any leaf, in any place.
         ///
         /// Names describe what the message *is*, never what the owner thinks of
         /// it ("contains words", not "contains banned words"): the same
@@ -189,6 +211,90 @@ conditions! {
     FlaggedByOmniModeration => flagged_by_omni_moderation,
     FlaggedByOpenRouterInstruction => flagged_by_open_router_instruction,
 }
+
+/// Builds a trigger's condition tree from the leaves it takes — one line
+/// each, by the leaf's name — checked on the trigger's `$subject`:
+/// `All`, `Any` and `Not` first, then the leaves. The tree converts from a
+/// [`ModerationCondition`], refusing any leaf not listed (US-C2), and back.
+macro_rules! trigger_conditions {
+    ($name:ident on $subject:ty, $trigger:expr; $($variant:ident,)*) => {
+        /// A condition tree of the trigger's own leaves only.
+        #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+        pub enum $name {
+            All { conditions: Vec<$name> },
+            Any { conditions: Vec<$name> },
+            Not { condition: Box<$name> },
+            $($variant($crate::domain::moderator::rules::conditions::$variant),)*
+        }
+
+        impl $crate::domain::moderator::rules::moderation_condition::TriggerCondition for $name {
+            type Subject = $subject;
+
+            fn node(
+                &self,
+            ) -> $crate::domain::moderator::rules::moderation_condition::Node<'_, Self> {
+                use $crate::domain::moderator::rules::moderation_condition::Node;
+                match self {
+                    Self::All { conditions } => Node::All(conditions),
+                    Self::Any { conditions } => Node::Any(conditions),
+                    Self::Not { condition } => Node::Not(condition),
+                    $(Self::$variant(leaf) => Node::Leaf(leaf),)*
+                }
+            }
+        }
+
+        impl TryFrom<$crate::domain::moderator::rules::ModerationCondition> for $name {
+            type Error = $crate::domain::moderator::ports::Err;
+
+            fn try_from(
+                condition: $crate::domain::moderator::rules::ModerationCondition,
+            ) -> Result<Self, Self::Error> {
+                use $crate::domain::moderator::rules::ModerationCondition as Any_;
+                match condition {
+                    Any_::All { conditions } => Ok(Self::All {
+                        conditions: conditions
+                            .into_iter()
+                            .map(Self::try_from)
+                            .collect::<Result<_, _>>()?,
+                    }),
+                    Any_::Any { conditions } => Ok(Self::Any {
+                        conditions: conditions
+                            .into_iter()
+                            .map(Self::try_from)
+                            .collect::<Result<_, _>>()?,
+                    }),
+                    Any_::Not { condition } => Ok(Self::Not {
+                        condition: Box::new(Self::try_from(*condition)?),
+                    }),
+                    $(Any_::$variant(leaf) => Ok(Self::$variant(leaf)),)*
+                    #[allow(unreachable_patterns)]
+                    other => Err($crate::domain::moderator::rules::trigger::not_taken(
+                        other.type_name(),
+                        $trigger,
+                    )),
+                }
+            }
+        }
+
+        impl From<$name> for $crate::domain::moderator::rules::ModerationCondition {
+            fn from(condition: $name) -> Self {
+                match condition {
+                    $name::All { conditions } => Self::All {
+                        conditions: conditions.into_iter().map(Self::from).collect(),
+                    },
+                    $name::Any { conditions } => Self::Any {
+                        conditions: conditions.into_iter().map(Self::from).collect(),
+                    },
+                    $name::Not { condition } => Self::Not {
+                        condition: Box::new(Self::from(*condition)),
+                    },
+                    $($name::$variant(leaf) => Self::$variant(leaf),)*
+                }
+            }
+        }
+    };
+}
+pub(in crate::domain::moderator::rules) use trigger_conditions;
 
 // ---------------------------------------------------------------------------
 // Tree navigation

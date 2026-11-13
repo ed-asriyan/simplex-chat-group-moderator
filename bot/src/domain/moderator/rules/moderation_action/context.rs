@@ -1,6 +1,7 @@
-//! What an action is carried out with, and what it reports back.
+//! What an action is carried out with — the trigger's subject and the ports —,
+//! and what it reports back.
 
-use crate::domain::moderator::ports::{Err, GroupMessage, GroupModerator, MemberRestoreRepository};
+use crate::domain::moderator::ports::{Err, GroupModerator, MemberRestoreRepository};
 
 /// Every port an action may act through. The application builds one from what
 /// it was wired with; nothing outside `rules` knows which action uses which.
@@ -9,8 +10,10 @@ pub struct ActionPorts<'a> {
     pub restores: &'a dyn MemberRestoreRepository,
 }
 
-pub(in crate::domain::moderator::rules) struct ActionContext<'a> {
-    pub group_message: &'a GroupMessage,
+/// What one action is carried out with. `S` is the trigger's subject: the
+/// `GroupMessage` for a message, the `MemberJoin` for a join.
+pub(in crate::domain::moderator::rules) struct ActionContext<'a, S: ?Sized> {
+    pub subject: &'a S,
     pub ports: &'a ActionPorts<'a>,
 }
 

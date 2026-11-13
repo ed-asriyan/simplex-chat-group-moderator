@@ -101,6 +101,7 @@ mod common;
 mod moderation_action;
 mod moderation_condition;
 mod moderation_rule;
+mod trigger;
 
 #[cfg(test)]
 mod tests;
@@ -115,19 +116,23 @@ pub use moderation_action::{
     ActionOutcome, ActionPorts, ModerationAction, actions, execute_actions,
 };
 pub use moderation_condition::{ConditionPorts, KeyUse, ModerationCondition, conditions};
-pub use moderation_rule::{MAX_RULE_NAME_CHARS, ModerationRule, Trigger};
+pub use moderation_rule::{MAX_RULE_NAME_CHARS, ModerationRule, RuleDraft, TriggeredRule};
+pub use trigger::Trigger;
+pub use trigger::member_joined::{JoinAction, JoinCondition};
+pub use trigger::message_posted::{MessageAction, MessageCondition};
 
 use super::ports::{Err, GroupMessage, RuleReason};
 use moderation_condition::{ConditionContext, check_condition};
 
-/// What the rules for one message or one join call for.
+/// What the rules of one trigger call for about one message or one join.
 ///
-/// `actions` is the merged, non-redundant plan in execution order — it is what
-/// the application performs and what the owner is told about. `reasons` has one
-/// entry per matched rule, in the order of the rules (US-D2, US-D6).
+/// `actions` — the trigger's own action type `A` — is the merged,
+/// non-redundant plan in execution order: it is what the application performs
+/// and what the owner is told about. `reasons` has one entry per matched
+/// rule, in the order of the rules (US-D2, US-D6).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ModerationMatch {
-    pub actions: Vec<ModerationAction>,
+pub struct ModerationMatch<A> {
+    pub actions: Vec<A>,
     pub reasons: Vec<RuleReason>,
 }
 
