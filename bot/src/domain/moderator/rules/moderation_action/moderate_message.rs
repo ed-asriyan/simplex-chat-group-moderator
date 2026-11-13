@@ -3,8 +3,8 @@
 #[cfg(test)]
 mod tests;
 
-use super::{Action, ActionContext, ActionReport, Effect};
-use crate::domain::moderator::ports::Err;
+use super::{Action, ActionContext, ActionReport, Effect, ActionOn};
+use crate::domain::moderator::ports::{Err, GroupMessage};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModerateMessage {}
 
-#[async_trait]
 impl Action for ModerateMessage {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
         Ok(())
@@ -29,8 +28,15 @@ impl Action for ModerateMessage {
         1
     }
 
-    async fn execute(&self, ctx: &ActionContext<'_>) -> Result<ActionReport, Err> {
-        let message = ctx.group_message;
+    fn title(&self) -> &'static str {
+        "Moderate the message"
+    }
+}
+
+#[async_trait]
+impl ActionOn<GroupMessage> for ModerateMessage {
+    async fn execute(&self, ctx: &ActionContext<'_, GroupMessage>) -> Result<ActionReport, Err> {
+        let message = ctx.subject;
         ctx.ports
             .group_moderator
             .delete_message(&message.group.id, &message.message_id)

@@ -4,8 +4,8 @@
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext};
-use crate::domain::moderator::ports::Err;
+use super::{Condition, ConditionContext, ConditionOn};
+use crate::domain::moderator::ports::{Err, GroupMessage};
 use async_trait::async_trait;
 use crate::domain::moderator::rules::common::invisible::is_invisible;
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct IsBlank {}
 
-#[async_trait]
 impl Condition for IsBlank {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
         Ok(())
@@ -26,15 +25,18 @@ impl Condition for IsBlank {
     fn describe(&self) -> String {
         "is empty or blank and carries no attachment".into()
     }
+}
 
-    async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
+#[async_trait]
+impl ConditionOn<GroupMessage> for IsBlank {
+    async fn should_moderate(&self, ctx: &ConditionContext<'_, GroupMessage>) -> Result<Option<String>, Err> {
         // A message that carries something is not an empty message, whatever
         // its caption says, so the attachment is checked before the text.
-        if ctx.group_message.attachment.is_some() {
+        if ctx.subject.attachment.is_some() {
             return Ok(None);
         }
         Ok(should_moderate_blank(
-            &ctx.group_message.text,
+            &ctx.subject.text,
         ))
     }
 }

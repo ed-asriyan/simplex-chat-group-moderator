@@ -153,6 +153,11 @@ fn title_of(condition: &ModerationCondition) -> String {
 }
 
 impl ModerationCondition {
+    /// The condition's name in words, as the editor titles it without the emoji.
+    pub(in crate::domain::moderator::rules) fn title(&self) -> String {
+        title_of(self)
+    }
+
     /// Bring the condition's parameters into canonical form and check them
     /// against the limits.
     ///

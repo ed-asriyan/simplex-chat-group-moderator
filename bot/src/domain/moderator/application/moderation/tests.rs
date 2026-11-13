@@ -12,12 +12,13 @@ use crate::domain::moderator::ports::conditions::{
 use crate::domain::moderator::ports::{
     CategoryTrigger, Err, Group, GroupId, GroupMessage, GroupMessageActivityRepository, GroupMode,
     KeyCheck, MessageAttachment, MessageId, MessengerGroup, MessengerGroupId, ModerationAction,
-    ModerationEngine, ModerationNotifier, ModerationRule, OpenAi, OpenAiCategory,
+    ModerationEngine, ModerationNotifier, ModerationReport, ModerationRule, OpenAi, OpenAiCategory,
     OpenAiCategoryTriggers, OpenAiModerationResult, OpenRouter, OpenRouterInstructionVerdict,
-    OwnedModerationRule, UserCharacterActivityRepository, UserId, UserLineActivityRepository,
-    UserMessageActivityRepository, UserModerationActivityRepository,
+    OwnedModerationRule, TriggerEvent, UserCharacterActivityRepository, UserId,
+    UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
 };
 use crate::domain::moderator::rules::ModerationCondition;
+use crate::domain::moderator::rules::test_support::message_rule;
 use crate::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
 use crate::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
 use crate::infrastructure::adapters::group_message_activity_repo_in_memory::InMemoryGroupMessageActivityRepository;
@@ -35,30 +36,40 @@ use std::time::Duration;
 pub struct MockModerationNotifier {
     pub notifications: Arc<Mutex<Vec<(UserId, GroupId, Vec<ModerationAction>, String, String)>>>,
     pub call_log: Arc<Mutex<Vec<PortCall>>>,
+    /// What each notification was told, whole.
+    pub reports: Arc<Mutex<Vec<ModerationReport>>>,
     pub fail_notification: bool,
 }
 
 #[async_trait]
 impl ModerationNotifier for MockModerationNotifier {
-    async fn notify_moderation_action(
+    async fn notify_moderation(
         &self,
         user_id: UserId,
         group: &Group,
-        actions: &[ModerationAction],
-        message: &str,
-        reasons: &[String],
+        report: &ModerationReport,
     ) -> Result<(), Err> {
+        self.reports.lock().unwrap().push(report.clone());
+        let message = match &report.event {
+            TriggerEvent::MessagePosted { message } => message.as_str(),
+            TriggerEvent::MemberJoined => "",
+        };
         self.notifications.lock().unwrap().push((
             user_id,
             group.id,
-            actions.to_vec(),
+            report.actions.clone(),
             message.to_string(),
-            reasons.join(", "),
+            report
+                .reasons
+                .iter()
+                .map(|r| r.reason.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
         ));
         self.call_log.lock().unwrap().push(PortCall::NotifyAction(
             user_id,
             group.id,
-            actions.to_vec(),
+            report.actions.clone(),
         ));
         if self.fail_notification {
             return Err("notification failed".into());
@@ -214,12 +225,12 @@ async fn test_process_group_message_moderate_message_action() {
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["badword".to_string()],
             }),
-        },
+        ),
     };
 
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
@@ -261,6 +272,7 @@ async fn test_process_group_message_moderate_message_action() {
         message_id: 42,
         author_id: 555,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "Contains badword here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -295,17 +307,17 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![
+        rule: message_rule(
+            vec![
                 ModerationAction::ModerateMessage(ModerateMessage {}),
                 ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: false,
                 }),
             ],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
             }),
-        },
+        ),
     };
 
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
@@ -347,6 +359,7 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
         message_id: 42,
         author_id: 777,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -384,14 +397,14 @@ async fn test_process_group_message_kick_author_without_deleting_messages() {
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::KickAuthor(KickAuthor {
+        rule: message_rule(
+            vec![ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: false,
             })],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
             }),
-        },
+        ),
     };
 
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
@@ -433,6 +446,7 @@ async fn test_process_group_message_kick_author_without_deleting_messages() {
         message_id: 42,
         author_id: 777,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -467,14 +481,14 @@ async fn test_process_group_message_kick_author_deleting_all_messages() {
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::KickAuthor(KickAuthor {
+        rule: message_rule(
+            vec![ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: true,
             })],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
             }),
-        },
+        ),
     };
 
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
@@ -516,6 +530,7 @@ async fn test_process_group_message_kick_author_deleting_all_messages() {
         message_id: 42,
         author_id: 777,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -550,17 +565,17 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![
+        rule: message_rule(
+            vec![
                 ModerationAction::ModerateMessage(ModerateMessage {}),
                 ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: false,
                 }),
             ],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
             }),
-        },
+        ),
     };
 
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
@@ -602,6 +617,7 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
         message_id: 42,
         author_id: 555,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -628,12 +644,12 @@ async fn test_process_group_message_no_match_does_nothing() {
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["badword".to_string()],
             }),
-        },
+        ),
     };
 
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
@@ -675,6 +691,7 @@ async fn test_process_group_message_no_match_does_nothing() {
         message_id: 42,
         author_id: 555,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "Clean friendly message".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -701,26 +718,26 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
     // Rule 2: KickAuthor on "second"
     let rule1 = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["first".to_string()],
             }),
-        },
+        ),
     };
     let rule2 = OwnedModerationRule {
         id: 2,
-        rule: ModerationRule {
-            actions: vec![
+        rule: message_rule(
+            vec![
                 ModerationAction::ModerateMessage(ModerateMessage {}),
                 ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: false,
                 }),
             ],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["second".to_string()],
             }),
-        },
+        ),
     };
 
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
@@ -762,6 +779,7 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
         message_id: 42,
         author_id: 888,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "first and second in the same message".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -799,17 +817,17 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![
+        rule: message_rule(
+            vec![
                 ModerationAction::SetAuthorObserver(SetAuthorObserver {
                     duration_minutes: 0,
                 }),
                 ModerationAction::ModerateMessage(ModerateMessage {}),
             ],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
             }),
-        },
+        ),
     };
 
     let call_log = Arc::new(Mutex::new(Vec::new()));
@@ -834,6 +852,7 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
             notifications: notifications.clone(),
             call_log: call_log.clone(),
             fail_notification: false,
+            ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
@@ -856,6 +875,7 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
         message_id: 42,
         author_id: 777,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -900,14 +920,14 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
+        rule: message_rule(
+            vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                 duration_minutes: 0,
             })],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
             }),
-        },
+        ),
     };
 
     let call_log = Arc::new(Mutex::new(Vec::new()));
@@ -932,6 +952,7 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
             notifications: notifications.clone(),
             call_log: call_log.clone(),
             fail_notification: false,
+            ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
@@ -954,6 +975,7 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
         message_id: 42,
         author_id: 777,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -994,17 +1016,17 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![
+        rule: message_rule(
+            vec![
                 ModerationAction::SetAuthorObserver(SetAuthorObserver {
                     duration_minutes: 0,
                 }),
                 ModerationAction::ModerateMessage(ModerateMessage {}),
             ],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
             }),
-        },
+        ),
     };
 
     let call_log = Arc::new(Mutex::new(Vec::new()));
@@ -1042,6 +1064,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
         message_id: 42,
         author_id: 777,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1077,14 +1100,14 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
+        rule: message_rule(
+            vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                 duration_minutes: 0,
             })],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
             }),
-        },
+        ),
     };
 
     let call_log = Arc::new(Mutex::new(Vec::new()));
@@ -1122,6 +1145,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
         message_id: 42,
         author_id: 777,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1153,17 +1177,17 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![
+        rule: message_rule(
+            vec![
                 ModerationAction::SetAuthorObserver(SetAuthorObserver {
                     duration_minutes: 0,
                 }),
                 ModerationAction::ModerateMessage(ModerateMessage {}),
             ],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
             }),
-        },
+        ),
     };
 
     let call_log = Arc::new(Mutex::new(Vec::new()));
@@ -1201,6 +1225,7 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
         message_id: 42,
         author_id: 777,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1231,17 +1256,17 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![
+        rule: message_rule(
+            vec![
                 ModerationAction::SetAuthorObserver(SetAuthorObserver {
                     duration_minutes: 0,
                 }),
                 ModerationAction::ModerateMessage(ModerateMessage {}),
             ],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
             }),
-        },
+        ),
     };
 
     let call_log = Arc::new(Mutex::new(Vec::new()));
@@ -1280,6 +1305,7 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
         message_id: 42,
         author_id: 777,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1320,26 +1346,26 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
     };
     let rule1 = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![
+        rule: message_rule(
+            vec![
                 ModerationAction::SetAuthorObserver(SetAuthorObserver {
                     duration_minutes: 0,
                 }),
                 ModerationAction::ModerateMessage(ModerateMessage {}),
             ],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["first".to_string()],
             }),
-        },
+        ),
     };
     let rule2 = OwnedModerationRule {
         id: 2,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["second".to_string()],
             }),
-        },
+        ),
     };
 
     let call_log = Arc::new(Mutex::new(Vec::new()));
@@ -1377,6 +1403,7 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
         message_id: 42,
         author_id: 888,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "first and second in the same message".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1416,26 +1443,26 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
     };
     let rule1 = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["first".to_string()],
             }),
-        },
+        ),
     };
     let rule2 = OwnedModerationRule {
         id: 2,
-        rule: ModerationRule {
-            actions: vec![
+        rule: message_rule(
+            vec![
                 ModerationAction::SetAuthorObserver(SetAuthorObserver {
                     duration_minutes: 0,
                 }),
                 ModerationAction::ModerateMessage(ModerateMessage {}),
             ],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["second".to_string()],
             }),
-        },
+        ),
     };
 
     let call_log = Arc::new(Mutex::new(Vec::new()));
@@ -1473,6 +1500,7 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
         message_id: 42,
         author_id: 888,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "first and second in the same message".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1514,15 +1542,13 @@ async fn test_process_group_message_message_rate_limit_triggers_on_threshold() {
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit(
-                AuthorHitsMessageRateLimit {
-                    message_count: 3,
-                    time_window_minutes: 1,
-                },
-            ),
-        },
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+                message_count: 3,
+                time_window_minutes: 1,
+            }),
+        ),
     };
 
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
@@ -1565,6 +1591,7 @@ async fn test_process_group_message_message_rate_limit_triggers_on_threshold() {
         message_id: msg_id,
         author_id: 42,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: format!("Message {msg_id}"),
         attachment: None,
         timestamp: Utc::now(),
@@ -1605,20 +1632,18 @@ async fn test_process_group_message_message_rate_limit_kick_author() {
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![
+        rule: message_rule(
+            vec![
                 ModerationAction::ModerateMessage(ModerateMessage {}),
                 ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: false,
                 }),
             ],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit(
-                AuthorHitsMessageRateLimit {
-                    message_count: 2,
-                    time_window_minutes: 5,
-                },
-            ),
-        },
+            ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+                message_count: 2,
+                time_window_minutes: 5,
+            }),
+        ),
     };
 
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
@@ -1661,6 +1686,7 @@ async fn test_process_group_message_message_rate_limit_kick_author() {
         message_id: msg_id,
         author_id,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1694,20 +1720,18 @@ async fn test_process_group_message_message_rate_limit_dry_mode() {
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![
+        rule: message_rule(
+            vec![
                 ModerationAction::ModerateMessage(ModerateMessage {}),
                 ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: false,
                 }),
             ],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit(
-                AuthorHitsMessageRateLimit {
-                    message_count: 1,
-                    time_window_minutes: 1,
-                },
-            ),
-        },
+            ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+                message_count: 1,
+                time_window_minutes: 1,
+            }),
+        ),
     };
 
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
@@ -1750,6 +1774,7 @@ async fn test_process_group_message_message_rate_limit_dry_mode() {
         message_id: 1,
         author_id: 999,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "hi".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1776,15 +1801,13 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit(
-                AuthorHitsMessageRateLimit {
-                    message_count: 2,
-                    time_window_minutes: 5,
-                },
-            ),
-        },
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+                message_count: 2,
+                time_window_minutes: 5,
+            }),
+        ),
     };
 
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
@@ -1824,6 +1847,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         message_id: 1,
         author_id: 123,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "first".to_string(),
         attachment: None,
         timestamp: base_time,
@@ -1842,6 +1866,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         message_id: 2,
         author_id: 123,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "second".to_string(),
         attachment: None,
         timestamp: base_time + chrono::Duration::minutes(10),
@@ -1863,6 +1888,7 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         message_id: 3,
         author_id: 123,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "third".to_string(),
         attachment: None,
         timestamp: base_time + chrono::Duration::minutes(12),
@@ -1886,15 +1912,13 @@ async fn test_track_user_message_called_when_message_rate_limit_rule_configured(
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit(
-                AuthorHitsMessageRateLimit {
-                    message_count: 5,
-                    time_window_minutes: 10,
-                },
-            ),
-        },
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+                message_count: 5,
+                time_window_minutes: 10,
+            }),
+        ),
     };
 
     let recorder = Arc::new(MockActivityRecorder::default());
@@ -1927,6 +1951,7 @@ async fn test_track_user_message_called_when_message_rate_limit_rule_configured(
         message_id: 1,
         author_id: 42,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: msg_time,
@@ -1966,29 +1991,25 @@ async fn test_track_user_message_uses_max_window_across_multiple_message_rate_li
     let rules = vec![
         OwnedModerationRule {
             id: 1,
-            rule: ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                condition: ModerationCondition::AuthorHitsMessageRateLimit(
-                    AuthorHitsMessageRateLimit {
-                        message_count: 5,
-                        time_window_minutes: 5,
-                    },
-                ),
-            },
+            rule: message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+                    message_count: 5,
+                    time_window_minutes: 5,
+                }),
+            ),
         },
         OwnedModerationRule {
             id: 2,
-            rule: ModerationRule {
-                actions: vec![ModerationAction::KickAuthor(KickAuthor {
+            rule: message_rule(
+                vec![ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: false,
                 })],
-                condition: ModerationCondition::AuthorHitsMessageRateLimit(
-                    AuthorHitsMessageRateLimit {
-                        message_count: 20,
-                        time_window_minutes: 25,
-                    },
-                ),
-            },
+                ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+                    message_count: 20,
+                    time_window_minutes: 25,
+                }),
+            ),
         },
     ];
 
@@ -2021,6 +2042,7 @@ async fn test_track_user_message_uses_max_window_across_multiple_message_rate_li
         message_id: 1,
         author_id: 55,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2048,15 +2070,13 @@ async fn test_track_characters_called_when_character_rate_limit_rule_configured(
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::AuthorHitsCharacterRateLimit(
-                AuthorHitsCharacterRateLimit {
-                    character_count: 2000,
-                    time_window_minutes: 10,
-                },
-            ),
-        },
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::AuthorHitsCharacterRateLimit(AuthorHitsCharacterRateLimit {
+                character_count: 2000,
+                time_window_minutes: 10,
+            }),
+        ),
     };
 
     let messages = Arc::new(MockActivityRecorder::default());
@@ -2092,6 +2112,7 @@ async fn test_track_characters_called_when_character_rate_limit_rule_configured(
         message_id: 1,
         author_id: 42,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "Привет".to_string(),
         attachment: None,
         timestamp: msg_time,
@@ -2130,15 +2151,13 @@ async fn test_track_characters_not_called_without_a_character_rate_limit_rule() 
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit(
-                AuthorHitsMessageRateLimit {
-                    message_count: 5,
-                    time_window_minutes: 10,
-                },
-            ),
-        },
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+                message_count: 5,
+                time_window_minutes: 10,
+            }),
+        ),
     };
 
     let messages = Arc::new(MockActivityRecorder::default());
@@ -2171,6 +2190,7 @@ async fn test_track_characters_not_called_without_a_character_rate_limit_rule() 
         message_id: 1,
         author_id: 42,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2199,14 +2219,14 @@ async fn test_track_lines_called_when_line_rate_limit_rule_configured() {
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
                 line_count: 30,
                 time_window_minutes: 10,
                 chars_per_line: 10,
             }),
-        },
+        ),
     };
 
     let messages = Arc::new(MockActivityRecorder::default());
@@ -2242,6 +2262,7 @@ async fn test_track_lines_called_when_line_rate_limit_rule_configured() {
         message_id: 1,
         author_id: 42,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "short\n0123456789012345678901234".to_string(),
         attachment: None,
         timestamp: msg_time,
@@ -2285,25 +2306,25 @@ async fn test_track_lines_uses_the_widest_configured_wrap() {
     let rules = vec![
         OwnedModerationRule {
             id: 1,
-            rule: ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                condition: ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
+            rule: message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
                     line_count: 30,
                     time_window_minutes: 5,
                     chars_per_line: 10,
                 }),
-            },
+            ),
         },
         OwnedModerationRule {
             id: 2,
-            rule: ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                condition: ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
+            rule: message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
                     line_count: 100,
                     time_window_minutes: 20,
                     chars_per_line: 40,
                 }),
-            },
+            ),
         },
     ];
 
@@ -2336,6 +2357,7 @@ async fn test_track_lines_uses_the_widest_configured_wrap() {
         message_id: 1,
         author_id: 42,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "0123456789012345678901234".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2367,14 +2389,14 @@ async fn test_track_lines_counts_nothing_for_a_captionless_attachment() {
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
                 line_count: 30,
                 time_window_minutes: 10,
                 chars_per_line: 40,
             }),
-        },
+        ),
     };
 
     let lines = Arc::new(MockLineActivityRecorder::default());
@@ -2406,6 +2428,7 @@ async fn test_track_lines_counts_nothing_for_a_captionless_attachment() {
         message_id: 1,
         author_id: 42,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: String::new(),
         attachment: Some(MessageAttachment::Image),
         timestamp: Utc::now(),
@@ -2431,13 +2454,13 @@ async fn test_track_lines_not_called_without_a_line_rate_limit_rule() {
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ExceedsMaxLines(ExceedsMaxLines {
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ExceedsMaxLines(ExceedsMaxLines {
                 max_lines: 5,
                 chars_per_line: 40,
             }),
-        },
+        ),
     };
 
     let lines = Arc::new(MockLineActivityRecorder::default());
@@ -2469,6 +2492,7 @@ async fn test_track_lines_not_called_without_a_line_rate_limit_rule() {
         message_id: 1,
         author_id: 42,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "a\nb".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2496,15 +2520,13 @@ async fn test_track_characters_not_called_when_window_is_zero() {
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::AuthorHitsCharacterRateLimit(
-                AuthorHitsCharacterRateLimit {
-                    character_count: 2000,
-                    time_window_minutes: 0,
-                },
-            ),
-        },
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::AuthorHitsCharacterRateLimit(AuthorHitsCharacterRateLimit {
+                character_count: 2000,
+                time_window_minutes: 0,
+            }),
+        ),
     };
 
     let characters = Arc::new(MockCharacterActivityRecorder::default());
@@ -2536,6 +2558,7 @@ async fn test_track_characters_not_called_when_window_is_zero() {
         message_id: 1,
         author_id: 42,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2559,22 +2582,22 @@ async fn test_track_user_message_not_called_when_no_message_rate_limit_rules() {
     let rules = vec![
         OwnedModerationRule {
             id: 1,
-            rule: ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                condition: ModerationCondition::ContainsWords(ContainsWords {
+            rule: message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["badword".to_string()],
                 }),
-            },
+            ),
         },
         OwnedModerationRule {
             id: 2,
-            rule: ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                condition: ModerationCondition::ExceedsMaxLines(ExceedsMaxLines {
+            rule: message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::ExceedsMaxLines(ExceedsMaxLines {
                     max_lines: 5,
                     chars_per_line: 40,
                 }),
-            },
+            ),
         },
     ];
 
@@ -2607,6 +2630,7 @@ async fn test_track_user_message_not_called_when_no_message_rate_limit_rules() {
         message_id: 1,
         author_id: 55,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "clean message".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2661,6 +2685,7 @@ async fn test_track_user_message_not_called_when_group_has_empty_rules() {
         message_id: 1,
         author_id: 55,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2686,15 +2711,13 @@ async fn test_track_user_message_not_called_when_message_rate_limit_window_is_ze
     };
     let rules = vec![OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit(
-                AuthorHitsMessageRateLimit {
-                    message_count: 5,
-                    time_window_minutes: 0,
-                },
-            ),
-        },
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+                message_count: 5,
+                time_window_minutes: 0,
+            }),
+        ),
     }];
 
     let recorder = Arc::new(MockActivityRecorder::default());
@@ -2726,6 +2749,7 @@ async fn test_track_user_message_not_called_when_message_rate_limit_window_is_ze
         message_id: 1,
         author_id: 55,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2751,15 +2775,13 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
     };
     let rules = vec![OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit(
-                AuthorHitsMessageRateLimit {
-                    message_count: 5,
-                    time_window_minutes: 120, // exceeds 60 min ceiling
-                },
-            ),
-        },
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+                message_count: 5,
+                time_window_minutes: 120, // exceeds 60 min ceiling
+            }),
+        ),
     }];
 
     let recorder = Arc::new(MockActivityRecorder::default());
@@ -2791,6 +2813,7 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
         message_id: 1,
         author_id: 55,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2820,29 +2843,27 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
     let rules = vec![
         OwnedModerationRule {
             id: 1,
-            rule: ModerationRule {
-                actions: vec![
+            rule: message_rule(
+                vec![
                     ModerationAction::ModerateMessage(ModerateMessage {}),
                     ModerationAction::KickAuthor(KickAuthor {
                         delete_all_messages: false,
                     }),
                 ],
-                condition: ModerationCondition::AuthorHitsModerationRateLimit(
-                    AuthorHitsModerationRateLimit {
-                        message_count: 2,
-                        time_window_minutes: 60,
-                    },
-                ),
-            },
+                ModerationCondition::AuthorHitsModerationRateLimit(AuthorHitsModerationRateLimit {
+                    message_count: 2,
+                    time_window_minutes: 60,
+                }),
+            ),
         },
         OwnedModerationRule {
             id: 2,
-            rule: ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                condition: ModerationCondition::ContainsWords(ContainsWords {
+            rule: message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["spam".to_string()],
                 }),
-            },
+            ),
         },
     ];
 
@@ -2887,6 +2908,7 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
         message_id: msg_id,
         author_id: 777,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: text.to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -2938,26 +2960,24 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
     let rules = vec![
         OwnedModerationRule {
             id: 1,
-            rule: ModerationRule {
-                actions: vec![ModerationAction::KickAuthor(KickAuthor {
+            rule: message_rule(
+                vec![ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: false,
                 })],
-                condition: ModerationCondition::AuthorHitsModerationRateLimit(
-                    AuthorHitsModerationRateLimit {
-                        message_count: 5,
-                        time_window_minutes: 30,
-                    },
-                ),
-            },
+                ModerationCondition::AuthorHitsModerationRateLimit(AuthorHitsModerationRateLimit {
+                    message_count: 5,
+                    time_window_minutes: 30,
+                }),
+            ),
         },
         OwnedModerationRule {
             id: 2,
-            rule: ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                condition: ModerationCondition::ContainsWords(ContainsWords {
+            rule: message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["badword".to_string()],
                 }),
-            },
+            ),
         },
     ];
 
@@ -2990,6 +3010,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         message_id: 1,
         author_id: 42,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "clean message".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -3013,6 +3034,7 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         message_id: 2,
         author_id: 42,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "contains badword here".to_string(),
         attachment: None,
         timestamp: bad_time,
@@ -3041,12 +3063,12 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
     // Group only has keyword rules, no AuthorHitsModerationRateLimit rules
     let rules = vec![OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["badword".to_string()],
             }),
-        },
+        ),
     }];
 
     let mod_recorder = Arc::new(MockModerationActivityRecorder::default());
@@ -3078,6 +3100,7 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
         message_id: 1,
         author_id: 42,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "contains badword here".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -3125,6 +3148,7 @@ fn edit_test_message(text: &str, is_edit: bool) -> GroupMessage {
         message_id: 1,
         author_id: 42,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: text.to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -3137,15 +3161,13 @@ fn edit_test_message(text: &str, is_edit: bool) -> GroupMessage {
 async fn test_editing_one_message_does_not_hit_the_message_rate_limit() {
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit(
-                AuthorHitsMessageRateLimit {
-                    message_count: 3,
-                    time_window_minutes: 1,
-                },
-            ),
-        },
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+                message_count: 3,
+                time_window_minutes: 1,
+            }),
+        ),
     };
 
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
@@ -3191,12 +3213,12 @@ async fn test_editing_one_message_does_not_hit_the_message_rate_limit() {
 async fn test_edit_is_still_moderated_by_a_content_rule() {
     let rule = OwnedModerationRule {
         id: 1,
-        rule: ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+        rule: message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["badword".to_string()],
             }),
-        },
+        ),
     };
 
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
@@ -3235,38 +3257,34 @@ async fn test_edit_feeds_none_of_the_traffic_counters() {
     let rules = vec![
         OwnedModerationRule {
             id: 1,
-            rule: ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                condition: ModerationCondition::AuthorHitsMessageRateLimit(
-                    AuthorHitsMessageRateLimit {
-                        message_count: 5,
-                        time_window_minutes: 1,
-                    },
-                ),
-            },
+            rule: message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+                    message_count: 5,
+                    time_window_minutes: 1,
+                }),
+            ),
         },
         OwnedModerationRule {
             id: 2,
-            rule: ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                condition: ModerationCondition::AuthorHitsCharacterRateLimit(
-                    AuthorHitsCharacterRateLimit {
-                        character_count: 2000,
-                        time_window_minutes: 1,
-                    },
-                ),
-            },
+            rule: message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::AuthorHitsCharacterRateLimit(AuthorHitsCharacterRateLimit {
+                    character_count: 2000,
+                    time_window_minutes: 1,
+                }),
+            ),
         },
         OwnedModerationRule {
             id: 3,
-            rule: ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                condition: ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
+            rule: message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
                     line_count: 30,
                     time_window_minutes: 1,
                     chars_per_line: 40,
                 }),
-            },
+            ),
         },
     ];
 
@@ -3325,26 +3343,24 @@ async fn test_moderating_an_edit_does_not_join_the_moderated_tally() {
     let rules = vec![
         OwnedModerationRule {
             id: 1,
-            rule: ModerationRule {
-                actions: vec![ModerationAction::KickAuthor(KickAuthor {
+            rule: message_rule(
+                vec![ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: false,
                 })],
-                condition: ModerationCondition::AuthorHitsModerationRateLimit(
-                    AuthorHitsModerationRateLimit {
-                        message_count: 5,
-                        time_window_minutes: 30,
-                    },
-                ),
-            },
+                ModerationCondition::AuthorHitsModerationRateLimit(AuthorHitsModerationRateLimit {
+                    message_count: 5,
+                    time_window_minutes: 30,
+                }),
+            ),
         },
         OwnedModerationRule {
             id: 2,
-            rule: ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                condition: ModerationCondition::ContainsWords(ContainsWords {
+            rule: message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["badword".to_string()],
                 }),
-            },
+            ),
         },
     ];
 
@@ -3402,14 +3418,14 @@ fn app_with_observer_rule(
             }),
             rules: vec![OwnedModerationRule {
                 id: 1,
-                rule: ModerationRule {
-                    actions: vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
+                rule: message_rule(
+                    vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                         duration_minutes,
                     })],
-                    condition: ModerationCondition::ContainsWords(ContainsWords {
+                    ModerationCondition::ContainsWords(ContainsWords {
                         keywords: vec!["danger".to_string()],
                     }),
-                },
+                ),
             }],
         }),
         Arc::new(MockGroupModerator::default()),
@@ -3437,6 +3453,7 @@ fn triggering_message(timestamp: chrono::DateTime<Utc>) -> GroupMessage {
         message_id: 42,
         author_id: 777,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "Contains danger here".to_string(),
         attachment: None,
         timestamp,
@@ -3488,14 +3505,14 @@ async fn test_dry_mode_schedules_nothing() {
             }),
             rules: vec![OwnedModerationRule {
                 id: 1,
-                rule: ModerationRule {
-                    actions: vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
+                rule: message_rule(
+                    vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                         duration_minutes: 15,
                     })],
-                    condition: ModerationCondition::ContainsWords(ContainsWords {
+                    ModerationCondition::ContainsWords(ContainsWords {
                         keywords: vec!["danger".to_string()],
                     }),
-                },
+                ),
             }],
         }),
         Arc::new(MockGroupModerator::default()),
@@ -3534,14 +3551,14 @@ async fn test_kicking_the_author_cancels_a_scheduled_restore() {
             }),
             rules: vec![OwnedModerationRule {
                 id: 1,
-                rule: ModerationRule {
-                    actions: vec![ModerationAction::KickAuthor(KickAuthor {
+                rule: message_rule(
+                    vec![ModerationAction::KickAuthor(KickAuthor {
                         delete_all_messages: false,
                     })],
-                    condition: ModerationCondition::ContainsWords(ContainsWords {
+                    ModerationCondition::ContainsWords(ContainsWords {
                         keywords: vec!["danger".to_string()],
                     }),
-                },
+                ),
             }],
         }),
         Arc::new(MockGroupModerator::default()),
@@ -3584,17 +3601,17 @@ async fn test_failed_restore_bookkeeping_still_moderates_and_notifies() {
             }),
             rules: vec![OwnedModerationRule {
                 id: 1,
-                rule: ModerationRule {
-                    actions: vec![
+                rule: message_rule(
+                    vec![
                         ModerationAction::SetAuthorObserver(SetAuthorObserver {
                             duration_minutes: 15,
                         }),
                         ModerationAction::ModerateMessage(ModerateMessage {}),
                     ],
-                    condition: ModerationCondition::ContainsWords(ContainsWords {
+                    ModerationCondition::ContainsWords(ContainsWords {
                         keywords: vec!["danger".to_string()],
                     }),
-                },
+                ),
             }],
         }),
         Arc::new(MockGroupModerator {
@@ -3736,16 +3753,14 @@ fn app_with_openai_rule(
             group: Some(edit_test_group()),
             rules: vec![OwnedModerationRule {
                 id: 1,
-                rule: ModerationRule {
-                    actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                    condition: ModerationCondition::FlaggedByOmniModeration(
-                        FlaggedByOmniModeration {
-                            retry: Default::default(),
-                            api_key: "sk-owner".to_string(),
-                            triggers,
-                        },
-                    ),
-                },
+                rule: message_rule(
+                    vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                    ModerationCondition::FlaggedByOmniModeration(FlaggedByOmniModeration {
+                        retry: Default::default(),
+                        api_key: "sk-owner".to_string(),
+                        triggers,
+                    }),
+                ),
             }],
         }),
         Arc::new(MockGroupModerator {
@@ -3855,9 +3870,9 @@ async fn test_a_message_a_model_says_matches_the_instruction_is_deleted() {
             group: Some(edit_test_group()),
             rules: vec![OwnedModerationRule {
                 id: 1,
-                rule: ModerationRule {
-                    actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                    condition: ModerationCondition::FlaggedByOpenRouterInstruction(
+                rule: message_rule(
+                    vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                    ModerationCondition::FlaggedByOpenRouterInstruction(
                         FlaggedByOpenRouterInstruction {
                             retry: Default::default(),
                             api_key: "sk-owner".to_string(),
@@ -3866,7 +3881,7 @@ async fn test_a_message_a_model_says_matches_the_instruction_is_deleted() {
                             context_messages: 0,
                         },
                     ),
-                },
+                ),
             }],
         }),
         Arc::new(MockGroupModerator {
@@ -3961,9 +3976,9 @@ fn history_app(
             }),
             rules: vec![OwnedModerationRule {
                 id: 1,
-                rule: ModerationRule {
-                    actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                    condition: ModerationCondition::FlaggedByOpenRouterInstruction(
+                rule: message_rule(
+                    vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                    ModerationCondition::FlaggedByOpenRouterInstruction(
                         FlaggedByOpenRouterInstruction {
                             retry: Default::default(),
                             api_key: "sk-owner".to_string(),
@@ -3972,7 +3987,7 @@ fn history_app(
                             context_messages,
                         },
                     ),
-                },
+                ),
             }],
         }),
         Arc::new(MockGroupModerator::default()),
@@ -4097,10 +4112,10 @@ fn group_rate_limit_app(
             }),
             rules: vec![OwnedModerationRule {
                 id: 1,
-                rule: ModerationRule {
-                    actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                rule: message_rule(
+                    vec![ModerationAction::ModerateMessage(ModerateMessage {})],
                     condition,
-                },
+                ),
             }],
         }),
         Arc::new(MockGroupModerator {
@@ -4136,6 +4151,7 @@ fn group_message_from(
         message_id,
         author_id,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: text.to_string(),
         attachment: None,
         timestamp,
@@ -4298,4 +4314,282 @@ async fn test_group_counters_not_written_without_a_group_rate_limit_rule() {
             .unwrap(),
         0
     );
+}
+
+// ---------------------------------------------------------------------------
+// Someone joins (US-D6), and what a message's notification names (US-D2)
+// ---------------------------------------------------------------------------
+
+use crate::domain::moderator::ports::conditions::MemberNameContainsWords;
+use crate::domain::moderator::ports::{MemberJoin, RuleReason, Trigger, TriggerEvent as Event};
+use crate::domain::moderator::rules::test_support::{join_rule, named};
+
+/// What a join test watches: what the group was told, who was notified, and the restores owed.
+struct Watch {
+    moderator: Arc<MockGroupModerator>,
+    notifier: Arc<MockModerationNotifier>,
+    restores: Arc<MockMemberRestoreRepository>,
+}
+
+/// The application over a group 10 of `mode` with `rules`.
+fn join_app(mode: GroupMode, rules: Vec<ModerationRule>) -> (MessageModerationApplication, Watch) {
+    let watch = Watch {
+        moderator: Arc::new(MockGroupModerator::default()),
+        notifier: Arc::new(MockModerationNotifier::default()),
+        restores: Arc::new(MockMemberRestoreRepository::default()),
+    };
+    let app = MessageModerationApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(Group {
+                id: 10,
+                owner_id: 100,
+                name: "Crypto Chat".to_string(),
+                mode,
+            }),
+            rules: rules
+                .into_iter()
+                .enumerate()
+                .map(|(id, rule)| OwnedModerationRule { id, rule })
+                .collect(),
+        }),
+        watch.moderator.clone(),
+        watch.notifier.clone(),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
+        Arc::new(InMemoryUserLineActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
+        watch.restores.clone(),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
+    );
+    (app, watch)
+}
+
+fn joining(name: &str, at: DateTime<Utc>) -> MemberJoin {
+    MemberJoin {
+        group: MessengerGroup {
+            id: 10,
+            name: "Crypto Chat".to_string(),
+        },
+        member_id: 555,
+        display_name: name.to_string(),
+        full_name: String::new(),
+        timestamp: at,
+    }
+}
+
+fn casino_kick() -> ModerationRule {
+    named(
+        join_rule(
+            vec![ModerationAction::KickAuthor(KickAuthor {
+                delete_all_messages: false,
+            })],
+            Some(ModerationCondition::MemberNameContainsWords(
+                MemberNameContainsWords {
+                    keywords: vec!["casino".to_string()],
+                },
+            )),
+        ),
+        "Spam names",
+        true,
+    )
+}
+
+// US-D6, US-F3: in the mode Notifications the member is removed and the owner is told.
+#[tokio::test]
+async fn test_a_join_that_matches_is_acted_on_and_told_in_notifications_mode() {
+    let (app, watch) = join_app(GroupMode::Notifications, vec![casino_kick()]);
+    app.process_member_join(joining("Free Casino Bonus", Utc::now()))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        *watch.moderator.kicked_members.lock().unwrap(),
+        vec![(10, 555)]
+    );
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].event, Event::MemberJoined);
+    assert_eq!(reports[0].member_name, "Free Casino Bonus");
+    assert_eq!(
+        reports[0].actions,
+        vec![ModerationAction::KickAuthor(KickAuthor {
+            delete_all_messages: false
+        })]
+    );
+    assert_eq!(
+        reports[0].reasons,
+        vec![RuleReason {
+            rule_name: Some("Spam names".to_string()),
+            reason: "name contains word: 'casino'".to_string()
+        }]
+    );
+    assert_eq!(watch.notifier.notifications.lock().unwrap()[0].0, 100);
+}
+
+// US-D6: someone the rules do not match is left alone and nobody is told.
+#[tokio::test]
+async fn test_a_join_that_matches_nothing_does_nothing() {
+    let (app, watch) = join_app(GroupMode::Notifications, vec![casino_kick()]);
+    app.process_member_join(joining("Carol", Utc::now()))
+        .await
+        .unwrap();
+    assert!(watch.moderator.kicked_members.lock().unwrap().is_empty());
+    assert!(watch.notifier.reports.lock().unwrap().is_empty());
+}
+
+// US-D6: with the mode Silent the bot acts and does not tell the owner.
+#[tokio::test]
+async fn test_in_silent_mode_a_join_is_acted_on_without_telling() {
+    let (app, watch) = join_app(GroupMode::Silent, vec![casino_kick()]);
+    app.process_member_join(joining("Free Casino Bonus", Utc::now()))
+        .await
+        .unwrap();
+    assert_eq!(
+        *watch.moderator.kicked_members.lock().unwrap(),
+        vec![(10, 555)]
+    );
+    assert!(watch.notifier.reports.lock().unwrap().is_empty());
+}
+
+// US-D6: with the mode Dry the bot does nothing in the group and tells the owner.
+#[tokio::test]
+async fn test_in_dry_mode_a_join_is_only_told() {
+    let (app, watch) = join_app(GroupMode::Dry, vec![casino_kick()]);
+    app.process_member_join(joining("Free Casino Bonus", Utc::now()))
+        .await
+        .unwrap();
+    assert!(watch.moderator.kicked_members.lock().unwrap().is_empty());
+    assert_eq!(watch.notifier.reports.lock().unwrap().len(), 1);
+}
+
+// US-D6, US-F2: a rule for everyone who joins, and an observer time counted from the join.
+#[tokio::test]
+async fn test_a_timed_observer_restriction_on_a_join_is_restored_from_the_join() {
+    let rule = named(
+        join_rule(
+            vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
+                duration_minutes: 60,
+            })],
+            None,
+        ),
+        "Quarantine newcomers",
+        true,
+    );
+    let (app, watch) = join_app(GroupMode::Notifications, vec![rule]);
+    let at = Utc::now();
+    app.process_member_join(joining("Carol", at)).await.unwrap();
+    assert_eq!(
+        *watch.restores.saved.lock().unwrap(),
+        vec![(10, 555, at + chrono::Duration::minutes(60))]
+    );
+    assert_eq!(
+        watch.notifier.reports.lock().unwrap()[0].reasons,
+        vec![RuleReason {
+            rule_name: Some("Quarantine newcomers".to_string()),
+            reason: "everyone who joins".to_string()
+        }]
+    );
+}
+
+// US-D6, US-G13: rules that are off are skipped.
+#[tokio::test]
+async fn test_a_join_rule_that_is_off_is_skipped() {
+    let off = named(casino_kick(), "Spam names", false);
+    let (app, watch) = join_app(GroupMode::Notifications, vec![off]);
+    app.process_member_join(joining("Free Casino Bonus", Utc::now()))
+        .await
+        .unwrap();
+    assert!(watch.moderator.kicked_members.lock().unwrap().is_empty());
+    assert!(watch.notifier.reports.lock().unwrap().is_empty());
+}
+
+// US-D1, US-D6: a join is checked against rules for joins only.
+#[tokio::test]
+async fn test_a_join_is_not_checked_against_message_rules() {
+    let rule = message_rule(
+        vec![ModerationAction::KickAuthor(KickAuthor {
+            delete_all_messages: false,
+        })],
+        ModerationCondition::MemberNameContainsWords(MemberNameContainsWords {
+            keywords: vec!["casino".to_string()],
+        }),
+    );
+    let (app, watch) = join_app(GroupMode::Notifications, vec![rule]);
+    app.process_member_join(joining("Free Casino Bonus", Utc::now()))
+        .await
+        .unwrap();
+    assert!(watch.moderator.kicked_members.lock().unwrap().is_empty());
+    assert!(watch.notifier.reports.lock().unwrap().is_empty());
+}
+
+// US-D6: a group the bot does not know is left alone.
+#[tokio::test]
+async fn test_a_join_in_an_unknown_group_is_ignored() {
+    let (app, watch) = join_app(GroupMode::Notifications, vec![casino_kick()]);
+    let mut join = joining("Free Casino Bonus", Utc::now());
+    join.group.id = 999;
+    // The repository fake answers for any group; what matters is that nothing breaks
+    // and that a join is never a message.
+    let _ = app.process_member_join(join).await;
+    assert!(
+        watch
+            .notifier
+            .reports
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|r| r.event == Event::MemberJoined)
+    );
+}
+
+// US-D1: a message is checked against message rules only.
+#[tokio::test]
+async fn test_a_message_is_not_checked_against_join_rules() {
+    let (app, watch) = join_app(GroupMode::Notifications, vec![casino_kick()]);
+    let mut msg = triggering_message(Utc::now());
+    msg.author_name = "Free Casino Bonus".to_string();
+    app.process_group_message(msg).await.unwrap();
+    assert!(watch.moderator.kicked_members.lock().unwrap().is_empty());
+    assert!(watch.notifier.reports.lock().unwrap().is_empty());
+}
+
+// US-D2: a message's notification names the author and the rule.
+#[tokio::test]
+async fn test_a_message_notification_names_the_author_and_the_rule() {
+    let rule = named(
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
+                keywords: vec!["danger".to_string()],
+            }),
+        ),
+        "Banned words",
+        true,
+    );
+    let (app, watch) = join_app(GroupMode::Notifications, vec![rule]);
+    let mut msg = triggering_message(Utc::now());
+    msg.author_name = "Bob".to_string();
+    app.process_group_message(msg).await.unwrap();
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(
+        reports[0].event,
+        Event::MessagePosted {
+            message: "Contains danger here".to_string()
+        }
+    );
+    assert_eq!(reports[0].member_name, "Bob");
+    assert_eq!(
+        reports[0].reasons,
+        vec![RuleReason {
+            rule_name: Some("Banned words".to_string()),
+            reason: "contains word: 'danger'".to_string()
+        }]
+    );
+    let _ = Trigger::MessagePosted;
 }

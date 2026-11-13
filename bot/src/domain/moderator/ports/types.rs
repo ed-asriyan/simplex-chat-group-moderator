@@ -1,7 +1,8 @@
 //! Types the moderator context exchanges across its ports.
 
 pub use crate::domain::moderator::rules::{
-    ModerationAction, ModerationCondition, ModerationMatch, ModerationRule, actions, conditions,
+    JoinAction, JoinCondition, MessageAction, MessageCondition, ModerationAction,
+    ModerationCondition, ModerationRule, RuleDraft, Trigger, TriggeredRule, actions, conditions,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -101,6 +102,9 @@ pub struct GroupMessage {
     /// The name the author chose for themselves, as other members see it. Not
     /// unique and not stable: it identifies nobody, `author_id` does.
     pub author_name: String,
+    /// The full name of the author's profile, empty when they set none. With
+    /// `author_name` it is what the name conditions read (US-E31, US-E32).
+    pub author_full_name: String,
     pub text: String,
     /// What the message carries besides its text; `None` for a plain text
     /// message. An attachment's caption is the `text` above, so a picture with
@@ -116,6 +120,65 @@ pub struct GroupMessage {
     /// caught — but it is not new traffic, so it feeds no rate limit counter.
     /// `timestamp` is then when the edit was made.
     pub is_edit: bool,
+}
+
+/// Someone who joined a group the bot moderates, as a member or an observer
+/// (US-D6).
+#[derive(Clone, Debug, Default)]
+pub struct MemberJoin {
+    pub group: MessengerGroup,
+    /// The member, as the group knows them: the id a kick or a role change
+    /// takes, the same one their messages carry as `GroupMessage::author_id`.
+    pub member_id: UserId,
+    /// The name the member chose for themselves, as other members see it.
+    pub display_name: String,
+    /// The full name of their profile, empty when they set none. With
+    /// `display_name` it is what the name conditions read (US-E31, US-E32).
+    pub full_name: String,
+    /// When they joined: the time the rules are checked at, and the one a
+    /// timed observer restriction runs from (US-F2).
+    pub timestamp: DateTime<Utc>,
+}
+
+/// What made the bot check a group's rules, with what the owner is shown of
+/// it: the message, or nothing more than that someone joined.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TriggerEvent {
+    /// A member's message, quoted from `message` (US-D2).
+    MessagePosted { message: String },
+    /// Someone joined (US-D6).
+    MemberJoined,
+}
+
+impl TriggerEvent {
+    /// The trigger whose rules this event is checked against.
+    pub fn trigger(&self) -> Trigger {
+        match self {
+            Self::MessagePosted { .. } => Trigger::MessagePosted,
+            Self::MemberJoined => Trigger::MemberJoined,
+        }
+    }
+}
+
+/// What the rules called for about one message or one join, for the owner
+/// (US-D2, US-D4, US-D6). `actions` are in the order they were carried out,
+/// `reasons` in the order of the rules, one per matched rule.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModerationReport {
+    pub event: TriggerEvent,
+    /// The display name of the message's author, or of the person who joined.
+    pub member_name: String,
+    pub actions: Vec<ModerationAction>,
+    pub reasons: Vec<RuleReason>,
+}
+
+/// Why one rule matched, as the owner is told (US-D2, US-D6): the rule's name,
+/// if it has one, and what matched — the condition's reason, or, for a join
+/// rule with no condition, that it matches everyone who joins.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuleReason {
+    pub rule_name: Option<String>,
+    pub reason: String,
 }
 
 #[derive(Clone, Debug)]

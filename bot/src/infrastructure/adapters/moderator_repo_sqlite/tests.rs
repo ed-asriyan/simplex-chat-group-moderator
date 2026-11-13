@@ -1,5 +1,6 @@
 use super::*;
 use crate::domain::moderator::ports::ModerationRule;
+use crate::domain::moderator::ports::RuleDraft;
 use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
 use crate::domain::moderator::ports::conditions::{
     AuthorHitsCharacterRateLimit, AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit,
@@ -10,6 +11,7 @@ use crate::domain::moderator::ports::conditions::{
     FlaggedByOpenRouterInstruction, GroupHitsCharacterRateLimit, GroupHitsLineRateLimit,
     GroupHitsMessageRateLimit, IsBlank, MatchesExactMessage, MatchesRegex,
 };
+use crate::domain::moderator::rules::test_support::message_rule;
 use crate::infrastructure::migrations;
 
 /// Most tests of the repository, here and in the migrations, are about the
@@ -54,62 +56,60 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
         .unwrap();
 
     let rules = vec![
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["word1".to_string()],
             }),
-        },
-        ModerationRule {
-            actions: vec![
+        ),
+        message_rule(
+            vec![
                 ModerationAction::ModerateMessage(ModerateMessage {}),
                 ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: false,
                 }),
             ],
-            condition: ModerationCondition::MatchesExactMessage(MatchesExactMessage {
+            ModerationCondition::MatchesExactMessage(MatchesExactMessage {
                 messages: vec!["msg1".to_string()],
                 case_sensitive: true,
             }),
-        },
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::MatchesRegex(MatchesRegex {
+        ),
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::MatchesRegex(MatchesRegex {
                 patterns: vec![r" {5,}".to_string()],
             }),
-        },
-        ModerationRule {
-            actions: vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
+        ),
+        message_rule(
+            vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                 duration_minutes: 0,
             })],
-            condition: ModerationCondition::ContainsLinksInList(ContainsLinksInList {
+            ModerationCondition::ContainsLinksInList(ContainsLinksInList {
                 domains: vec!["spam.com".to_string()],
             }),
-        },
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsLinksOutsideList(ContainsLinksOutsideList {
+        ),
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsLinksOutsideList(ContainsLinksOutsideList {
                 domains: vec!["ok.com".to_string()],
             }),
-        },
-        ModerationRule {
-            actions: vec![ModerationAction::KickAuthor(KickAuthor {
+        ),
+        message_rule(
+            vec![ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: true,
             })],
-            condition: ModerationCondition::ContainsLinksOutsideTop100(
-                ContainsLinksOutsideTop100 {
-                    domains: vec!["extra.com".to_string()],
-                },
-            ),
-        },
-        ModerationRule {
-            actions: vec![
+            ModerationCondition::ContainsLinksOutsideTop100(ContainsLinksOutsideTop100 {
+                domains: vec!["extra.com".to_string()],
+            }),
+        ),
+        message_rule(
+            vec![
                 ModerationAction::SetAuthorObserver(SetAuthorObserver {
                     duration_minutes: 0,
                 }),
                 ModerationAction::ModerateMessage(ModerateMessage {}),
             ],
-            condition: ModerationCondition::Any {
+            ModerationCondition::Any {
                 conditions: vec![
                     ModerationCondition::IsBlank(IsBlank {}),
                     ModerationCondition::ContainsInvisibleCharacters(
@@ -125,18 +125,16 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
                     }),
                 ],
             },
-        },
-        ModerationRule {
-            actions: vec![ModerationAction::KickAuthor(KickAuthor {
+        ),
+        message_rule(
+            vec![ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: true,
             })],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit(
-                AuthorHitsMessageRateLimit {
-                    message_count: 5,
-                    time_window_minutes: 2,
-                },
-            ),
-        },
+            ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+                message_count: 5,
+                time_window_minutes: 2,
+            }),
+        ),
     ];
 
     repo.set_group_rules(&group_id, &rules).await.unwrap();
@@ -208,29 +206,25 @@ async fn test_save_and_load_rate_limit_rules() {
         .unwrap();
 
     let rules = vec![
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit(
-                AuthorHitsMessageRateLimit {
-                    message_count: 3,
-                    time_window_minutes: 1,
-                },
-            ),
-        },
-        ModerationRule {
-            actions: vec![
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+                message_count: 3,
+                time_window_minutes: 1,
+            }),
+        ),
+        message_rule(
+            vec![
                 ModerationAction::ModerateMessage(ModerateMessage {}),
                 ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: false,
                 }),
             ],
-            condition: ModerationCondition::AuthorHitsMessageRateLimit(
-                AuthorHitsMessageRateLimit {
-                    message_count: 10,
-                    time_window_minutes: 60,
-                },
-            ),
-        },
+            ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+                message_count: 10,
+                time_window_minutes: 60,
+            }),
+        ),
     ];
 
     repo.set_group_rules(&group_id, &rules).await.unwrap();
@@ -254,9 +248,9 @@ async fn test_round_trips_line_rate_limit_settings() {
         .await
         .unwrap();
 
-    let rules = vec![ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-        condition: ModerationCondition::All {
+    let rules = vec![message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        ModerationCondition::All {
             conditions: vec![
                 ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
                     line_count: 30,
@@ -274,7 +268,7 @@ async fn test_round_trips_line_rate_limit_settings() {
                 },
             ],
         },
-    }];
+    )];
 
     repo.set_group_rules(&group_id, &rules).await.unwrap();
 
@@ -297,16 +291,16 @@ async fn test_round_trips_group_rate_limit_settings() {
         .unwrap();
 
     let rules = vec![
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::GroupHitsMessageRateLimit(GroupHitsMessageRateLimit {
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::GroupHitsMessageRateLimit(GroupHitsMessageRateLimit {
                 message_count: 50,
                 time_window_minutes: 1,
             }),
-        },
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::Any {
+        ),
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::Any {
                 conditions: vec![
                     ModerationCondition::GroupHitsCharacterRateLimit(GroupHitsCharacterRateLimit {
                         character_count: 10000,
@@ -319,7 +313,7 @@ async fn test_round_trips_group_rate_limit_settings() {
                     }),
                 ],
             },
-        },
+        ),
     ];
 
     repo.set_group_rules(&group_id, &rules).await.unwrap();
@@ -356,10 +350,10 @@ async fn repo_with_group(messenger_group_id: i64) -> (SqliteModerationRepository
 
 async fn assert_round_trips(messenger_group_id: i64, condition: ModerationCondition) {
     let (repo, group_id) = repo_with_group(messenger_group_id).await;
-    let rules = vec![ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+    let rules = vec![message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
         condition,
-    }];
+    )];
 
     repo.set_group_rules(&group_id, &rules).await.unwrap();
 
@@ -595,10 +589,10 @@ async fn test_preserves_sibling_order_within_a_composite() {
 #[tokio::test]
 async fn test_round_trips_the_mode_with_the_rules() {
     let (repo, group_id) = repo_with_group(2010).await;
-    let rules = vec![ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-        condition: ModerationCondition::IsBlank(IsBlank {}),
-    }];
+    let rules = vec![message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        ModerationCondition::IsBlank(IsBlank {}),
+    )];
 
     // A new group notifies its owner until told otherwise.
     assert_eq!(
@@ -630,11 +624,13 @@ async fn test_preserves_rule_order() {
     let (repo, group_id) = repo_with_group(2006).await;
     let rules: Vec<ModerationRule> = ["first", "second", "third", "fourth"]
         .iter()
-        .map(|keyword| ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
-                keywords: vec![(*keyword).to_string()],
-            }),
+        .map(|keyword| {
+            message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::ContainsWords(ContainsWords {
+                    keywords: vec![(*keyword).to_string()],
+                }),
+            )
         })
         .collect();
 
@@ -647,8 +643,8 @@ async fn test_preserves_rule_order() {
 #[tokio::test]
 async fn test_preserves_action_order_within_a_rule() {
     let (repo, group_id) = repo_with_group(2008).await;
-    let rules = vec![ModerationRule {
-        actions: vec![
+    let rules = vec![message_rule(
+        vec![
             ModerationAction::SetAuthorObserver(SetAuthorObserver {
                 duration_minutes: 0,
             }),
@@ -657,10 +653,10 @@ async fn test_preserves_action_order_within_a_rule() {
                 delete_all_messages: false,
             }),
         ],
-        condition: ModerationCondition::ContainsWords(ContainsWords {
+        ModerationCondition::ContainsWords(ContainsWords {
             keywords: vec!["alpha".to_string()],
         }),
-    }];
+    )];
 
     repo.set_group_rules(&group_id, &rules).await.unwrap();
 
@@ -674,14 +670,14 @@ async fn test_preserves_action_order_within_a_rule() {
 #[tokio::test]
 async fn test_replacing_rules_leaves_no_orphan_actions() {
     let (repo, group_id) = repo_with_group(2007).await;
-    let first = vec![ModerationRule {
-        actions: vec![ModerationAction::KickAuthor(KickAuthor {
+    let first = vec![message_rule(
+        vec![ModerationAction::KickAuthor(KickAuthor {
             delete_all_messages: true,
         })],
-        condition: ModerationCondition::ContainsWords(ContainsWords {
+        ModerationCondition::ContainsWords(ContainsWords {
             keywords: vec!["alpha".to_string()],
         }),
-    }];
+    )];
     repo.set_group_rules(&group_id, &first).await.unwrap();
     repo.set_group_rules(&group_id, &first).await.unwrap();
     repo.set_group_rules(&group_id, &first).await.unwrap();
@@ -703,27 +699,30 @@ async fn test_replacing_rules_leaves_no_orphan_actions() {
 async fn test_round_trips_observer_duration() {
     let (repo, group_id) = repo_with_group(2008).await;
     let rules = vec![
-        ModerationRule {
-            actions: vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
+        message_rule(
+            vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                 duration_minutes: 90,
             })],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["alpha".to_string()],
             }),
-        },
-        ModerationRule {
-            actions: vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
+        ),
+        message_rule(
+            vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                 duration_minutes: 0,
             })],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["beta".to_string()],
             }),
-        },
+        ),
     ];
     repo.set_group_rules(&group_id, &rules).await.unwrap();
 
     let loaded = repo.get_group_rules(&group_id).await.unwrap();
-    let actions: Vec<Vec<ModerationAction>> = loaded.into_iter().map(|r| r.actions).collect();
+    let actions: Vec<Vec<ModerationAction>> = loaded
+        .into_iter()
+        .map(|r| RuleDraft::from(r).actions)
+        .collect();
     assert_eq!(
         actions,
         vec![
@@ -823,10 +822,10 @@ async fn test_openai_categories_store_one_row_per_category_that_is_not_off() {
     let (conn, repo, group_id) = openai_repo(2104).await;
     repo.set_group_rules(
         &group_id,
-        &[ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: openai_condition("sk-proj-abc"),
-        }],
+        &[message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            openai_condition("sk-proj-abc"),
+        )],
     )
     .await
     .unwrap();
@@ -868,10 +867,10 @@ async fn test_openai_categories_store_one_row_per_category_that_is_not_off() {
 #[tokio::test]
 async fn test_openai_rows_go_with_replaced_rules_and_with_the_group() {
     let (conn, repo, group_id) = openai_repo(2105).await;
-    let with_openai = [ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-        condition: openai_condition("sk-proj-abc"),
-    }];
+    let with_openai = [message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        openai_condition("sk-proj-abc"),
+    )];
 
     repo.set_group_rules(&group_id, &with_openai).await.unwrap();
     repo.set_group_rules(&group_id, &with_openai).await.unwrap();
@@ -939,10 +938,10 @@ async fn test_round_trips_openrouter_instruction_beside_omni_moderation_in_one_t
 #[tokio::test]
 async fn test_openrouter_instruction_rows_go_with_replaced_rules_and_with_the_group() {
     let (conn, repo, group_id) = openai_repo(2203).await;
-    let rules = [ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-        condition: instructed("sk-or-v1-abc", "openai/gpt-4o-mini"),
-    }];
+    let rules = [message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        instructed("sk-or-v1-abc", "openai/gpt-4o-mini"),
+    )];
 
     repo.set_group_rules(&group_id, &rules).await.unwrap();
     repo.set_group_rules(&group_id, &rules).await.unwrap();
@@ -962,4 +961,186 @@ async fn test_openrouter_instruction_rows_go_with_replaced_rules_and_with_the_gr
         ),
         0
     );
+}
+
+// ---------------------------------------------------------------------------
+// Triggers, names and switches; the conditions on a member's name
+// ---------------------------------------------------------------------------
+
+use crate::domain::moderator::ports::Trigger;
+use crate::domain::moderator::ports::conditions::{
+    MemberNameContainsLinksOutsideList, MemberNameContainsWords,
+};
+use crate::domain::moderator::rules::test_support::{join_rule, named};
+
+fn kick() -> ModerationAction {
+    ModerationAction::KickAuthor(KickAuthor {
+        delete_all_messages: false,
+    })
+}
+
+fn casino() -> ModerationCondition {
+    ModerationCondition::MemberNameContainsWords(MemberNameContainsWords {
+        keywords: vec!["casino".to_string(), "bonus".to_string()],
+    })
+}
+
+// US-E31
+#[tokio::test]
+async fn test_round_trips_the_condition_on_words_in_a_name() {
+    assert_round_trips(3001, casino()).await;
+}
+
+// US-E32
+#[tokio::test]
+async fn test_round_trips_the_condition_on_links_in_a_name() {
+    assert_round_trips(
+        3002,
+        ModerationCondition::MemberNameContainsLinksOutsideList(
+            MemberNameContainsLinksOutsideList {
+                domains: vec!["simplex.chat".to_string(), "example.org".to_string()],
+            },
+        ),
+    )
+    .await;
+    // An empty list is a rule too: any link matches.
+    assert_round_trips(
+        3003,
+        ModerationCondition::MemberNameContainsLinksOutsideList(
+            MemberNameContainsLinksOutsideList { domains: vec![] },
+        ),
+    )
+    .await;
+}
+
+// US-C1, US-G13: a rule's name, its trigger and its switch are stored with it.
+#[tokio::test]
+async fn test_round_trips_a_rules_name_trigger_and_switch() {
+    let (repo, group_id) = repo_with_group(3004).await;
+    let rules = vec![
+        named(
+            message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::ContainsWords(ContainsWords {
+                    keywords: vec!["spam".to_string()],
+                }),
+            ),
+            "Banned words",
+            true,
+        ),
+        named(join_rule(vec![kick()], Some(casino())), "Spam names", false),
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::IsBlank(IsBlank {}),
+        ),
+    ];
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+
+    let loaded = repo.get_group_rules(&group_id).await.unwrap();
+    assert_eq!(loaded, rules);
+    assert_eq!(loaded[0].name.as_deref(), Some("Banned words"));
+    assert_eq!(loaded[1].trigger(), Trigger::MemberJoined);
+    assert!(!loaded[1].enabled);
+    assert_eq!(loaded[2].name, None);
+    assert!(loaded[2].enabled);
+}
+
+// US-D6: a rule for joins may have no condition, which stores no condition row.
+#[tokio::test]
+async fn test_round_trips_a_join_rule_with_no_condition() {
+    let (repo, group_id) = repo_with_group(3005).await;
+    let rules = vec![named(
+        join_rule(
+            vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
+                duration_minutes: 60,
+            })],
+            None,
+        ),
+        "Quarantine newcomers",
+        true,
+    )];
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+    assert_eq!(repo.get_group_rules(&group_id).await.unwrap(), rules);
+    let conn = repo.conn.lock().unwrap();
+    let conditions: i64 = conn
+        .query_row("SELECT COUNT(*) FROM moderation_conditions", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(conditions, 0);
+}
+
+// US-D1, US-D6: one order across both triggers, each trigger's rules keeping theirs.
+#[tokio::test]
+async fn test_preserves_the_order_of_rules_of_both_triggers() {
+    let (repo, group_id) = repo_with_group(3006).await;
+    let message = |keyword: &str| {
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
+                keywords: vec![keyword.to_string()],
+            }),
+        )
+    };
+    let rules = vec![
+        message("a"),
+        join_rule(vec![kick()], None),
+        message("b"),
+        named(join_rule(vec![kick()], Some(casino())), "Names", true),
+    ];
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+    assert_eq!(repo.get_group_rules(&group_id).await.unwrap(), rules);
+}
+
+// US-B4, US-G13: the rules a group has are all handed back, those turned off
+// included — the bot skips them when it checks, it does not forget them.
+#[tokio::test]
+async fn test_a_rule_that_is_off_is_still_in_the_configuration_and_in_the_rules() {
+    let (repo, group_id) = repo_with_group(3007).await;
+    let off = named(join_rule(vec![kick()], None), "Everyone out", false);
+    repo.set_group_rules(&group_id, &[off.clone()])
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.get_group_config(&group_id).await.unwrap().rules,
+        vec![off.clone()]
+    );
+    let owned = repo.get_group_rules_by_messenger_id(&3007).await.unwrap();
+    assert_eq!(owned.len(), 1);
+    assert_eq!(owned[0].rule, off);
+}
+
+// US-C1: replacing the configuration replaces the name-condition rows too.
+#[tokio::test]
+async fn test_replacing_rules_leaves_no_orphan_name_conditions() {
+    let (repo, group_id) = repo_with_group(3008).await;
+    repo.set_group_rules(
+        &group_id,
+        &[
+            join_rule(vec![kick()], Some(casino())),
+            join_rule(
+                vec![kick()],
+                Some(ModerationCondition::MemberNameContainsLinksOutsideList(
+                    MemberNameContainsLinksOutsideList {
+                        domains: vec!["a.com".to_string()],
+                    },
+                )),
+            ),
+        ],
+    )
+    .await
+    .unwrap();
+    repo.set_group_rules(&group_id, &[]).await.unwrap();
+    for table in [
+        "moderation_condition__member_name_contains_words__keywords",
+        "moderation_condition__member_name_contains_links_outside_list__domains",
+    ] {
+        let conn = repo.conn.lock().unwrap();
+        let rows: i64 = conn
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(rows, 0, "{table}");
+    }
 }

@@ -8,22 +8,23 @@ use std::time::Duration;
 
 use super::types::{
     ApiRetry, Err, Group, GroupConfig, GroupId, GroupMemberRole, GroupMode,
-    InstructionContextMessage, KeyCheck, MessageId, MessengerGroupId, ModerationAction,
+    InstructionContextMessage, KeyCheck, MessageId, MessengerGroupId, ModerationReport,
     OpenAiModerationResult, OpenRouterInstructionVerdict, OwnedModerationRule, RecentGroupMessage,
     ScheduledMemberRestore, UserId,
 };
 
-/// Outbound port: notify a group owner of the actions a message called for —
-/// carried out, or only reported, as the group's mode says.
+/// Outbound port: notify a group owner of the actions the rules called for —
+/// carried out, or only reported, as the group's mode says (`group.mode`).
+/// Never called for a group in the mode `Silent`.
 #[async_trait]
 pub trait ModerationNotifier: Send + Sync {
-    async fn notify_moderation_action(
+    /// A member's message matched (US-D2, US-D4), or someone who joined did
+    /// (US-D6), as `report.event` says.
+    async fn notify_moderation(
         &self,
         user_id: UserId,
         group: &Group,
-        actions: &[ModerationAction],
-        message: &str,
-        reasons: &[String],
+        report: &ModerationReport,
     ) -> Result<(), Err>;
 }
 

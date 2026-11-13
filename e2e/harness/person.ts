@@ -33,12 +33,21 @@ export class Person {
     public bot = 0,
   ) {}
 
-  /** A new person, not yet connected to the bot. */
-  static async create(name: string): Promise<Person> {
+  /**
+   * A new person, not yet connected to the bot. Their display name is `name`
+   * made unique: the token goes where `{}` is in it, or at its end. A name
+   * with spaces (`Free Casino Bonus`) is a display name with spaces, as
+   * SimpleX allows; `fullName` is the profile's full name.
+   */
+  static async create(name: string, fullName = ''): Promise<Person> {
     const c = await shared();
-    const unique = `${name}${++count}x${Date.now() % 100000}`;
+    const token = `${++count}x${Date.now() % 100000}`;
+    const unique = name.includes('{}') ? name.replace('{}', token) : `${name}${token}`;
     const events = c.listen(unique);
-    const created = await c.command(`/create user ${unique}`);
+    const plain = !/\s/.test(unique) && fullName === '';
+    const created = await c.command(
+      plain ? `/create user ${unique}` : `/_create user ${JSON.stringify({ profile: { displayName: unique, fullName }, pastTimestamp: false })}`,
+    );
     if (created.type !== 'activeUser') throw new Error(`create ${unique}: ${JSON.stringify(created)}`);
     return new Person(c, unique, created.user.userId, events);
   }
@@ -58,10 +67,9 @@ export class Person {
     this.bot = connected.contact.contactId;
   }
 
-  private links = new Map<number, string>();
-
   private async activate() {
-    const r = await this.cli.command(`/user ${this.name}`);
+    // A name with spaces cannot be typed as a command: the user's id can.
+    const r = await this.cli.command(/\s/.test(this.name) ? `/_user ${this.userId}` : `/user ${this.name}`);
     if (r.type !== 'activeUser') throw new Error(`activate ${this.name}: ${JSON.stringify(r)}`);
   }
 
@@ -153,15 +161,57 @@ export class Person {
     return { group, link };
   }
 
-  /** A link to join the group as a member; a group has one, made the first time. */
-  async groupLink(group: number): Promise<string> {
-    const made = this.links.get(group);
-    if (made) return made;
+  /** The other people this person is connected to, by name: their contact ids in this person's CLI. */
+  private contacts = new Map<string, number>();
+
+  /** Connects two people as contacts of each other, which adding one to a group the other is in needs. */
+  async befriend(other: Person) {
     await this.activate();
-    const r = await this.cli.command(`/_create link #${group} member`);
+    const r = await this.cli.command('/connect');
+    const link = JSON.stringify(r).match(/"connShortLink":"([^"]+)"/) || JSON.stringify(r).match(/"connFullLink":"([^"]+)"/);
+    if (!link) throw new Error(`invitation: ${JSON.stringify(r)}`);
+    await other.activate();
+    const sent = await other.cli.command(`/c ${link[1]}`);
+    if (sent.type !== 'sentConfirmation' && sent.type !== 'sentInvitation') throw new Error(`accept the invitation: ${JSON.stringify(sent)}`);
+    this.contacts.set(other.name, (await this.until((e) => e.type === 'contactConnected')).contact.contactId);
+    other.contacts.set(this.name, (await other.until((e) => e.type === 'contactConnected')).contact.contactId);
+  }
+
+  /** Adds a contact of this person's to the group with `role`, as a member or an owner adds someone: they are asked to join, with `acceptInvitation`. */
+  async addToGroup(group: number, other: Person, role = 'member') {
+    await this.activate();
+    const id = this.contacts.get(other.name);
+    if (id === undefined) throw new Error(`${this.name} is not connected to ${other.name}`);
+    const r = await this.cli.command(`/_add #${group} ${id} ${role}`);
+    if (r.type !== 'sentGroupInvitation') throw new Error(`add to the group: ${JSON.stringify(r)}`);
+  }
+
+  /** Accepts the invitation to a group; returns its id in this person's CLI once they are in. What the bot does to them next is still to be seen with `seesInGroup`. */
+  async acceptInvitation(): Promise<number> {
+    const invitation = await this.until((e) => e.type === 'receivedGroupInvitation');
+    await this.activate();
+    const r = await this.cli.command(`/_join #${invitation.groupInfo.groupId}`);
+    if (r.type === 'chatCmdError') throw new Error(`join: ${JSON.stringify(r)}`);
+    const joined = await this.until((e) => e.type === 'userJoinedGroup');
+    return joined.groupInfo.groupId;
+  }
+
+  /** The links made so far: a group has one, with the role it was last given. */
+  private groupLinks = new Map<number, { link: string; role: string }>();
+
+  /**
+   * The link to join the group with `role`, a member or an observer (SimpleX has
+   * no other): a group has one link, made the first time and given the role asked
+   * for each time after.
+   */
+  async groupLink(group: number, role = 'member'): Promise<string> {
+    await this.activate();
+    const made = this.groupLinks.get(group);
+    if (made?.role === role) return made.link;
+    const r = await this.cli.command(made ? `/_set link role #${group} ${role}` : `/_create link #${group} ${role}`);
     const link = JSON.stringify(r).match(/"connShortLink":"([^"]+)"/) || JSON.stringify(r).match(/"connFullLink":"([^"]+)"/);
     if (!link) throw new Error(`group link: ${JSON.stringify(r)}`);
-    this.links.set(group, link[1]);
+    this.groupLinks.set(group, { link: link[1], role });
     return link[1];
   }
 
@@ -172,6 +222,19 @@ export class Person {
     if (r.type !== 'sentInvitation' && r.type !== 'sentConfirmation') throw new Error(`join: ${JSON.stringify(r)}`);
     const joined = await this.until((e) => e.type === 'userJoinedGroup');
     await this.until((e) => e.type === 'connectedToGroupMember', PATIENCE).catch(() => undefined);
+    return joined.groupInfo.groupId;
+  }
+
+  /**
+   * Joins a group by its link and returns its id as soon as this person is in:
+   * what the bot does to them next (a role changed, their removal) is still to
+   * be seen with `seesInGroup`, which `joinGroup` would have read past.
+   */
+  async joinGroupAndWatch(link: string): Promise<number> {
+    await this.activate();
+    const r = await this.cli.command(`/c ${link}`);
+    if (r.type !== 'sentInvitation' && r.type !== 'sentConfirmation') throw new Error(`join: ${JSON.stringify(r)}`);
+    const joined = await this.until((e) => e.type === 'userJoinedGroup');
     return joined.groupInfo.groupId;
   }
 
@@ -237,7 +300,9 @@ export class Person {
       if (left <= 0) return;
       const e = await this.events.next(left);
       if (!e) return;
-      if (['chatItemsDeleted', 'memberRole', 'deletedMemberUser'].includes(e.type)) throw new Error(`${this.name}: expected nothing, saw ${e.type}`);
+      if (['chatItemsDeleted', 'deletedMemberUser'].includes(e.type)) throw new Error(`${this.name}: expected nothing, saw ${e.type}`);
+      // Another member's role changing is not something that happens to this person.
+      if (e.type === 'memberRole' && e.member?.groupMemberId === e.groupInfo?.membership?.groupMemberId) throw new Error(`${this.name}: expected nothing, saw ${e.type}`);
       if (e.type === 'newChatItems')
         for (const item of e.chatItems)
           if (item.chatInfo?.type === 'direct' && item.chatItem?.content?.type === 'rcvMsgContent')
@@ -252,8 +317,9 @@ export function botId(link: string): string {
 }
 
 /** The editor link carrying `config` for the bot's group `id`, as the editor copies it. */
-export function settingsLink(id: string, config: unknown): string {
-  return `[Settings for group ${id}](${EDITOR}/#bot_id=${id}&config=${LZ.compressToEncodedURIComponent(JSON.stringify(config))})`;
+export function settingsLink(id: string, config: unknown, group?: string): string {
+  const named = group === undefined ? '' : `&group=${encodeURIComponent(group)}`;
+  return `[Settings for ${group ?? `group ${id}`}](${EDITOR}/#bot_id=${id}${named}&config=${LZ.compressToEncodedURIComponent(JSON.stringify(config))})`;
 }
 
 /** The configuration in an editor link. */

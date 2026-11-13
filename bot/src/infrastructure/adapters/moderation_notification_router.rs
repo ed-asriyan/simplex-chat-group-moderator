@@ -2,12 +2,13 @@ use async_trait::async_trait;
 use std::sync::{Arc, OnceLock};
 
 use crate::domain::bot_dm::ports::{
-    Group as BotDmGroup, ModerationAction as BotDmAction, ModerationNotificationReceiver,
+    Group as BotDmGroup, ModerationAction as BotDmAction, ModerationNotification,
+    ModerationNotificationReceiver, RuleReason as BotDmRuleReason, TriggerEvent,
 };
 use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
 use crate::domain::moderator::ports::{
     Err as ModErr, Group as ModGroup, ModerationAction as ModAction, ModerationNotifier,
-    UserId as ModUserId,
+    ModerationReport, TriggerEvent as ModTriggerEvent, UserId as ModUserId,
 };
 
 /// Bridges the `moderator` bounded context to the `bot_dm` bounded context by
@@ -36,13 +37,11 @@ impl ModerationNotificationRouter {
 
 #[async_trait]
 impl ModerationNotifier for ModerationNotificationRouter {
-    async fn notify_moderation_action(
+    async fn notify_moderation(
         &self,
         user_id: ModUserId,
         group: &ModGroup,
-        actions: &[ModAction],
-        message: &str,
-        reasons: &[String],
+        report: &ModerationReport,
     ) -> Result<(), ModErr> {
         let receiver = self
             .receiver
@@ -52,7 +51,8 @@ impl ModerationNotifier for ModerationNotificationRouter {
             id: group.id,
             name: group.name.clone(),
         };
-        let bot_dm_actions: Vec<BotDmAction> = actions
+        let bot_dm_actions: Vec<BotDmAction> = report
+            .actions
             .iter()
             .map(|action| match action {
                 ModAction::ModerateMessage(ModerateMessage {}) => BotDmAction::ModerateMessage,
@@ -68,15 +68,27 @@ impl ModerationNotifier for ModerationNotificationRouter {
                 },
             })
             .collect();
+        let notification = ModerationNotification {
+            event: match &report.event {
+                ModTriggerEvent::MessagePosted { message } => TriggerEvent::MessagePosted {
+                    message: message.clone(),
+                },
+                ModTriggerEvent::MemberJoined => TriggerEvent::MemberJoined,
+            },
+            performed: group.mode.executes_actions(),
+            member_name: report.member_name.clone(),
+            actions: bot_dm_actions,
+            reasons: report
+                .reasons
+                .iter()
+                .map(|r| BotDmRuleReason {
+                    rule_name: r.rule_name.clone(),
+                    reason: r.reason.clone(),
+                })
+                .collect(),
+        };
         receiver
-            .send_moderation_notification(
-                user_id,
-                &bot_dm_group,
-                &bot_dm_actions,
-                group.mode.executes_actions(),
-                message,
-                reasons,
-            )
+            .send_moderation_notification(user_id, &bot_dm_group, &notification)
             .await
             .map_err(|e| -> ModErr { e.to_string().into() })
     }

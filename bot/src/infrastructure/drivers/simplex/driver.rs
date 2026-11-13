@@ -57,6 +57,8 @@ pub enum SimplexEvent {
         author_id: UserId,
         /// The name the author chose for themselves, as other members see it.
         author_name: String,
+        /// The full name of the author's profile, empty when they set none.
+        author_full_name: String,
         message_id: MessageId,
         timestamp: DateTime<Utc>,
         text: String,
@@ -68,6 +70,20 @@ pub enum SimplexEvent {
         /// `timestamp` is then when the edit was made, not when the original
         /// was sent.
         is_edit: bool,
+    },
+    /// Someone joined a group the bot is in, by its link or added by another
+    /// member. Only those joining as a member or an observer: a moderator, an
+    /// admin or an owner joining is no event for the bot, as their messages are
+    /// none.
+    MemberJoined {
+        group_id: GroupId,
+        group_name: String,
+        member_id: UserId,
+        /// The name the member chose for themselves, as other members see it.
+        display_name: String,
+        /// The full name of their profile, empty when they set none.
+        full_name: String,
+        timestamp: DateTime<Utc>,
     },
     Connected {
         user_id: UserId,
@@ -402,6 +418,28 @@ async fn handle_event(
         Event::GroupDeleted(group) => Ok(vec![SimplexEvent::RemovedFromGroup {
             group_id: group.group_info.group_id,
         }]),
+        // The bot is told of a newcomer when its own connection to them is up,
+        // so it can act on them; `Post` is a member who came after the bot,
+        // not one it met when it joined.
+        Event::ConnectedToGroupMember(joined) => {
+            if matches!(joined.member.member_category, GroupMemberCategory::Post)
+                && matches!(
+                    joined.member.member_role,
+                    GroupMemberRole::Member | GroupMemberRole::Observer
+                )
+            {
+                Ok(vec![SimplexEvent::MemberJoined {
+                    group_id: joined.group_info.group_id,
+                    group_name: joined.group_info.group_profile.display_name.clone(),
+                    member_id: joined.member.group_member_id,
+                    display_name: joined.member.member_profile.display_name.clone(),
+                    full_name: joined.member.member_profile.full_name.clone(),
+                    timestamp: parse_utc_time(&joined.member.created_at),
+                }])
+            } else {
+                Ok(vec![])
+            }
+        }
         Event::ContactConnected(connected) => Ok(vec![SimplexEvent::Connected {
             user_id: connected.contact.contact_id,
         }]),
@@ -490,6 +528,10 @@ async fn handle_event(
                                             .member_profile
                                             .display_name
                                             .clone(),
+                                        author_full_name: group_member
+                                            .member_profile
+                                            .full_name
+                                            .clone(),
                                         group_name: group_info.group_profile.display_name.clone(),
                                         message_id: chat_item.chat_item.meta.item_id,
                                         text: content.text,
@@ -530,6 +572,7 @@ async fn handle_event(
                         group_id: group_info.group_id,
                         author_id: group_member.group_member_id,
                         author_name: group_member.member_profile.display_name.clone(),
+                        author_full_name: group_member.member_profile.full_name.clone(),
                         group_name: group_info.group_profile.display_name.clone(),
                         message_id: chat_item.chat_item.chat_item.meta.item_id,
                         text: content.text,

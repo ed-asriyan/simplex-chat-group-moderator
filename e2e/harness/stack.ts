@@ -97,7 +97,9 @@ export function setNow(at: Date) {
   const last = new Date(state().now);
   if (at < last) throw new Error(`the clock moves forward only: ${at.toISOString()} is before ${last.toISOString()}`);
   const offset = Math.round((at.getTime() - Date.now()) / 1000);
-  fs.writeFileSync(CLOCK_FILE, `${offset >= 0 ? '+' : ''}${offset}`);
+  // Replaced whole: libfaketime reads the file at any moment, and a half-written one stops the CLI.
+  fs.writeFileSync(`${CLOCK_FILE}.tmp`, `${offset >= 0 ? '+' : ''}${offset}`);
+  fs.renameSync(`${CLOCK_FILE}.tmp`, CLOCK_FILE);
   fs.writeFileSync(STATE_FILE, JSON.stringify({ ...state(), now: at.toISOString() }));
 }
 

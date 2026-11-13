@@ -5,8 +5,8 @@ mod filter;
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext, Needs};
-use crate::domain::moderator::ports::Err;
+use super::{Condition, ConditionContext, Needs, ConditionOn};
+use crate::domain::moderator::ports::{Err, GroupMessage};
 use crate::domain::moderator::rules::common::rate_limit;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -29,7 +29,6 @@ pub struct AuthorHitsLineRateLimit {
     pub chars_per_line: u32,
 }
 
-#[async_trait]
 impl Condition for AuthorHitsLineRateLimit {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
         Ok(())
@@ -41,22 +40,24 @@ impl Condition for AuthorHitsLineRateLimit {
             self.line_count, self.time_window_minutes
         )
     }
+    fn needs(&self) -> Needs {
+        Needs::author_lines(self.time_window_minutes, self.chars_per_line)
+    }
+}
 
-    async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
+#[async_trait]
+impl ConditionOn<GroupMessage> for AuthorHitsLineRateLimit {
+    async fn should_moderate(&self, ctx: &ConditionContext<'_, GroupMessage>) -> Result<Option<String>, Err> {
         // The wrap width is not read here: it did its work when the message was
         // counted into the window.
         filter::check(
             ctx.ports.line_activity_repo,
-            &ctx.group_message.group.id,
-            &ctx.group_message.author_id,
+            &ctx.subject.group.id,
+            &ctx.subject.author_id,
             self.line_count,
             self.time_window_minutes,
-            ctx.group_message.timestamp,
+            ctx.subject.timestamp,
         )
         .await
-    }
-
-    fn needs(&self) -> Needs {
-        Needs::author_lines(self.time_window_minutes, self.chars_per_line)
     }
 }

@@ -1,12 +1,11 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Group Settings",
-    "description": "**1️⃣ Choose the group's mode. 2️⃣ Pick a rule in the list, or add a new one, and for each rule set the 🔎 Condition — what to detect — and the ⚡ Actions — what the bot does when a message matches. 3️⃣ When you're done, press \"Apply changes\" and send the copied link back to the bot.**",
     "definitions": {
         "action": {
             "type": "object",
             "title": "⚡ Action",
-            "description": "One thing the bot does when a message matches this rule.",
+            "description": "One thing the bot does when this rule matches.",
             "options": {
                 "disable_collapse": true
             },
@@ -14,7 +13,7 @@
                 {
                     "type": "object",
                     "title": "🗑 Moderate the message",
-                    "description": "Marks the message as moderated. The bot must have the **Moderator or higher** role in the group to perform this action.",
+                    "description": "Marks the message as moderated. The bot must have the **Moderator or higher** role in the group to perform this action. It works only in rules for when a member posts.",
                     "required": [
                         "type"
                     ],
@@ -39,13 +38,16 @@
                                     "delete_all_messages": true
                                 }
                             }
+                        ],
+                        "triggers": [
+                            "message_posted"
                         ]
                     }
                 },
                 {
                     "type": "object",
-                    "title": "👁 Set author as observer",
-                    "description": "Sets the author to the observer role, so they can read the group but not write to it. The bot must have the **Admin or higher** role in the group to perform this action. _The message that triggered the rule stays in the group — add the 🗑 *Moderate the message* action next to this one if it should be removed too._",
+                    "title": "👁 Set the member as observer",
+                    "description": "Sets the member — the message's author, or the person who joined — to the observer role, so they can read the group but not write to it. The bot must have the **Admin or higher** role in the group to perform this action. _A message that triggered the rule stays in the group — add the 🗑 *Moderate the message* action next to this one if it should be removed too._",
                     "required": [
                         "type",
                         "duration_minutes"
@@ -62,13 +64,13 @@
                         },
                         "duration_minutes": {
                             "type": "integer",
-                            "title": "Restore the author to member after this many minutes",
+                            "title": "Restore them to member after this many minutes",
                             "default": 0,
                             "minimum": 0,
                             "maximum": 43200,
-                            "description": "0 keeps the author an observer until you change their role by hand. The maximum is 43200 minutes (30 days).",
+                            "description": "0 keeps them an observer until you change their role by hand. The maximum is 43200 minutes (30 days).",
                             "options": {
-                                "label": "Restore author to member after (minutes)"
+                                "label": "Restore them to member after (minutes)"
                             }
                         }
                     },
@@ -78,13 +80,17 @@
                             "KickAuthor"
                         ],
                         "summary": "{duration_minutes?$ min:indefinitely}",
-                        "phrase": "observer"
+                        "phrase": "observer",
+                        "triggers": [
+                            "message_posted",
+                            "member_joined"
+                        ]
                     }
                 },
                 {
                     "type": "object",
-                    "title": "🚪 Kick the author",
-                    "description": "Kicks the author from the group. The bot must have the **Owner** role in the group to perform this action. _With **Also delete every message** left off, the message that triggered the rule stays in the group — add the 🗑 Moderate the message action next to this one if it should be removed too. With it on, the author's messages are deleted, that one included, and adding 🗑 Moderate the message changes nothing: the bot drops it as already covered._",
+                    "title": "🚪 Kick the member",
+                    "description": "Removes the member — the message's author, or the person who joined — from the group. The bot must have the **Owner** role in the group to perform this action. _With **Also delete every message** left off, a message that triggered the rule stays in the group — add the 🗑 Moderate the message action next to this one if it should be removed too. With it on, the member's messages are deleted, that one included, and adding 🗑 Moderate the message changes nothing: the bot drops it as already covered._",
                     "required": [
                         "type",
                         "delete_all_messages"
@@ -101,24 +107,28 @@
                         },
                         "delete_all_messages": {
                             "type": "boolean",
-                            "title": "Also delete every message the author has ever sent in this group",
+                            "title": "Also delete every message the member has ever sent in this group",
                             "format": "checkbox",
                             "default": false,
-                            "description": "Deletes the author's whole history in this group, the message that triggered the rule included. Left off, the author leaves and their messages stay."
+                            "description": "Deletes the member's whole history in this group, the message that triggered the rule included. Left off, they leave and their messages stay."
                         }
                     },
                     "options": {
                         "execution_rank": 3,
                         "summary": "{delete_all_messages?+ delete history:}",
-                        "phrase": "kick"
+                        "phrase": "kick",
+                        "triggers": [
+                            "message_posted",
+                            "member_joined"
+                        ]
                     }
                 }
             ]
         },
         "condition": {
             "type": "object",
-            "title": "🔎 Condition",
-            "description": "What the bot looks for in a message.",
+            "title": "🔎 If",
+            "description": "What the bot looks for: in the message, in the member who posted it or joined, or in the group.",
             "options": {
                 "disable_collapse": true,
                 "max_depth": 8,
@@ -154,13 +164,17 @@
                                 "title": "Word/Phrase",
                                 "maxLength": 100
                             },
-                            "maxItems": 10000
+                            "maxItems": 10000,
+                            "description": "The words and phrases to look for, one per entry. Each is found as a whole word, however it is disguised."
                         }
                     },
                     "options": {
                         "summary": "{keywords|list}",
                         "phrase": "contains one of {keywords|n} words",
-                        "short": "Contains a listed word"
+                        "short": "Contains a listed word",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -186,7 +200,8 @@
                             "type": "boolean",
                             "format": "checkbox",
                             "title": "Case sensitive",
-                            "default": false
+                            "default": false,
+                            "description": "Off, capital and small letters count as the same."
                         },
                         "messages": {
                             "type": "array",
@@ -199,13 +214,17 @@
                                 "title": "Text",
                                 "maxLength": 1000
                             },
-                            "maxItems": 10000
+                            "maxItems": 10000,
+                            "description": "The texts to compare with the whole message, one per entry."
                         }
                     },
                     "options": {
                         "summary": "{messages|n} texts · {case_sensitive?case-sensitive:any case}",
                         "phrase": "exactly matches one of {messages|n} texts",
-                        "short": "Exactly matches a listed text"
+                        "short": "Exactly matches a listed text",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -237,13 +256,17 @@
                                 "title": "Pattern",
                                 "maxLength": 200
                             },
-                            "maxItems": 100
+                            "maxItems": 100,
+                            "description": "Regex patterns in Rust `regex` syntax, one per entry, matched against the raw text."
                         }
                     },
                     "options": {
                         "summary": "{patterns|n} patterns",
                         "phrase": "matches a regex pattern",
-                        "short": "Matches a regex pattern"
+                        "short": "Matches a regex pattern",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -284,7 +307,10 @@
                     "options": {
                         "summary": "≥{min_repeats}× of ≥{min_length} chars",
                         "phrase": "contains a repeated sequence",
-                        "short": "Contains a repeated sequence"
+                        "short": "Contains a repeated sequence",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -323,7 +349,10 @@
                     "options": {
                         "summary": "{domains|list}",
                         "phrase": "contains a link to a listed website",
-                        "short": "Link to a listed website"
+                        "short": "Link to a listed website",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -360,7 +389,10 @@
                     "options": {
                         "summary": "outside {domains|n} domains",
                         "phrase": "contains a link to a website outside the list",
-                        "short": "Link outside this list"
+                        "short": "Link outside this list",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -397,7 +429,10 @@
                     "options": {
                         "summary": "top 100 + {domains|n} extra",
                         "phrase": "contains a link outside the top 100 websites",
-                        "short": "Link outside top 100"
+                        "short": "Link outside top 100",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -419,7 +454,10 @@
                         }
                     },
                     "options": {
-                        "phrase": "is empty or blank and carries no attachment"
+                        "phrase": "is empty or blank and carries no attachment",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -441,7 +479,10 @@
                         }
                     },
                     "options": {
-                        "phrase": "contains invisible characters"
+                        "phrase": "contains invisible characters",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -464,7 +505,10 @@
                     },
                     "options": {
                         "phrase": "contains an image",
-                        "short": "Contains an image"
+                        "short": "Contains an image",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -487,7 +531,10 @@
                     },
                     "options": {
                         "phrase": "contains a video",
-                        "short": "Contains a video"
+                        "short": "Contains a video",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -510,13 +557,16 @@
                     },
                     "options": {
                         "phrase": "contains a voice message",
-                        "short": "Contains a voice message"
+                        "short": "Contains a voice message",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
                     "type": "object",
                     "title": "📎 Message Contains a File",
-                    "description": "Matches any message that carries a file attachment other than a picture, video or voice message \u2014 those have conditions of their own. A caption sent with it is the message text.",
+                    "description": "Matches any message that carries a file attachment other than a picture, video or voice message — those have conditions of their own. A caption sent with it is the message text.",
                     "required": [
                         "type"
                     ],
@@ -533,7 +583,10 @@
                     },
                     "options": {
                         "phrase": "contains a file",
-                        "short": "Contains a file"
+                        "short": "Contains a file",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -565,7 +618,10 @@
                     "options": {
                         "summary": "> {max_characters} chars",
                         "phrase": "has more than {max_characters} characters",
-                        "short": "Exceeds max characters"
+                        "short": "Exceeds max characters",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -597,7 +653,10 @@
                     "options": {
                         "summary": "> {max_words} words",
                         "phrase": "has more than {max_words} words",
-                        "short": "Exceeds max words"
+                        "short": "Exceeds max words",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -637,7 +696,10 @@
                     "options": {
                         "summary": "> {max_lines} lines @ {chars_per_line} cpl",
                         "phrase": "has more than {max_lines} lines",
-                        "short": "Exceeds max lines"
+                        "short": "Exceeds max lines",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -678,7 +740,10 @@
                     "options": {
                         "summary": "{message_count} msg / {time_window_minutes} min",
                         "phrase": "author sent at least {message_count} messages in {time_window_minutes} min",
-                        "short": "Message rate limit"
+                        "short": "Message rate limit",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -719,7 +784,10 @@
                     "options": {
                         "summary": "{character_count} chars / {time_window_minutes} min",
                         "phrase": "author sent at least {character_count} characters in {time_window_minutes} min",
-                        "short": "Character rate limit"
+                        "short": "Character rate limit",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -768,7 +836,10 @@
                     "options": {
                         "summary": "{line_count} lines / {time_window_minutes} min @ {chars_per_line} cpl",
                         "phrase": "author sent at least {line_count} lines in {time_window_minutes} min",
-                        "short": "Line rate limit"
+                        "short": "Line rate limit",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -810,7 +881,10 @@
                         "summary": "{message_count} moderated / {time_window_minutes} min",
                         "phrase": "author had at least {message_count} messages moderated in {time_window_minutes} min",
                         "never_under_not": true,
-                        "short": "Moderation rate limit"
+                        "short": "Moderation rate limit",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -842,7 +916,96 @@
                     "options": {
                         "summary": "< {time_window_minutes} min ago",
                         "phrase": "author joined less than {time_window_minutes} min ago",
-                        "short": "Joined recently"
+                        "short": "Joined recently",
+                        "triggers": [
+                            "message_posted"
+                        ]
+                    }
+                },
+                {
+                    "type": "object",
+                    "title": "👤 Member's Name Contains Any of These Words",
+                    "description": "Matches when the member's name — the display name or the full name of their SimpleX profile — contains any of the listed words or phrases. In a rule for when a member posts, it reads the name of the message's author; in a rule for when someone joins, the name of the person who joins. Words are found as in **Message Contains Any of These Words**: whole words only, never a substring, however they are disguised (capitals, leet-speak, look-alike letters, spaced-out or flooded letters).",
+                    "required": [
+                        "type",
+                        "keywords"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "MemberNameContainsWords",
+                            "default": "MemberNameContainsWords",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "keywords": {
+                            "type": "array",
+                            "title": "Words / Phrases",
+                            "description": "The words and phrases to look for in the name, one per entry.",
+                            "options": {
+                                "disable_collapse": true
+                            },
+                            "items": {
+                                "type": "string",
+                                "title": "Word/Phrase",
+                                "maxLength": 100
+                            },
+                            "maxItems": 10000
+                        }
+                    },
+                    "options": {
+                        "summary": "{keywords|list}",
+                        "phrase": "name contains one of {keywords|n} words",
+                        "short": "Name contains a listed word",
+                        "triggers": [
+                            "message_posted",
+                            "member_joined"
+                        ]
+                    }
+                },
+                {
+                    "type": "object",
+                    "title": "👤 Member's Name Contains a Link Outside This List",
+                    "description": "Matches when the member's name — the display name or the full name of their SimpleX profile — holds a link to a website that is NOT in the list, obfuscated links like `spam [dot] com` included. In a rule for when a member posts, it reads the name of the message's author; in a rule for when someone joins, the name of the person who joins. Leave the list empty to match a name with ANY link.",
+                    "required": [
+                        "type",
+                        "domains"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "MemberNameContainsLinksOutsideList",
+                            "default": "MemberNameContainsLinksOutsideList",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "domains": {
+                            "type": "array",
+                            "title": "Websites",
+                            "description": "Websites a name may link to (e.g., `simplex.chat`); a domain covers its subdomains. Leave the list empty to match any link.",
+                            "options": {
+                                "disable_collapse": true
+                            },
+                            "items": {
+                                "type": "string",
+                                "title": "Domain",
+                                "maxLength": 100
+                            },
+                            "maxItems": 10000
+                        }
+                    },
+                    "options": {
+                        "summary": "outside {domains|n} domains",
+                        "phrase": "name links to a website outside the list",
+                        "short": "Name links outside this list",
+                        "triggers": [
+                            "message_posted",
+                            "member_joined"
+                        ]
                     }
                 },
                 {
@@ -883,7 +1046,10 @@
                     "options": {
                         "summary": "{message_count} msg / {time_window_minutes} min",
                         "phrase": "group received at least {message_count} messages in {time_window_minutes} min",
-                        "short": "Group message rate limit"
+                        "short": "Group message rate limit",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -924,7 +1090,10 @@
                     "options": {
                         "summary": "{character_count} chars / {time_window_minutes} min",
                         "phrase": "group received at least {character_count} characters in {time_window_minutes} min",
-                        "short": "Group character rate limit"
+                        "short": "Group character rate limit",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -973,7 +1142,10 @@
                     "options": {
                         "summary": "{line_count} lines / {time_window_minutes} min @ {chars_per_line} cpl",
                         "phrase": "group received at least {line_count} lines in {time_window_minutes} min",
-                        "short": "Group line rate limit"
+                        "short": "Group line rate limit",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -1348,13 +1520,16 @@
                         }
                     },
                     "options": {
-                        "phrase": "flagged by OpenAI Omni"
+                        "phrase": "flagged by OpenAI Omni",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
                     "type": "object",
                     "title": "💬 Flagged by OpenRouter Instruction",
-                    "description": "Sends the text of each message this condition checks, together with **your instruction** and, if you ask for them, the messages posted just before it, to a model of your choice through [OpenRouter](https://openrouter.ai) with **your own** OpenRouter API key, and matches when the model answers that the message is what the instruction describes. The model also says why in one sentence, and that sentence is what the moderation notification shows. Pictures are not sent, and a message without text is never checked. The text leaves SimpleX's end-to-end encryption and is processed by OpenRouter and the provider it routes the model to; the bot only lets OpenRouter pick providers that do not keep the text to train on. If OpenRouter cannot be reached or gives no clear answer, the condition does not match.\n\n**Setting it up:** 1) sign up at [openrouter.ai](https://openrouter.ai); 2) buy credits on the [Credits page](https://openrouter.ai/settings/credits) — they are prepaid, so leave auto top-up off and load only what you are ready to spend; 3) on the [API Keys page](https://openrouter.ai/settings/keys) create a key for this bot alone and give it a **credit limit**: OpenRouter stops the key once it has spent that much; 4) paste the key below and pick a model. Every checked message is billed to your credits at that model's price — compare them in [OpenRouter's model list, cheapest first](https://openrouter.ai/models?supported_parameters=structured_outputs&order=pricing-low-to-high). When the credits or the key's limit run out, the condition simply stops matching.\n\nThe OpenAI and Anthropic models sit behind OpenRouter's own moderation: a message it flags as abusive never reaches the model, and this condition does not match it. If your instruction is about abuse, pick a Google, Mistral or Meta model, or use **Flagged by OpenAI Omni** instead.\n\nInside **All of These Conditions Match (AND)**, put this condition last: the others are checked first, and OpenRouter is only asked when they all match.",
+                    "description": "Sends the text of each message this condition checks, together with **your instruction** and, if you ask for them, the messages posted just before it, to a model of your choice through [OpenRouter](https://openrouter.ai) with **your own** OpenRouter API key, and matches when the model answers that the message is what the instruction describes. The model also says why in one sentence, and that sentence is what the moderation notification shows. Pictures are not sent, and a message without text is never checked. The text leaves SimpleX's end-to-end encryption and is processed by OpenRouter and the provider it routes the model to; the bot only lets OpenRouter pick providers that do not keep the text to train on. If OpenRouter cannot be reached or gives no clear answer, the condition does not match.\n\n**Setting it up:** 1) sign up at [openrouter.ai](https://openrouter.ai); 2) buy credits on the [Credits page](https://openrouter.ai/settings/credits) — they are prepaid, so leave auto top-up off and load only what you are ready to spend; 3) on the [API Keys page](https://openrouter.ai/settings/keys) create a key for this bot alone and give it a **credit limit**: OpenRouter stops the key once it has spent that much; 4) paste the key below and pick a model. Every checked message is billed to your credits at that model's price — compare them in [OpenRouter's model list, cheapest first](https://openrouter.ai/models?supported_parameters=structured_outputs&order=pricing-low-to-high). When the credits or the key's limit run out, the condition simply stops matching.\n\nThe OpenAI and Anthropic models sit behind OpenRouter's own moderation: a message it flags as abusive never reaches the model, and this condition does not match it. If your instruction is about abuse, pick a Google, Mistral or Meta model, or use **Flagged by OpenAI Omni** instead.\n\nInside **All of These Conditions Match (AND)**, OpenRouter is only asked once the other conditions match.",
                     "required": [
                         "type",
                         "api_key",
@@ -1467,7 +1642,10 @@
                     },
                     "options": {
                         "summary": "{model}{context_messages? · $ earlier:}",
-                        "phrase": "flagged by OpenRouter instruction ({model})"
+                        "phrase": "flagged by OpenRouter instruction ({model})",
+                        "triggers": [
+                            "message_posted"
+                        ]
                     }
                 },
                 {
@@ -1503,7 +1681,11 @@
                     "options": {
                         "summary": "{conditions|n} conditions",
                         "phrase": "all of ({conditions|phrases})",
-                        "short": "All of these (AND)"
+                        "short": "All of these (AND)",
+                        "triggers": [
+                            "message_posted",
+                            "member_joined"
+                        ]
                     }
                 },
                 {
@@ -1539,7 +1721,11 @@
                     "options": {
                         "summary": "{conditions|n} conditions",
                         "phrase": "any of ({conditions|phrases})",
-                        "short": "Any of these (OR)"
+                        "short": "Any of these (OR)",
+                        "triggers": [
+                            "message_posted",
+                            "member_joined"
+                        ]
                     }
                 },
                 {
@@ -1566,7 +1752,11 @@
                     },
                     "options": {
                         "phrase": "not ({condition|phrase})",
-                        "short": "Does not match"
+                        "short": "Does not match",
+                        "triggers": [
+                            "message_posted",
+                            "member_joined"
+                        ]
                     }
                 }
             ]
@@ -1579,13 +1769,140 @@
     ],
     "additionalProperties": false,
     "options": {
-        "message_max_bytes": 15000
+        "message_max_bytes": 15000,
+        "templates": [
+            {
+                "title": "🚫 Banned words",
+                "rule": {
+                    "name": "Banned words",
+                    "trigger": "message_posted",
+                    "actions": [
+                        {
+                            "type": "ModerateMessage"
+                        }
+                    ],
+                    "condition": {
+                        "type": "ContainsWords",
+                        "keywords": []
+                    }
+                },
+                "focus": "keywords"
+            },
+            {
+                "title": "🔗 Links from newcomers",
+                "rule": {
+                    "name": "Links from newcomers",
+                    "trigger": "message_posted",
+                    "actions": [
+                        {
+                            "type": "ModerateMessage"
+                        }
+                    ],
+                    "condition": {
+                        "type": "All",
+                        "conditions": [
+                            {
+                                "type": "AuthorJoinedRecently",
+                                "time_window_minutes": 60
+                            },
+                            {
+                                "type": "ContainsLinksOutsideTop100",
+                                "domains": []
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "title": "🌊 Flood",
+                "rule": {
+                    "name": "Flood",
+                    "trigger": "message_posted",
+                    "actions": [
+                        {
+                            "type": "SetAuthorObserver",
+                            "duration_minutes": 10
+                        }
+                    ],
+                    "condition": {
+                        "type": "AuthorHitsMessageRateLimit",
+                        "message_count": 5,
+                        "time_window_minutes": 1
+                    }
+                }
+            },
+            {
+                "title": "📏 Walls of text",
+                "rule": {
+                    "name": "Walls of text",
+                    "trigger": "message_posted",
+                    "actions": [
+                        {
+                            "type": "ModerateMessage"
+                        }
+                    ],
+                    "condition": {
+                        "type": "ExceedsMaxLines",
+                        "max_lines": 10,
+                        "chars_per_line": 40
+                    }
+                }
+            },
+            {
+                "title": "👁 Quarantine newcomers",
+                "rule": {
+                    "name": "Quarantine newcomers",
+                    "trigger": "member_joined",
+                    "actions": [
+                        {
+                            "type": "SetAuthorObserver",
+                            "duration_minutes": 60
+                        }
+                    ]
+                }
+            },
+            {
+                "title": "🚫 Spam names",
+                "rule": {
+                    "name": "Spam names",
+                    "trigger": "member_joined",
+                    "actions": [
+                        {
+                            "type": "KickAuthor",
+                            "delete_all_messages": false
+                        }
+                    ],
+                    "condition": {
+                        "type": "MemberNameContainsWords",
+                        "keywords": []
+                    }
+                },
+                "focus": "keywords"
+            },
+            {
+                "title": "🔗 Links in names",
+                "rule": {
+                    "name": "Links in names",
+                    "trigger": "member_joined",
+                    "actions": [
+                        {
+                            "type": "KickAuthor",
+                            "delete_all_messages": false
+                        }
+                    ],
+                    "condition": {
+                        "type": "MemberNameContainsLinksOutsideList",
+                        "domains": []
+                    }
+                }
+            }
+        ]
     },
     "properties": {
         "mode": {
             "type": "string",
             "title": "🛡 Mode",
-            "description": "What the bot does when a message matches a rule. **Notifications** — carries out the rule's actions and DMs you about each one. **Silent** — carries out the actions without telling you. **Dry** — does nothing in the group and DMs you what it would have done, which is how to try out new rules safely.",
+            "description": "What the bot does when a rule matches. **Notifications** — carries out the rule's actions and DMs you about each one. **Silent** — carries out the actions without telling you. **Dry** — does nothing in the group and DMs you what it would have done, which is how to try out new rules safely.",
             "default": "notifications",
             "oneOf": [
                 {
@@ -1608,20 +1925,67 @@
             "items": {
                 "type": "object",
                 "title": "Rule",
-                "headerTemplate": "{{ i1 }}. {{ self.condition.type }}",
                 "required": [
-                    "actions",
-                    "condition"
+                    "actions"
                 ],
                 "additionalProperties": false,
                 "options": {
                     "disable_collapse": true
                 },
                 "properties": {
+                    "name": {
+                        "type": "string",
+                        "title": "Name",
+                        "maxLength": 60,
+                        "description": "What you call this rule. It is how the rule shows in the list, and the bot names it in its notifications."
+                    },
+                    "trigger": {
+                        "type": "string",
+                        "title": "When",
+                        "default": "message_posted",
+                        "description": "What makes the bot check this rule: someone sending a message, or someone joining the group.",
+                        "oneOf": [
+                            {
+                                "const": "message_posted",
+                                "title": "💬 Someone sends a message",
+                                "options": {
+                                    "section": "💬 When someone sends a message",
+                                    "new_rule": "When someone sends a message",
+                                    "empty": "No rules yet. Nothing is moderated until you add one.",
+                                    "incompatible": "Doesn't work with this trigger",
+                                    "prompt": "someone sends a message (or edits one)",
+                                    "incomplete": "Pick a condition and at least one action — the bot takes no rule without them."
+                                }
+                            },
+                            {
+                                "const": "member_joined",
+                                "title": "🚪 Someone joins",
+                                "options": {
+                                    "section": "🚪 When someone joins",
+                                    "new_rule": "When someone joins",
+                                    "empty": "No rules yet. Nobody is checked when they join.",
+                                    "incompatible": "Doesn't work with this trigger",
+                                    "prompt": "someone joins the group as a member or an observer",
+                                    "condition_optional": true,
+                                    "everyone": "Everyone who joins",
+                                    "incomplete": "Pick at least one action — the bot takes no rule without one."
+                                }
+                            }
+                        ]
+                    },
+                    "enabled": {
+                        "type": "boolean",
+                        "title": "On",
+                        "default": true,
+                        "description": "A rule that is off stays in the list with its settings, and the bot skips it."
+                    },
+                    "condition": {
+                        "$ref": "#/definitions/condition"
+                    },
                     "actions": {
                         "type": "array",
-                        "title": "⚡ Actions",
-                        "description": "Everything the bot does when this rule matches. Add one entry per action — for example *Moderate the message* **and** *Kick the author*. The bot performs them in a safe order (observer role, then moderation, then kick) whatever order they are listed in, and skips an action that another one already covers.",
+                        "title": "⚡ Then",
+                        "description": "Everything the bot does when this rule matches. Add one entry per action — for example *Moderate the message* **and** *Kick the member*. The bot performs them in a safe order (observer role, then moderation, then kick) whatever order they are listed in, and skips an action that another one already covers.",
                         "options": {
                             "disable_collapse": true
                         },
@@ -1629,9 +1993,6 @@
                         "items": {
                             "$ref": "#/definitions/action"
                         }
-                    },
-                    "condition": {
-                        "$ref": "#/definitions/condition"
                     }
                 }
             }

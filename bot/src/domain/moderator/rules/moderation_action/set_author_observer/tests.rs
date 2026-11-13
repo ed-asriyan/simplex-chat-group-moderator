@@ -74,3 +74,30 @@ async fn test_a_restore_that_cannot_be_kept_is_reported_not_failed() {
         "restore bookkeeping failed"
     );
 }
+
+// US-F2: the person who joined becomes an observer, and is restored from the time
+// they joined.
+#[tokio::test]
+async fn test_a_timed_restriction_on_a_join_is_restored_from_the_join() {
+    let ports = Recorder::default();
+    let report = ports.execute_on_join(&observer(60)).await.unwrap();
+    assert_eq!(
+        ports.calls(),
+        vec![
+            "make 42 Observer in 1".to_string(),
+            format!("restore 42 in 1 at {}", at(60)),
+        ]
+    );
+    assert!(report.bookkeeping_error.is_none());
+}
+
+// US-F2: with 0 they stay an observer until the owner changes their role.
+#[tokio::test]
+async fn test_an_indefinite_restriction_on_a_join_schedules_nothing() {
+    let ports = Recorder::default();
+    ports.execute_on_join(&observer(0)).await.unwrap();
+    assert_eq!(
+        ports.calls(),
+        vec!["make 42 Observer in 1", "cancel the restore of 42 in 1"]
+    );
+}

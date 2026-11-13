@@ -3,8 +3,7 @@ use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetA
 use crate::domain::moderator::ports::conditions::{
     AuthorHitsCharacterRateLimit, AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit,
     AuthorHitsModerationRateLimit, AuthorJoinedRecently, ContainsImage, ContainsWords,
-    FlaggedByOmniModeration, FlaggedByOpenRouterInstruction, IsBlank, MatchesExactMessage,
-    MatchesRegex,
+    FlaggedByOmniModeration, FlaggedByOpenRouterInstruction, IsBlank, MatchesRegex,
 };
 use crate::domain::moderator::ports::{
     CategoryTrigger, GroupMessage, KeyCheck, MessageAttachment, MessengerGroup, MessengerGroupId,
@@ -12,6 +11,7 @@ use crate::domain::moderator::ports::{
     OpenRouterInstructionVerdict, UserCharacterActivityRepository, UserId,
     UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
 };
+use crate::domain::moderator::rules::test_support::message_rule;
 use crate::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
 use crate::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
 use crate::infrastructure::adapters::group_message_activity_repo_in_memory::InMemoryGroupMessageActivityRepository;
@@ -22,179 +22,43 @@ use crate::infrastructure::adapters::user_message_activity_repo_in_memory::InMem
 use crate::infrastructure::adapters::user_moderation_activity_repo_in_memory::InMemoryUserModerationActivityRepository;
 use chrono::{DateTime, Utc};
 
-#[test]
-fn test_deserialize_rule_with_moderate_message_action() {
-    let json = r#"{
-        "actions": [{ "type": "ModerateMessage" }],
-        "condition": {
-            "type": "ContainsWords",
-            "keywords": ["spam", "ad"]
-        }
-    }"#;
-    let rule: ModerationRule = serde_json::from_str(json).unwrap();
-    assert_eq!(
-        rule.actions,
-        vec![ModerationAction::ModerateMessage(ModerateMessage {})]
-    );
-    match rule.condition {
-        ModerationCondition::ContainsWords(ContainsWords { keywords }) => {
-            assert_eq!(keywords, vec!["spam".to_string(), "ad".to_string()]);
-        }
-        _ => panic!("Expected ContainsWords condition"),
-    }
+/// What a match calls for, in the form the tests compare: the actions as an
+/// owner writes them, and each matched rule's reason without its name.
+#[derive(Debug)]
+struct Plan {
+    actions: Vec<ModerationAction>,
+    reasons: Vec<String>,
 }
 
-#[test]
-fn test_deserialize_rule_with_kick_author_action() {
-    let json = r#"{
-        "actions": [{ "type": "KickAuthor", "delete_all_messages": true }],
-        "condition": {
-            "type": "ContainsWords",
-            "keywords": ["malware"]
-        }
-    }"#;
-    let rule: ModerationRule = serde_json::from_str(json).unwrap();
-    assert_eq!(
-        rule.actions,
-        vec![ModerationAction::KickAuthor(KickAuthor {
-            delete_all_messages: true
-        })]
-    );
-
-    // The editor always sends the flag; an omitted one means the author's
-    // history is left alone.
-    let json_default = r#"{
-        "actions": [{ "type": "KickAuthor" }],
-        "condition": {
-            "type": "ContainsWords",
-            "keywords": ["malware"]
-        }
-    }"#;
-    let rule_default: ModerationRule = serde_json::from_str(json_default).unwrap();
-    assert_eq!(
-        rule_default.actions,
-        vec![ModerationAction::KickAuthor(KickAuthor {
-            delete_all_messages: false
-        })]
-    );
+/// [`super::should_moderate_message`], its result as a [`Plan`].
+async fn should_moderate_message(
+    group_message: &GroupMessage,
+    rules: &[ModerationRule],
+    ports: &ConditionPorts<'_>,
+) -> Result<Option<Plan>, crate::domain::moderator::ports::Err> {
+    Ok(super::should_moderate_message(group_message, rules, ports)
+        .await?
+        .map(|m| Plan {
+            actions: m.actions.into_iter().map(ModerationAction::from).collect(),
+            reasons: m.reasons.into_iter().map(|r| r.reason).collect(),
+        }))
 }
 
-#[test]
-fn test_deserialize_rule_with_set_author_observer_action() {
-    let json = r#"{
-        "actions": [{ "type": "SetAuthorObserver" }],
-        "condition": {
-            "type": "ContainsWords",
-            "keywords": ["spam"]
-        }
-    }"#;
-    let rule: ModerationRule = serde_json::from_str(json).unwrap();
-    assert_eq!(
-        rule.actions,
-        vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
-            duration_minutes: 0
-        })]
-    );
-}
-
-#[test]
-fn test_deserialize_rule_with_several_actions_keeps_their_order() {
-    let json = r#"{
-        "actions": [
-            { "type": "SetAuthorObserver" },
-            { "type": "ModerateMessage" }
-        ],
-        "condition": {
-            "type": "ContainsWords",
-            "keywords": ["spam"]
-        }
-    }"#;
-    let rule: ModerationRule = serde_json::from_str(json).unwrap();
-    assert_eq!(
-        rule.actions,
-        vec![
-            ModerationAction::SetAuthorObserver(SetAuthorObserver {
-                duration_minutes: 0
-            }),
-            ModerationAction::ModerateMessage(ModerateMessage {})
-        ]
-    );
-}
-
-#[test]
-fn test_normalize_and_validate_rejects_a_rule_without_actions() {
-    let mut rule = ModerationRule {
-        actions: vec![],
-        condition: ModerationCondition::ContainsWords(ContainsWords {
-            keywords: vec!["spam".to_string()],
-        }),
-    };
-    let err = rule.normalize_and_validate().unwrap_err().to_string();
-    assert!(err.contains("no actions"), "unexpected error: {err}");
-}
-
-#[test]
-fn test_normalize_and_validate_canonicalizes_the_action_list() {
-    let mut rule = ModerationRule {
-        actions: vec![
-            ModerationAction::KickAuthor(KickAuthor {
-                delete_all_messages: false,
-            }),
-            ModerationAction::ModerateMessage(ModerateMessage {}),
-            // Already implied by the kick, and listed twice on top of that.
-            ModerationAction::SetAuthorObserver(SetAuthorObserver {
-                duration_minutes: 0,
-            }),
-            ModerationAction::SetAuthorObserver(SetAuthorObserver {
-                duration_minutes: 0,
-            }),
-        ],
-        condition: ModerationCondition::ContainsWords(ContainsWords {
-            keywords: vec!["spam".to_string()],
-        }),
-    };
-    rule.normalize_and_validate().unwrap();
-    assert_eq!(
-        rule.actions,
-        vec![
-            ModerationAction::ModerateMessage(ModerateMessage {}),
-            ModerationAction::KickAuthor(KickAuthor {
-                delete_all_messages: false
-            })
-        ]
-    );
-}
-
-#[test]
-fn test_serialization_roundtrip() {
-    let rule = ModerationRule {
-        actions: vec![
-            ModerationAction::ModerateMessage(ModerateMessage {}),
-            ModerationAction::KickAuthor(KickAuthor {
-                delete_all_messages: false,
-            }),
-        ],
-        condition: ModerationCondition::MatchesExactMessage(MatchesExactMessage {
-            messages: vec!["banned message".to_string()],
-            case_sensitive: false,
-        }),
-    };
-
-    let serialized = serde_json::to_string(&rule).unwrap();
-    let deserialized: ModerationRule = serde_json::from_str(&serialized).unwrap();
-    assert_eq!(rule, deserialized);
+/// The rule as its owner writes it.
+fn draft(rule: &ModerationRule) -> RuleDraft {
+    RuleDraft::from(rule.clone())
 }
 
 #[tokio::test]
 async fn test_should_moderate_returns_matching_action_and_reason() {
-    let rules = vec![ModerationRule {
-        actions: vec![ModerationAction::KickAuthor(KickAuthor {
+    let rules = vec![message_rule(
+        vec![ModerationAction::KickAuthor(KickAuthor {
             delete_all_messages: false,
         })],
-        condition: ModerationCondition::ContainsWords(ContainsWords {
+        ModerationCondition::ContainsWords(ContainsWords {
             keywords: vec!["danger".to_string()],
         }),
-    }];
+    )];
 
     let msg = GroupMessage {
         text: "This is a danger message".to_string(),
@@ -202,7 +66,7 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
     };
     let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
-    let result = should_moderate(
+    let result = should_moderate_message(
         &msg,
         &rules,
         &ConditionPorts {
@@ -234,23 +98,23 @@ async fn test_should_moderate_returns_matching_action_and_reason() {
 #[tokio::test]
 async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
     let rules = vec![
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["first".to_string()],
             }),
-        },
-        ModerationRule {
-            actions: vec![
+        ),
+        message_rule(
+            vec![
                 ModerationAction::ModerateMessage(ModerateMessage {}),
                 ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: false,
                 }),
             ],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["second".to_string()],
             }),
-        },
+        ),
     ];
 
     let msg = GroupMessage {
@@ -262,7 +126,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
 
     // When ModerateMessage is first, KickAuthor is stronger (covers ModerateMessage),
     // so it checks the second rule and upgrades to moderate-then-kick.
-    let result = should_moderate(
+    let result = should_moderate_message(
         &msg,
         &rules,
         &ConditionPorts {
@@ -311,7 +175,7 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
     // Reversed rules list: KickAuthor is evaluated first.
     // ModerateMessage is already part of the second rule's plan, so its condition is skipped!
     let reversed_rules = vec![rules[1].clone(), rules[0].clone()];
-    let reversed_result = should_moderate(
+    let reversed_result = should_moderate_message(
         &msg,
         &reversed_rules,
         &ConditionPorts {
@@ -346,12 +210,12 @@ async fn test_stronger_rule_upgrades_action_and_subsumes_weaker_rule() {
 
 #[tokio::test]
 async fn test_no_rules_match_returns_none() {
-    let rules = vec![ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-        condition: ModerationCondition::ContainsWords(ContainsWords {
+    let rules = vec![message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        ModerationCondition::ContainsWords(ContainsWords {
             keywords: vec!["banned".to_string()],
         }),
-    }];
+    )];
 
     let msg = GroupMessage {
         text: "all good here".to_string(),
@@ -361,7 +225,7 @@ async fn test_no_rules_match_returns_none() {
     let mod_repo = InMemoryUserModerationActivityRepository::new();
 
     assert!(
-        should_moderate(
+        should_moderate_message(
             &msg,
             &rules,
             &ConditionPorts {
@@ -395,13 +259,13 @@ fn test_deserialize_message_rate_limit_rule() {
     }"#;
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
     assert_eq!(
-        rule.actions,
+        draft(&rule).actions,
         vec![ModerationAction::KickAuthor(KickAuthor {
             delete_all_messages: true
         })]
     );
     assert_eq!(
-        rule.condition,
+        draft(&rule).condition.unwrap(),
         ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
             message_count: 5,
             time_window_minutes: 10,
@@ -411,13 +275,13 @@ fn test_deserialize_message_rate_limit_rule() {
 
 #[test]
 fn test_message_rate_limit_serialization_roundtrip() {
-    let rule = ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-        condition: ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+    let rule = message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
             message_count: 10,
             time_window_minutes: 5,
         }),
-    };
+    );
     let serialized = serde_json::to_string(&rule).unwrap();
     let deserialized: ModerationRule = serde_json::from_str(&serialized).unwrap();
     assert_eq!(rule, deserialized);
@@ -435,11 +299,11 @@ fn test_deserialize_character_rate_limit_rule() {
     }"#;
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
     assert_eq!(
-        rule.actions,
+        draft(&rule).actions,
         vec![ModerationAction::ModerateMessage(ModerateMessage {})]
     );
     assert_eq!(
-        rule.condition,
+        draft(&rule).condition.unwrap(),
         ModerationCondition::AuthorHitsCharacterRateLimit(AuthorHitsCharacterRateLimit {
             character_count: 2000,
             time_window_minutes: 5,
@@ -449,15 +313,13 @@ fn test_deserialize_character_rate_limit_rule() {
 
 #[test]
 fn test_character_rate_limit_serialization_roundtrip() {
-    let rule = ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-        condition: ModerationCondition::AuthorHitsCharacterRateLimit(
-            AuthorHitsCharacterRateLimit {
-                character_count: 500,
-                time_window_minutes: 2,
-            },
-        ),
-    };
+    let rule = message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        ModerationCondition::AuthorHitsCharacterRateLimit(AuthorHitsCharacterRateLimit {
+            character_count: 500,
+            time_window_minutes: 2,
+        }),
+    );
     let serialized = serde_json::to_string(&rule).unwrap();
     let deserialized: ModerationRule = serde_json::from_str(&serialized).unwrap();
     assert_eq!(rule, deserialized);
@@ -467,14 +329,14 @@ fn test_character_rate_limit_serialization_roundtrip() {
 /// `should_moderate` an empty character log.
 #[tokio::test]
 async fn test_should_moderate_with_line_rate_limit() {
-    let rules = vec![ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-        condition: ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
+    let rules = vec![message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        ModerationCondition::AuthorHitsLineRateLimit(AuthorHitsLineRateLimit {
             line_count: 30,
             time_window_minutes: 1,
             chars_per_line: 40,
         }),
-    }];
+    )];
 
     let msg = GroupMessage {
         group: MessengerGroup {
@@ -484,6 +346,7 @@ async fn test_should_moderate_with_line_rate_limit() {
         message_id: 10,
         author_id: 2,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -506,7 +369,7 @@ async fn test_should_moderate_with_line_rate_limit() {
         )
         .await
         .unwrap();
-    let res = should_moderate(
+    let res = should_moderate_message(
         &msg,
         &rules,
         &ConditionPorts {
@@ -540,7 +403,7 @@ async fn test_should_moderate_with_line_rate_limit() {
     at.record_lines(&1, &2, msg.timestamp, 5, std::time::Duration::from_secs(60))
         .await
         .unwrap();
-    let res = should_moderate(
+    let res = should_moderate_message(
         &msg,
         &rules,
         &ConditionPorts {
@@ -640,15 +503,13 @@ impl UserModerationActivityRepository for MockActivityRepoForFilter {
 
 #[tokio::test]
 async fn test_should_moderate_with_character_rate_limit() {
-    let rules = vec![ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-        condition: ModerationCondition::AuthorHitsCharacterRateLimit(
-            AuthorHitsCharacterRateLimit {
-                character_count: 500,
-                time_window_minutes: 1,
-            },
-        ),
-    }];
+    let rules = vec![message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        ModerationCondition::AuthorHitsCharacterRateLimit(AuthorHitsCharacterRateLimit {
+            character_count: 500,
+            time_window_minutes: 1,
+        }),
+    )];
 
     let msg = GroupMessage {
         group: MessengerGroup {
@@ -658,6 +519,7 @@ async fn test_should_moderate_with_character_rate_limit() {
         message_id: 10,
         author_id: 2,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -680,7 +542,7 @@ async fn test_should_moderate_with_character_rate_limit() {
         )
         .await
         .unwrap();
-    let res = should_moderate(
+    let res = should_moderate_message(
         &msg,
         &rules,
         &ConditionPorts {
@@ -720,7 +582,7 @@ async fn test_should_moderate_with_character_rate_limit() {
     )
     .await
     .unwrap();
-    let res = should_moderate(
+    let res = should_moderate_message(
         &msg,
         &rules,
         &ConditionPorts {
@@ -757,6 +619,7 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
         message_id: 10,
         author_id: 2,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -780,27 +643,25 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
             .unwrap();
     }
 
-    let by_messages = vec![ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-        condition: ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+    let by_messages = vec![message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
             message_count: 10,
             time_window_minutes: 1,
         }),
-    }];
-    let by_characters = vec![ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-        condition: ModerationCondition::AuthorHitsCharacterRateLimit(
-            AuthorHitsCharacterRateLimit {
-                character_count: 10,
-                time_window_minutes: 1,
-            },
-        ),
-    }];
+    )];
+    let by_characters = vec![message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        ModerationCondition::AuthorHitsCharacterRateLimit(AuthorHitsCharacterRateLimit {
+            character_count: 10,
+            time_window_minutes: 1,
+        }),
+    )];
 
     // Ten messages hit the message limit of 10 and the character limit of 10
     // is reached too, since ten single-character messages are ten characters.
     assert!(
-        should_moderate(
+        should_moderate_message(
             &msg,
             &by_messages,
             &ConditionPorts {
@@ -821,7 +682,7 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
         .is_some()
     );
     assert!(
-        should_moderate(
+        should_moderate_message(
             &msg,
             &by_characters,
             &ConditionPorts {
@@ -856,7 +717,7 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
         .unwrap();
 
     assert!(
-        should_moderate(
+        should_moderate_message(
             &msg,
             &by_messages,
             &ConditionPorts {
@@ -877,7 +738,7 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
         .is_none()
     );
     assert!(
-        should_moderate(
+        should_moderate_message(
             &msg,
             &by_characters,
             &ConditionPorts {
@@ -901,18 +762,18 @@ async fn test_message_and_character_rate_limits_read_their_own_logs() {
 
 #[tokio::test]
 async fn test_should_moderate_with_message_rate_limit() {
-    let rules = vec![ModerationRule {
-        actions: vec![
+    let rules = vec![message_rule(
+        vec![
             ModerationAction::ModerateMessage(ModerateMessage {}),
             ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: false,
             }),
         ],
-        condition: ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+        ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
             message_count: 5,
             time_window_minutes: 1,
         }),
-    }];
+    )];
 
     let msg = GroupMessage {
         group: MessengerGroup {
@@ -922,6 +783,7 @@ async fn test_should_moderate_with_message_rate_limit() {
         message_id: 10,
         author_id: 2,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -931,7 +793,7 @@ async fn test_should_moderate_with_message_rate_limit() {
 
     let repo_under_limit = MockActivityRepoForFilter { count: 4 };
     let mod_repo = InMemoryUserModerationActivityRepository::new();
-    let res = should_moderate(
+    let res = should_moderate_message(
         &msg,
         &rules,
         &ConditionPorts {
@@ -952,7 +814,7 @@ async fn test_should_moderate_with_message_rate_limit() {
     assert!(res.is_none());
 
     let repo_at_limit = MockActivityRepoForFilter { count: 5 };
-    let res = should_moderate(
+    let res = should_moderate_message(
         &msg,
         &rules,
         &ConditionPorts {
@@ -989,20 +851,18 @@ async fn test_should_moderate_with_message_rate_limit() {
 
 #[tokio::test]
 async fn test_should_moderate_with_moderation_rate_limit() {
-    let rules = vec![ModerationRule {
-        actions: vec![
+    let rules = vec![message_rule(
+        vec![
             ModerationAction::ModerateMessage(ModerateMessage {}),
             ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: false,
             }),
         ],
-        condition: ModerationCondition::AuthorHitsModerationRateLimit(
-            AuthorHitsModerationRateLimit {
-                message_count: 3,
-                time_window_minutes: 60,
-            },
-        ),
-    }];
+        ModerationCondition::AuthorHitsModerationRateLimit(AuthorHitsModerationRateLimit {
+            message_count: 3,
+            time_window_minutes: 60,
+        }),
+    )];
 
     let msg = GroupMessage {
         group: MessengerGroup {
@@ -1012,6 +872,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
         message_id: 10,
         author_id: 2,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "hello".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1021,7 +882,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
 
     let activity_repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo_under = MockActivityRepoForFilter { count: 2 };
-    let res = should_moderate(
+    let res = should_moderate_message(
         &msg,
         &rules,
         &ConditionPorts {
@@ -1042,7 +903,7 @@ async fn test_should_moderate_with_moderation_rate_limit() {
     assert!(res.is_none());
 
     let mod_repo_at = MockActivityRepoForFilter { count: 3 };
-    let res = should_moderate(
+    let res = should_moderate_message(
         &msg,
         &rules,
         &ConditionPorts {
@@ -1080,20 +941,20 @@ async fn test_should_moderate_with_moderation_rate_limit() {
 #[tokio::test]
 async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_message_disappears() {
     let rules = vec![
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["spam".to_string()],
             }),
-        },
-        ModerationRule {
-            actions: vec![ModerationAction::KickAuthor(KickAuthor {
+        ),
+        message_rule(
+            vec![ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: true,
             })],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["malware".to_string()],
             }),
-        },
+        ),
     ];
 
     let msg = GroupMessage {
@@ -1103,7 +964,7 @@ async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_mess
     let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
 
-    let res = should_moderate(
+    let res = should_moderate_message(
         &msg,
         &rules,
         &ConditionPorts {
@@ -1142,20 +1003,20 @@ async fn test_kick_author_all_messages_covers_moderate_message_and_moderate_mess
 #[tokio::test]
 async fn test_independent_rules_combine_and_order_deletion_before_kick() {
     let rules = vec![
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["spam".to_string()],
             }),
-        },
-        ModerationRule {
-            actions: vec![ModerationAction::KickAuthor(KickAuthor {
+        ),
+        message_rule(
+            vec![ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: false,
             })],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["kickme".to_string()],
             }),
-        },
+        ),
     ];
 
     let msg = GroupMessage {
@@ -1165,7 +1026,7 @@ async fn test_independent_rules_combine_and_order_deletion_before_kick() {
     let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
 
-    let res = should_moderate(
+    let res = should_moderate_message(
         &msg,
         &rules,
         &ConditionPorts {
@@ -1213,26 +1074,24 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
     // Rule 1: ModerateMessage on "badword"
     // Rule 2: KickAuthor on AuthorHitsModerationRateLimit (limit: 3)
     let rules = vec![
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["badword".to_string()],
             }),
-        },
-        ModerationRule {
-            actions: vec![
+        ),
+        message_rule(
+            vec![
                 ModerationAction::ModerateMessage(ModerateMessage {}),
                 ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: false,
                 }),
             ],
-            condition: ModerationCondition::AuthorHitsModerationRateLimit(
-                AuthorHitsModerationRateLimit {
-                    message_count: 3,
-                    time_window_minutes: 60,
-                },
-            ),
-        },
+            ModerationCondition::AuthorHitsModerationRateLimit(AuthorHitsModerationRateLimit {
+                message_count: 3,
+                time_window_minutes: 60,
+            }),
+        ),
     ];
 
     let msg = GroupMessage {
@@ -1243,6 +1102,7 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
         message_id: 10,
         author_id: 2,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: "this has badword".to_string(),
         attachment: None,
         timestamp: Utc::now(),
@@ -1254,7 +1114,7 @@ async fn test_moderation_rate_limit_with_prior_moderation_increments_count() {
     // 2 moderated messages in DB: alone, Rule 2 would NOT trigger (2 < 3).
     // But since Rule 1 matches ("badword"), effective count becomes 2 + 1 = 3 >= 3!
     let mod_repo = MockActivityRepoForFilter { count: 2 };
-    let res = should_moderate(
+    let res = should_moderate_message(
         &msg,
         &rules,
         &ConditionPorts {
@@ -1290,26 +1150,24 @@ async fn test_moderation_rate_limit_is_order_independent() {
     // The ordinary moderation rule comes after the moderation rate-limit rule.
     // The current message must still count toward the rate limit.
     let rules = vec![
-        ModerationRule {
-            actions: vec![
+        message_rule(
+            vec![
                 ModerationAction::ModerateMessage(ModerateMessage {}),
                 ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: false,
                 }),
             ],
-            condition: ModerationCondition::AuthorHitsModerationRateLimit(
-                AuthorHitsModerationRateLimit {
-                    message_count: 3,
-                    time_window_minutes: 60,
-                },
-            ),
-        },
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+            ModerationCondition::AuthorHitsModerationRateLimit(AuthorHitsModerationRateLimit {
+                message_count: 3,
+                time_window_minutes: 60,
+            }),
+        ),
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["badword".to_string()],
             }),
-        },
+        ),
     ];
 
     let msg = GroupMessage {
@@ -1325,7 +1183,7 @@ async fn test_moderation_rate_limit_is_order_independent() {
 
     let activity_repo = InMemoryUserMessageActivityRepository::new();
     let moderation_activity_repo = MockActivityRepoForFilter { count: 2 };
-    let result = should_moderate(
+    let result = should_moderate_message(
         &msg,
         &rules,
         &ConditionPorts {
@@ -1376,20 +1234,20 @@ fn words(keyword: &str) -> ModerationCondition {
 }
 
 fn rule_with(condition: ModerationCondition) -> Vec<ModerationRule> {
-    vec![ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+    vec![message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
         condition,
-    }]
+    )]
 }
 
-async fn matched(text: &str, condition: ModerationCondition) -> Option<ModerationMatch> {
+async fn matched(text: &str, condition: ModerationCondition) -> Option<Plan> {
     let msg = GroupMessage {
         text: text.to_string(),
         ..Default::default()
     };
     let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
-    should_moderate(
+    should_moderate_message(
         &msg,
         &rule_with(condition),
         &ConditionPorts {
@@ -1498,14 +1356,14 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
     // inside an `Any`, and the rate limit inside an `All`. Before condition
     // trees this was a flat "every other rule" scan.
     let rules = vec![
-        ModerationRule {
-            actions: vec![
+        message_rule(
+            vec![
                 ModerationAction::ModerateMessage(ModerateMessage {}),
                 ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: false,
                 }),
             ],
-            condition: ModerationCondition::All {
+            ModerationCondition::All {
                 conditions: vec![
                     ModerationCondition::AuthorHitsModerationRateLimit(
                         AuthorHitsModerationRateLimit {
@@ -1518,13 +1376,13 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
                     },
                 ],
             },
-        },
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::Any {
+        ),
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::Any {
                 conditions: vec![words("badword"), words("otherword")],
             },
-        },
+        ),
     ];
 
     let msg = GroupMessage {
@@ -1541,7 +1399,7 @@ async fn test_moderation_rate_limit_counts_the_current_message_from_inside_a_tre
     let activity_repo = InMemoryUserMessageActivityRepository::new();
     // Two earlier moderated messages plus this one reaches the limit of three.
     let moderation_activity_repo = MockActivityRepoForFilter { count: 2 };
-    let result = should_moderate(
+    let result = should_moderate_message(
         &msg,
         &rules,
         &ConditionPorts {
@@ -1582,9 +1440,9 @@ async fn test_moderation_rate_limit_in_a_tree_ignores_its_own_rule() {
     // The only other condition in this rule is the word condition, and it does not
     // match. With nothing else moderating the message, the current message must
     // not be counted, so two prior strikes stay under the limit of three.
-    let rules = vec![ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-        condition: ModerationCondition::Any {
+    let rules = vec![message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        ModerationCondition::Any {
             conditions: vec![
                 ModerationCondition::AuthorHitsModerationRateLimit(AuthorHitsModerationRateLimit {
                     message_count: 3,
@@ -1593,7 +1451,7 @@ async fn test_moderation_rate_limit_in_a_tree_ignores_its_own_rule() {
                 words("absent"),
             ],
         },
-    }];
+    )];
 
     let msg = GroupMessage {
         group: MessengerGroup {
@@ -1608,7 +1466,7 @@ async fn test_moderation_rate_limit_in_a_tree_ignores_its_own_rule() {
 
     let activity_repo = InMemoryUserMessageActivityRepository::new();
     let moderation_activity_repo = MockActivityRepoForFilter { count: 2 };
-    let result = should_moderate(
+    let result = should_moderate_message(
         &msg,
         &rules,
         &ConditionPorts {
@@ -1655,9 +1513,9 @@ fn test_composite_wire_format_matches_the_editor_schema() {
     }"#;
 
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
-    let expected = ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-        condition: ModerationCondition::All {
+    let expected = message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        ModerationCondition::All {
             conditions: vec![
                 ModerationCondition::Any {
                     conditions: vec![
@@ -1672,7 +1530,7 @@ fn test_composite_wire_format_matches_the_editor_schema() {
                 },
             ],
         },
-    };
+    );
     assert_eq!(rule, expected);
 
     // And back out again, since the bot hands the same JSON to the editor.
@@ -1690,7 +1548,7 @@ fn test_a_flat_condition_still_deserializes_unchanged() {
         "condition": { "type": "ContainsWords", "keywords": ["spam"] }
     }"#;
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
-    assert_eq!(rule.condition, words("spam"));
+    assert_eq!(draft(&rule).condition.unwrap(), words("spam"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1733,7 +1591,7 @@ const EDITOR_LINK_RULES_JSON: &str = r#"[{
 fn saved(json: &str) -> Vec<ModerationRule> {
     let mut rules: Vec<ModerationRule> = serde_json::from_str(json).unwrap();
     for rule in &mut rules {
-        rule.condition.normalize_and_validate().unwrap();
+        rule.normalize_and_validate().unwrap();
     }
     rules
 }
@@ -1745,7 +1603,7 @@ async fn moderates(rules: &[ModerationRule], text: &str) -> bool {
     };
     let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
-    should_moderate(
+    should_moderate_message(
         &msg,
         rules,
         &ConditionPorts {
@@ -1771,7 +1629,7 @@ fn test_editor_link_rules_survive_saving_unchanged() {
     let rules = saved(EDITOR_LINK_RULES_JSON);
     assert_eq!(rules.len(), 1);
     assert_eq!(
-        rules[0].actions,
+        draft(&rules[0]).actions,
         vec![ModerationAction::ModerateMessage(ModerateMessage {})]
     );
 
@@ -1780,7 +1638,7 @@ fn test_editor_link_rules_survive_saving_unchanged() {
     // empty words condition is *kept*: an empty keyword list is a valid
     // list, unlike an empty `All`, which collapses.
     assert_eq!(
-        rules[0].condition,
+        draft(&rules[0]).condition.unwrap(),
         ModerationCondition::All {
             conditions: vec![
                 words("test"),
@@ -1887,7 +1745,7 @@ async fn matched_from(
     joined_minutes_ago: Option<i64>,
     text: &str,
     condition: ModerationCondition,
-) -> Option<ModerationMatch> {
+) -> Option<Plan> {
     let now = Utc::now();
     let msg = GroupMessage {
         text: text.to_string(),
@@ -1899,7 +1757,7 @@ async fn matched_from(
     };
     let repo = InMemoryUserMessageActivityRepository::new();
     let mod_repo = InMemoryUserModerationActivityRepository::new();
-    should_moderate(
+    should_moderate_message(
         &msg,
         &rule_with(condition),
         &ConditionPorts {
@@ -1932,10 +1790,13 @@ fn test_joined_recently_wire_format_matches_the_editor_schema() {
         "condition": { "type": "AuthorJoinedRecently", "time_window_minutes": 10 }
     }"#;
     let rule: ModerationRule = serde_json::from_str(json).unwrap();
-    assert_eq!(rule.condition, joined_recently(10));
+    assert_eq!(draft(&rule).condition.unwrap(), joined_recently(10));
     let round_tripped: ModerationRule =
         serde_json::from_str(&serde_json::to_string(&rule).unwrap()).unwrap();
-    assert_eq!(round_tripped.condition, rule.condition);
+    assert_eq!(
+        draft(&round_tripped).condition.unwrap(),
+        draft(&rule).condition.unwrap()
+    );
 }
 
 #[tokio::test]
@@ -2012,14 +1873,14 @@ async fn test_not_joined_recently_matches_members_from_before_the_bot() {
 #[tokio::test]
 async fn test_moderates_pictures_and_leaves_them_out_of_is_blank() {
     let rules = vec![
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsImage(ContainsImage {}),
-        },
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::IsBlank(IsBlank {}),
-        },
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsImage(ContainsImage {}),
+        ),
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::IsBlank(IsBlank {}),
+        ),
     ];
 
     let message = |text: &str, attachment: Option<MessageAttachment>| GroupMessage {
@@ -2030,6 +1891,7 @@ async fn test_moderates_pictures_and_leaves_them_out_of_is_blank() {
         message_id: 10,
         author_id: 2,
         author_name: String::new(),
+        author_full_name: String::new(),
         text: text.to_string(),
         attachment,
         timestamp: Utc::now(),
@@ -2040,7 +1902,7 @@ async fn test_moderates_pictures_and_leaves_them_out_of_is_blank() {
     let activity_repo = InMemoryUserMessageActivityRepository::new();
     let moderation_repo = InMemoryUserModerationActivityRepository::new();
     let matched = async |message: &GroupMessage| {
-        should_moderate(
+        should_moderate_message(
             message,
             &rules,
             &ConditionPorts {
@@ -2265,8 +2127,8 @@ async fn matched_with(
     openai: &ScriptedAi,
     msg: &GroupMessage,
     rules: &[ModerationRule],
-) -> Option<ModerationMatch> {
-    should_moderate(
+) -> Option<Plan> {
+    should_moderate_message(
         msg,
         rules,
         &ConditionPorts {
@@ -2428,16 +2290,16 @@ async fn test_openai_is_not_asked_about_a_message_without_text() {
 async fn test_openai_failure_reads_as_no_match_and_other_rules_still_apply() {
     let openai = ScriptedAi::answering(Err("OpenAI is down".to_string()));
     let rules = vec![
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: openai_hate("sk-one"),
-        },
-        ModerationRule {
-            actions: vec![ModerationAction::KickAuthor(KickAuthor {
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            openai_hate("sk-one"),
+        ),
+        message_rule(
+            vec![ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: false,
             })],
-            condition: words("spam"),
-        },
+            words("spam"),
+        ),
     ];
 
     let hit = matched_with(&openai, &text_message("spam"), &rules)
@@ -2473,18 +2335,18 @@ async fn test_under_not_an_openai_failure_reads_as_a_match() {
 async fn test_openai_is_asked_once_per_message_however_many_rules_use_the_condition() {
     let openai = ScriptedAi::answering(Ok(OpenAiModerationResult::default()));
     let rules = vec![
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: openai_hate("sk-one"),
-        },
-        ModerationRule {
-            actions: vec![ModerationAction::KickAuthor(KickAuthor {
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            openai_hate("sk-one"),
+        ),
+        message_rule(
+            vec![ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: false,
             })],
-            condition: ModerationCondition::Any {
+            ModerationCondition::Any {
                 conditions: vec![words("spam"), openai_hate("sk-one")],
             },
-        },
+        ),
     ];
 
     matched_with(&openai, &text_message("hello"), &rules).await;
@@ -2512,18 +2374,18 @@ async fn test_all_does_not_ask_openai_once_an_earlier_condition_fails() {
 async fn test_openai_is_not_asked_for_a_rule_whose_actions_are_already_planned() {
     let openai = ScriptedAi::answering(Ok(hateful()));
     let rules = vec![
-        ModerationRule {
-            actions: vec![ModerationAction::KickAuthor(KickAuthor {
+        message_rule(
+            vec![ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: true,
             })],
-            condition: words("spam"),
-        },
+            words("spam"),
+        ),
         // A kick that deletes the author's messages covers this; the rule adds
         // nothing, so its condition is never evaluated.
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: openai_hate("sk-one"),
-        },
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            openai_hate("sk-one"),
+        ),
     ];
 
     let hit = matched_with(&openai, &text_message("spam"), &rules).await;
@@ -2711,16 +2573,16 @@ async fn test_the_model_is_not_asked_about_a_message_without_text() {
 async fn test_no_verdict_reads_as_no_match_and_other_rules_still_apply() {
     let openai = ScriptedAi::judging(Err("OpenRouter is down".to_string()));
     let rules = vec![
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: openrouter_instruction("sk-one"),
-        },
-        ModerationRule {
-            actions: vec![ModerationAction::KickAuthor(KickAuthor {
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            openrouter_instruction("sk-one"),
+        ),
+        message_rule(
+            vec![ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: false,
             })],
-            condition: words("spam"),
-        },
+            words("spam"),
+        ),
     ];
 
     let hit = matched_with(&openai, &text_message("spam"), &rules)
@@ -2734,18 +2596,18 @@ async fn test_no_verdict_reads_as_no_match_and_other_rules_still_apply() {
 async fn test_the_model_is_asked_once_per_message_however_many_rules_use_the_condition() {
     let openai = ScriptedAi::judging(Ok(false));
     let rules = vec![
-        ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: openrouter_instruction("sk-one"),
-        },
-        ModerationRule {
-            actions: vec![ModerationAction::KickAuthor(KickAuthor {
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            openrouter_instruction("sk-one"),
+        ),
+        message_rule(
+            vec![ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: false,
             })],
-            condition: ModerationCondition::Any {
+            ModerationCondition::Any {
                 conditions: vec![words("spam"), openrouter_instruction("sk-one")],
             },
-        },
+        ),
     ];
 
     matched_with(&openai, &text_message("hello"), &rules).await;
@@ -2787,8 +2649,8 @@ async fn judged_with_history(
     history: &dyn crate::domain::moderator::ports::GroupMessageHistoryRepository,
     msg: &GroupMessage,
     condition: ModerationCondition,
-) -> Option<ModerationMatch> {
-    should_moderate(
+) -> Option<Plan> {
+    should_moderate_message(
         msg,
         &rule_with(condition),
         &ConditionPorts {
@@ -2959,7 +2821,7 @@ async fn test_length_conditions_see_the_untrimmed_message() {
     };
     use crate::domain::moderator::rules::{
         ModerationAction, ModerationCondition, ModerationRule,
-        should_moderate as top_level_moderate,
+        should_moderate_message as top_level_moderate,
     };
     use crate::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
     use crate::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
@@ -2983,9 +2845,9 @@ async fn test_length_conditions_see_the_untrimmed_message() {
         ..Default::default()
     };
 
-    let rules = vec![ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-        condition: ModerationCondition::Any {
+    let rules = vec![message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        ModerationCondition::Any {
             conditions: vec![
                 ModerationCondition::IsBlank(IsBlank {}),
                 ModerationCondition::ExceedsMaxCharacters(ExceedsMaxCharacters {
@@ -2998,7 +2860,7 @@ async fn test_length_conditions_see_the_untrimmed_message() {
                 }),
             ],
         },
-    }];
+    )];
 
     let matches = async |text: &str, rules: &[ModerationRule]| {
         top_level_moderate(
@@ -3036,11 +2898,431 @@ async fn test_length_conditions_see_the_untrimmed_message() {
     assert!(matches("   ", &rules).await);
 
     // Without IsBlank, a short blank message matches nothing
-    let length_only = vec![ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-        condition: ModerationCondition::ExceedsMaxCharacters(ExceedsMaxCharacters {
+    let length_only = vec![message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        ModerationCondition::ExceedsMaxCharacters(ExceedsMaxCharacters {
             max_characters: 100,
         }),
-    }];
+    )];
     assert!(!matches("   ", &length_only).await);
+}
+
+// ---------------------------------------------------------------------------
+// Triggers: a join, the member's name, a rule that is off
+// ---------------------------------------------------------------------------
+
+use crate::domain::moderator::ports::conditions::{
+    MemberNameContainsLinksOutsideList, MemberNameContainsWords,
+};
+use crate::domain::moderator::ports::{JoinAction, MemberJoin, RuleReason};
+use crate::domain::moderator::rules::test_support::{join_rule, named};
+
+/// The ports of a group nobody has written in yet.
+struct Quiet {
+    repo: InMemoryUserMessageActivityRepository,
+    mod_repo: InMemoryUserModerationActivityRepository,
+    characters: InMemoryUserCharacterActivityRepository,
+    lines: InMemoryUserLineActivityRepository,
+    group: InMemoryGroupMessageActivityRepository,
+    group_characters: InMemoryGroupCharacterActivityRepository,
+    group_lines: InMemoryGroupLineActivityRepository,
+    history: InMemoryGroupMessageHistoryRepository,
+}
+
+impl Quiet {
+    fn new() -> Self {
+        Self {
+            repo: InMemoryUserMessageActivityRepository::new(),
+            mod_repo: InMemoryUserModerationActivityRepository::new(),
+            characters: no_character_activity(),
+            lines: no_line_activity(),
+            group: no_group_activity(),
+            group_characters: no_group_character_activity(),
+            group_lines: no_group_line_activity(),
+            history: no_message_history(),
+        }
+    }
+
+    fn ports(&self) -> ConditionPorts<'_> {
+        ConditionPorts {
+            activity_repo: &self.repo,
+            character_activity_repo: &self.characters,
+            line_activity_repo: &self.lines,
+            moderation_activity_repo: &self.mod_repo,
+            group_activity_repo: &self.group,
+            group_character_activity_repo: &self.group_characters,
+            group_line_activity_repo: &self.group_lines,
+            message_history: &self.history,
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        }
+    }
+}
+
+/// Someone joining under `name`.
+fn joining(name: &str) -> MemberJoin {
+    MemberJoin {
+        display_name: name.to_string(),
+        ..Default::default()
+    }
+}
+
+async fn on_join(
+    rules: &[ModerationRule],
+    join: &MemberJoin,
+) -> Option<ModerationMatch<JoinAction>> {
+    should_moderate_join(join, rules, &Quiet::new().ports())
+        .await
+        .unwrap()
+}
+
+fn name_words(keyword: &str) -> ModerationCondition {
+    ModerationCondition::MemberNameContainsWords(MemberNameContainsWords {
+        keywords: vec![keyword.to_string()],
+    })
+}
+
+fn name_links_outside(domains: &[&str]) -> ModerationCondition {
+    ModerationCondition::MemberNameContainsLinksOutsideList(MemberNameContainsLinksOutsideList {
+        domains: domains.iter().map(|d| d.to_string()).collect(),
+    })
+}
+
+fn kick() -> ModerationAction {
+    ModerationAction::KickAuthor(KickAuthor {
+        delete_all_messages: false,
+    })
+}
+
+fn observer(minutes: u32) -> ModerationAction {
+    ModerationAction::SetAuthorObserver(SetAuthorObserver {
+        duration_minutes: minutes,
+    })
+}
+
+fn kicking() -> Vec<JoinAction> {
+    vec![JoinAction::try_from(kick()).unwrap()]
+}
+
+// US-D6, US-E31
+#[tokio::test]
+async fn test_a_join_is_checked_against_the_rules_for_joins() {
+    let rules = vec![join_rule(vec![kick()], Some(name_words("casino")))];
+    let hit = on_join(&rules, &joining("Free Casino Bonus"))
+        .await
+        .unwrap();
+    assert_eq!(hit.actions, kicking());
+    assert_eq!(
+        hit.reasons,
+        vec![RuleReason {
+            rule_name: None,
+            reason: "name contains word: 'casino'".to_string()
+        }]
+    );
+    assert!(on_join(&rules, &joining("Carol")).await.is_none());
+}
+
+// US-D6: a rule with no condition matches everyone who joins.
+#[tokio::test]
+async fn test_a_join_rule_with_no_condition_matches_everyone() {
+    let rules = vec![named(
+        join_rule(vec![observer(60)], None),
+        "Quarantine newcomers",
+        true,
+    )];
+    let hit = on_join(&rules, &joining("Carol")).await.unwrap();
+    assert_eq!(
+        hit.reasons,
+        vec![RuleReason {
+            rule_name: Some("Quarantine newcomers".to_string()),
+            reason: "everyone who joins".to_string()
+        }]
+    );
+}
+
+// US-D6, US-F4: every matching rule contributes, the actions are merged, and each
+// matched rule gives one reason, in the order of the rules.
+#[tokio::test]
+async fn test_every_matching_join_rule_contributes_and_the_actions_are_merged() {
+    // The shorter time first: it matches, and the longer one is not covered by it.
+    let rules = vec![
+        named(
+            join_rule(vec![observer(10)], None),
+            "Quarantine newcomers",
+            true,
+        ),
+        join_rule(vec![observer(60)], Some(name_words("casino"))),
+    ];
+    let hit = on_join(&rules, &joining("Free Casino Bonus"))
+        .await
+        .unwrap();
+    // A longer observer time covers a shorter one.
+    assert_eq!(hit.actions_as_written(), vec![observer(60)]);
+    assert_eq!(
+        hit.reasons
+            .iter()
+            .map(|r| (r.rule_name.as_deref(), r.reason.as_str()))
+            .collect::<Vec<_>>(),
+        vec![
+            (Some("Quarantine newcomers"), "everyone who joins"),
+            (None, "name contains word: 'casino'"),
+        ]
+    );
+}
+
+// US-D6: a rule whose every action the rules before it already cover is not
+// checked, so it gives no reason.
+#[tokio::test]
+async fn test_a_join_rule_the_earlier_ones_cover_gives_no_reason() {
+    let rules = vec![
+        named(
+            join_rule(vec![kick()], Some(name_words("casino"))),
+            "First",
+            true,
+        ),
+        named(
+            join_rule(vec![kick()], Some(name_words("casino"))),
+            "Second",
+            true,
+        ),
+    ];
+    let hit = on_join(&rules, &joining("Free Casino Bonus"))
+        .await
+        .unwrap();
+    assert_eq!(
+        hit.reasons,
+        vec![RuleReason {
+            rule_name: Some("First".to_string()),
+            reason: "name contains word: 'casino'".to_string()
+        }]
+    );
+}
+
+// US-D1, US-D6, US-G13: a rule that is off is not checked, and its actions cover
+// nothing.
+#[tokio::test]
+async fn test_a_rule_that_is_off_is_skipped_and_covers_nothing() {
+    let rules = vec![
+        named(join_rule(vec![kick()], None), "Off", false),
+        named(
+            join_rule(vec![kick()], Some(name_words("casino"))),
+            "On",
+            true,
+        ),
+    ];
+    let hit = on_join(&rules, &joining("Free Casino Bonus"))
+        .await
+        .unwrap();
+    assert_eq!(
+        hit.reasons,
+        vec![RuleReason {
+            rule_name: Some("On".to_string()),
+            reason: "name contains word: 'casino'".to_string()
+        }]
+    );
+    // Off, it matches nobody.
+    let only_off = vec![named(join_rule(vec![kick()], None), "Off", false)];
+    assert!(on_join(&only_off, &joining("Carol")).await.is_none());
+
+    let message_rules = vec![
+        named(
+            message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                words("spam"),
+            ),
+            "Banned words",
+            false,
+        ),
+        named(
+            message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                words("spam"),
+            ),
+            "Second",
+            true,
+        ),
+    ];
+    let msg = GroupMessage {
+        text: "spam".to_string(),
+        ..Default::default()
+    };
+    let hit = super::should_moderate_message(&msg, &message_rules, &Quiet::new().ports())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        hit.reasons,
+        vec![RuleReason {
+            rule_name: Some("Second".to_string()),
+            reason: "contains word: 'spam'".to_string()
+        }]
+    );
+}
+
+// US-D1, US-D6: each trigger checks its own rules and nobody else's.
+#[tokio::test]
+async fn test_a_message_checks_only_message_rules_and_a_join_only_join_rules() {
+    let rules = vec![
+        join_rule(vec![kick()], Some(name_words("bob"))),
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            words("spam"),
+        ),
+    ];
+    let quiet = Quiet::new();
+    // The join rule's condition would match this message's author.
+    let msg = GroupMessage {
+        text: "hello".to_string(),
+        author_name: "Bob".to_string(),
+        ..Default::default()
+    };
+    assert!(
+        super::should_moderate_message(&msg, &rules, &quiet.ports())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    // A name that contains `spam` is not a message.
+    assert!(on_join(&rules, &joining("spam")).await.is_none());
+    assert!(on_join(&rules, &joining("Bob")).await.is_some());
+}
+
+// US-E31: a name is the display name and the full name.
+#[tokio::test]
+async fn test_a_name_is_the_display_name_and_the_full_name() {
+    let rules = vec![join_rule(vec![kick()], Some(name_words("casino")))];
+    let join = MemberJoin {
+        display_name: "Bob".to_string(),
+        full_name: "Free Casino Bonus".to_string(),
+        ..Default::default()
+    };
+    assert!(on_join(&rules, &join).await.is_some());
+    assert!(
+        on_join(&rules, &joining("Free Casino Bonus"))
+            .await
+            .is_some()
+    );
+    assert!(on_join(&rules, &joining("Bob")).await.is_none());
+}
+
+// US-E31: a word is found as a whole word, however it is disguised, as in a message.
+#[tokio::test]
+async fn test_a_word_in_a_name_is_found_as_in_a_message() {
+    let rules = vec![join_rule(vec![kick()], Some(name_words("ass")))];
+    assert!(on_join(&rules, &joining("Classic Bob")).await.is_none());
+    assert!(on_join(&rules, &joining("A.S.S Bob")).await.is_some());
+    let caps = vec![join_rule(vec![kick()], Some(name_words("casino")))];
+    assert!(on_join(&caps, &joining("FREE CASINO")).await.is_some());
+}
+
+// US-E31: in a rule for messages the condition reads the author's name.
+#[tokio::test]
+async fn test_a_message_rule_reads_the_authors_name() {
+    let rules = vec![message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        name_words("casino"),
+    )];
+    let msg = GroupMessage {
+        text: "hello".to_string(),
+        author_name: "Free".to_string(),
+        author_full_name: "Casino Bonus".to_string(),
+        ..Default::default()
+    };
+    let hit = super::should_moderate_message(&msg, &rules, &Quiet::new().ports())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(hit.reasons[0].reason, "name contains word: 'casino'");
+}
+
+// US-E32
+#[tokio::test]
+async fn test_a_link_in_a_name_outside_the_list_matches() {
+    let rules = vec![join_rule(
+        vec![kick()],
+        Some(name_links_outside(&["simplex.chat"])),
+    )];
+    let hit = on_join(&rules, &joining("Bob | spam [dot] example"))
+        .await
+        .unwrap();
+    assert_eq!(hit.reasons[0].reason, "name links to spam.example");
+    assert!(
+        on_join(&rules, &joining("Bob (simplex.chat)"))
+            .await
+            .is_none()
+    );
+    assert!(on_join(&rules, &joining("Bob")).await.is_none());
+}
+
+// US-E32: with an empty list, any link matches.
+#[tokio::test]
+async fn test_with_an_empty_list_any_link_in_a_name_matches() {
+    let rules = vec![join_rule(vec![kick()], Some(name_links_outside(&[])))];
+    assert!(
+        on_join(&rules, &joining("Bob simplex.chat"))
+            .await
+            .is_some()
+    );
+    assert!(on_join(&rules, &joining("Bob")).await.is_none());
+}
+
+// US-E31, US-E32: in a message rule the link condition reads the author's name,
+// and the message's own text is not read.
+#[tokio::test]
+async fn test_a_message_rule_reads_links_in_the_authors_name_not_in_the_message() {
+    let rules = vec![message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        name_links_outside(&[]),
+    )];
+    let linked_name = GroupMessage {
+        text: "hello".to_string(),
+        author_name: "Bob spam.example".to_string(),
+        ..Default::default()
+    };
+    let linked_text = GroupMessage {
+        text: "see spam.example".to_string(),
+        author_name: "Bob".to_string(),
+        ..Default::default()
+    };
+    let quiet = Quiet::new();
+    assert!(
+        super::should_moderate_message(&linked_name, &rules, &quiet.ports())
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        super::should_moderate_message(&linked_text, &rules, &quiet.ports())
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+// US-D2: a rule's name is carried with its reason.
+#[tokio::test]
+async fn test_a_message_reason_carries_the_rules_name() {
+    let rules = vec![named(
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            words("spam"),
+        ),
+        "Banned words",
+        true,
+    )];
+    let msg = GroupMessage {
+        text: "spam".to_string(),
+        ..Default::default()
+    };
+    let hit = super::should_moderate_message(&msg, &rules, &Quiet::new().ports())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        hit.reasons,
+        vec![RuleReason {
+            rule_name: Some("Banned words".to_string()),
+            reason: "contains word: 'spam'".to_string()
+        }]
+    );
 }

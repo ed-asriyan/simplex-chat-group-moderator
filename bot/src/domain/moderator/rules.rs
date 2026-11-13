@@ -101,6 +101,7 @@ mod common;
 mod moderation_action;
 mod moderation_condition;
 mod moderation_rule;
+mod trigger;
 
 #[cfg(test)]
 mod tests;
@@ -109,68 +110,166 @@ mod tests;
 mod architecture_tests;
 #[cfg(test)]
 mod format_tests;
+#[cfg(test)]
+pub mod test_support;
 
 pub use bookkeeping::{record_activity, record_moderated, record_outcome};
 pub use moderation_action::{
-    ActionOutcome, ActionPorts, ModerationAction, actions, execute_actions,
+    ActionOutcome, ActionPorts, ModerationAction, actions, execute_join_actions,
+    execute_message_actions,
 };
 pub use moderation_condition::{ConditionPorts, KeyUse, ModerationCondition, conditions};
-pub use moderation_rule::ModerationRule;
+pub use moderation_rule::{MAX_RULE_NAME_CHARS, ModerationRule, RuleDraft, TriggeredRule};
+pub use trigger::Trigger;
+pub use trigger::member_joined::{JoinAction, JoinCondition};
+pub use trigger::message_posted::{MessageAction, MessageCondition};
 
-use super::ports::{Err, GroupMessage};
-use moderation_condition::{ConditionContext, check_condition};
+use super::ports::{Err, GroupMessage, MemberJoin, RuleReason};
+use moderation_condition::{Evaluation, TriggerCondition, check_condition, depends_on_other_rules};
 
-/// Result of evaluating message against moderation rules.
+/// What the rules of one trigger call for about one message or one join.
 ///
-/// `actions` is the merged, non-redundant plan in execution order — it is what
-/// the application performs and what the owner is told about.
+/// `actions` — the trigger's own action type `A` — is the merged,
+/// non-redundant plan in execution order: it is what the application performs
+/// and what the owner is told about. `reasons` has one entry per matched
+/// rule, in the order of the rules (US-D2, US-D6).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ModerationMatch {
-    pub actions: Vec<ModerationAction>,
-    pub reasons: Vec<String>,
+pub struct ModerationMatch<A> {
+    pub actions: Vec<A>,
+    pub reasons: Vec<RuleReason>,
 }
 
-pub async fn should_moderate(
+impl<A: Copy> ModerationMatch<A>
+where
+    ModerationAction: From<A>,
+{
+    /// The planned actions as an owner writes them, which is how the notification
+    /// names them.
+    pub fn actions_as_written(&self) -> Vec<ModerationAction> {
+        self.actions
+            .iter()
+            .copied()
+            .map(ModerationAction::from)
+            .collect()
+    }
+}
+
+/// One rule as the engine checks it: what its trigger's types make of it.
+struct Candidate<'r, T, A> {
+    name: Option<&'r str>,
+    /// `None` matches everyone (a rule for joins with no condition).
+    condition: Option<&'r T>,
+    actions: &'r [A],
+}
+
+/// What a rule that matches everyone says for itself (US-D6).
+const EVERYONE_WHO_JOINS: &str = "everyone who joins";
+
+/// Checks one message against the group's rules for `Trigger::MessagePosted`
+/// that are on, in order, and merges what the matching ones call for (US-D1).
+/// Rules for other triggers and rules that are off are skipped and cover
+/// nothing.
+pub async fn should_moderate_message(
     group_message: &GroupMessage,
     rules: &[ModerationRule],
     ports: &ConditionPorts<'_>,
-) -> Result<Option<ModerationMatch>, Err> {
-    let mut ctx = ConditionContext::new(group_message, ports);
+) -> Result<Option<ModerationMatch<MessageAction>>, Err> {
+    let candidates: Vec<Candidate<'_, MessageCondition, MessageAction>> = rules
+        .iter()
+        .filter(|rule| rule.enabled)
+        .filter_map(|rule| match &rule.body {
+            TriggeredRule::MessagePosted { condition, actions } => Some(Candidate {
+                name: rule.name.as_deref(),
+                condition: Some(condition),
+                actions,
+            }),
+            TriggeredRule::MemberJoined { .. } => None,
+        })
+        .collect();
+    evaluate_rules(group_message, &candidates, ports).await
+}
+
+/// Checks someone who joined against the group's rules for
+/// `Trigger::MemberJoined` that are on, in order, and merges what the matching
+/// ones call for; a rule with no condition matches everyone (US-D6).
+pub async fn should_moderate_join(
+    join: &MemberJoin,
+    rules: &[ModerationRule],
+    ports: &ConditionPorts<'_>,
+) -> Result<Option<ModerationMatch<JoinAction>>, Err> {
+    let candidates: Vec<Candidate<'_, JoinCondition, JoinAction>> = rules
+        .iter()
+        .filter(|rule| rule.enabled)
+        .filter_map(|rule| match &rule.body {
+            TriggeredRule::MemberJoined { condition, actions } => Some(Candidate {
+                name: rule.name.as_deref(),
+                condition: condition.as_ref(),
+                actions,
+            }),
+            TriggeredRule::MessagePosted { .. } => None,
+        })
+        .collect();
+    evaluate_rules(join, &candidates, ports).await
+}
+
+/// The loop over one trigger's rules, whichever trigger it is: see the module
+/// doc for why it is not "first matching rule wins".
+async fn evaluate_rules<T, A>(
+    subject: &T::Subject,
+    rules: &[Candidate<'_, T, A>],
+    ports: &ConditionPorts<'_>,
+) -> Result<Option<ModerationMatch<A>>, Err>
+where
+    T: TriggerCondition,
+    A: Copy + TryFrom<ModerationAction, Error = Err>,
+    ModerationAction: From<A>,
+{
+    let mut evaluation = Evaluation::<T>::new(subject, ports);
+    let reason_of = |rule: &Candidate<'_, T, A>, reason: String| RuleReason {
+        rule_name: rule.name.map(str::to_string),
+        reason,
+    };
 
     // Only pay for the pre-pass when some rule actually depends on what the
-    // others do with this message.
-    let mut moderated_by: Option<String> = None;
+    // others do with this subject.
+    let mut moderated_by: Option<RuleReason> = None;
     if rules
         .iter()
-        .any(|rule| rule.condition.depends_on_other_rules())
+        .any(|rule| rule.condition.is_some_and(depends_on_other_rules))
     {
-        ctx.pre_pass = true;
+        evaluation.pre_pass = true;
         for rule in rules {
-            if let Some(reason) = check_condition(&mut ctx, &rule.condition).await? {
-                moderated_by = Some(reason);
+            let reason = match rule.condition {
+                Some(condition) => check_condition(&mut evaluation, condition).await?,
+                None => Some(EVERYONE_WHO_JOINS.to_string()),
+            };
+            if let Some(reason) = reason {
+                moderated_by = Some(reason_of(rule, reason));
                 break;
             }
         }
-        ctx.pre_pass = false;
-        ctx.moderated_by_other_rules = moderated_by.is_some();
+        evaluation.pre_pass = false;
+        evaluation.ctx.moderated_by_other_rules = moderated_by.is_some();
     }
 
     let mut current_actions: Vec<ModerationAction> = Vec::new();
-    let mut reasons: Vec<String> = Vec::new();
+    let mut reasons: Vec<RuleReason> = Vec::new();
 
     for rule in rules {
-        let candidate_actions =
-            match action_planner::plan_next_actions(&current_actions, &rule.actions) {
-                Some(actions) => actions,
-                None => {
-                    // Rule actions are a subset of already planned actions; skip condition check.
-                    continue;
-                }
-            };
-
-        if let Some(reason) = check_condition(&mut ctx, &rule.condition).await? {
+        let written: Vec<ModerationAction> = rule.actions.iter().copied().map(Into::into).collect();
+        let Some(candidate_actions) = action_planner::plan_next_actions(&current_actions, &written)
+        else {
+            // Rule actions are a subset of already planned actions; skip the
+            // condition check.
+            continue;
+        };
+        let reason = match rule.condition {
+            Some(condition) => check_condition(&mut evaluation, condition).await?,
+            None => Some(EVERYONE_WHO_JOINS.to_string()),
+        };
+        if let Some(reason) = reason {
             current_actions = candidate_actions;
-            reasons.push(reason);
+            reasons.push(reason_of(rule, reason));
         }
     }
 
@@ -186,11 +285,13 @@ pub async fn should_moderate(
     }
 
     if current_actions.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(ModerationMatch {
-            actions: current_actions,
-            reasons,
-        }))
+        return Ok(None);
     }
+    Ok(Some(ModerationMatch {
+        actions: current_actions
+            .into_iter()
+            .map(A::try_from)
+            .collect::<Result<_, _>>()?,
+        reasons,
+    }))
 }

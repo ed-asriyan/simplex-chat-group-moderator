@@ -18,6 +18,41 @@ pub enum ModerationAction {
     KickAuthor { delete_all_messages: bool },
 }
 
+/// Why one rule matched, as the owner reads it in a notification (US-D2,
+/// US-D6): the rule's name, if it has one, and what matched. This context's own
+/// copy of the moderator's type; the notification router translates between them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuleReason {
+    pub rule_name: Option<String>,
+    pub reason: String,
+}
+
+/// What made the bot check the rules, with what the owner is shown of it. This
+/// context's own copy of the moderator's type; the notification router
+/// translates between them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TriggerEvent {
+    /// A member's message, quoted from `message` (US-D2).
+    MessagePosted { message: String },
+    /// Someone joined (US-D6).
+    MemberJoined,
+}
+
+/// One moderation notification for an owner (US-D2, US-D4, US-D6).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModerationNotification {
+    pub event: TriggerEvent,
+    /// Whether the actions were carried out, or only would have been (the
+    /// mode *Dry*).
+    pub performed: bool,
+    /// The display name of the message's author, or of the person who joined.
+    pub member_name: String,
+    /// In the order they were carried out.
+    pub actions: Vec<ModerationAction>,
+    /// One per matched rule, in the order of the rules.
+    pub reasons: Vec<RuleReason>,
+}
+
 #[derive(Debug)]
 pub struct Message {
     pub text: String,
@@ -60,17 +95,14 @@ pub trait BotMessenger: Send + Sync {
 
 /// Inbound port: deliver a notification to a group owner that the bot performed
 /// moderation actions in their group — or, when `performed` is false, would
-/// have.
+/// have (US-D2, US-D4, US-D6).
 #[async_trait]
 pub trait ModerationNotificationReceiver: Send + Sync {
     async fn send_moderation_notification(
         &self,
         user_id: UserId,
         group: &Group,
-        actions: &[ModerationAction],
-        performed: bool,
-        message: &str,
-        reasons: &[String],
+        notification: &ModerationNotification,
     ) -> Result<(), Err>;
 }
 
@@ -84,6 +116,8 @@ pub trait GroupOperations: Send + Sync {
         invitation: &GroupInvitation,
     ) -> Result<Group, JoinError>;
 
+    /// The groups the user owns, each with its current name, which the
+    /// editor link carries (US-B4).
     async fn get_groups(&self, user_id: UserId) -> Result<Vec<Group>, Err>;
 
     /// Replace the group's whole configuration — its mode and its rules —
@@ -95,6 +129,7 @@ pub trait GroupOperations: Send + Sync {
         json: &str,
     ) -> Result<(), Err>;
 
-    /// The group's whole configuration as JSON.
+    /// The group's whole configuration as JSON, its rules that are off
+    /// included (US-B4).
     async fn get_config_json(&self, user_id: UserId, group_id: GroupId) -> Result<String, Err>;
 }

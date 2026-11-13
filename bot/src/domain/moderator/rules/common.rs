@@ -9,5 +9,7 @@ pub mod api_retry;
 pub mod checks;
 pub mod domains;
 pub mod invisible;
+pub mod member;
 pub mod rate_limit;
 pub mod screen_lines;
+pub mod words;

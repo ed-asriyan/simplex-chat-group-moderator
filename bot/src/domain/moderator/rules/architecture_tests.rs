@@ -6,9 +6,11 @@
 //! a sibling module is always visible. So this test reads the moderator's
 //! sources and fails on anything that ties a condition or an action to the
 //! rest:
-//! - a leaf is named only by its own module and its registry line — not by
+//! - a leaf is named only by its own module, its registry line and its line in
+//!   the list of each trigger that takes it (`trigger/<trigger>.rs`) — not by
 //!   another leaf, the engine, `common`, the application or the ports;
-//! - a leaf reaches only its registry, the ports and `common`;
+//! - a leaf reaches only its registry, the ports and `common`, and names no
+//!   trigger: it belongs to none, and to as many as list it;
 //! - `common` serves the leaves without knowing the engine;
 //! - outside `rules`, nothing names a variant of either enum.
 //!
@@ -138,6 +140,10 @@ fn test_conditions_and_actions_are_isolated() {
     let common_reaches_engine =
         Regex::new(r"\bsuper::super\b|\brules::(\w+)|\bModeration(Condition|Action|Rule)\b")
             .unwrap();
+    let names_trigger = Regex::new(
+        r"\bTrigger\b|\btrigger::|\bMessage(Condition|Action)\b|\bJoin(Condition|Action)\b",
+    )
+    .unwrap();
     let names_variant = Regex::new(r"\bModeration(Condition|Action)::\w+").unwrap();
 
     let mut violations = Vec::new();
@@ -148,6 +154,7 @@ fn test_conditions_and_actions_are_isolated() {
             .display()
             .to_string();
         let owner = leaves.iter().find(|leaf| leaf.owns(path));
+        let in_triggers = path.starts_with(rules.join("trigger"));
         let in_common = path.starts_with(rules.join("common")) || path == &rules.join("common.rs");
         let in_rules = path.starts_with(&rules) || path == &rules.with_extension("rs");
 
@@ -159,7 +166,8 @@ fn test_conditions_and_actions_are_isolated() {
             for (leaf, name) in &names {
                 let own = owner.is_some_and(|owner| owner.variant == leaf.variant);
                 let registry_line = code.trim() == leaf.registry_line;
-                if !own && !registry_line && name.is_match(&code) {
+                let trigger_line = in_triggers && code.trim() == format!("{},", leaf.variant);
+                if !own && !registry_line && !trigger_line && name.is_match(&code) {
                     violation(format!(
                         "`{}` is named outside its own module and its registry line",
                         leaf.variant
@@ -178,6 +186,9 @@ fn test_conditions_and_actions_are_isolated() {
                             path.as_str()
                         ));
                     }
+                }
+                if names_trigger.is_match(&code) {
+                    violation("a leaf belongs to no trigger: the triggers list the leaves".into());
                 }
                 if escapes_leaf.is_match(&code) {
                     violation("a leaf reaches its registry as `super`, nothing above it".into());

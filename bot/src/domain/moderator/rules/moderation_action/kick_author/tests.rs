@@ -49,3 +49,26 @@ async fn test_a_restore_that_cannot_be_cancelled_is_reported_not_failed() {
         "restore bookkeeping failed"
     );
 }
+
+// US-F3: the person who joined is removed, with the rest of what the story names.
+#[tokio::test]
+async fn test_a_kick_removes_the_person_who_joined() {
+    let ports = Recorder::default();
+    let report = ports.execute_on_join(&kick(false)).await.unwrap();
+    assert_eq!(
+        ports.calls(),
+        vec![
+            "kick 42 from 1, delete all: false",
+            "cancel the restore of 42 in 1"
+        ]
+    );
+    assert!(report.bookkeeping_error.is_none());
+}
+
+// US-F3
+#[tokio::test]
+async fn test_a_kick_on_a_join_can_delete_every_message() {
+    let ports = Recorder::default();
+    ports.execute_on_join(&kick(true)).await.unwrap();
+    assert_eq!(ports.calls()[0], "kick 42 from 1, delete all: true");
+}

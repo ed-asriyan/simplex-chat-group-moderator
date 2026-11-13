@@ -5,8 +5,8 @@ mod filter;
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext, Needs};
-use crate::domain::moderator::ports::Err;
+use super::{Condition, ConditionContext, Needs, ConditionOn};
+use crate::domain::moderator::ports::{Err, GroupMessage};
 use crate::domain::moderator::rules::common::rate_limit;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -22,7 +22,6 @@ pub struct AuthorHitsCharacterRateLimit {
     pub time_window_minutes: u32,
 }
 
-#[async_trait]
 impl Condition for AuthorHitsCharacterRateLimit {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
         Ok(())
@@ -34,20 +33,22 @@ impl Condition for AuthorHitsCharacterRateLimit {
             self.character_count, self.time_window_minutes
         )
     }
-
-    async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
-        filter::check(
-            ctx.ports.character_activity_repo,
-            &ctx.group_message.group.id,
-            &ctx.group_message.author_id,
-            self.character_count,
-            self.time_window_minutes,
-            ctx.group_message.timestamp,
-        )
-        .await
-    }
-
     fn needs(&self) -> Needs {
         Needs::author_characters(self.time_window_minutes)
+    }
+}
+
+#[async_trait]
+impl ConditionOn<GroupMessage> for AuthorHitsCharacterRateLimit {
+    async fn should_moderate(&self, ctx: &ConditionContext<'_, GroupMessage>) -> Result<Option<String>, Err> {
+        filter::check(
+            ctx.ports.character_activity_repo,
+            &ctx.subject.group.id,
+            &ctx.subject.author_id,
+            self.character_count,
+            self.time_window_minutes,
+            ctx.subject.timestamp,
+        )
+        .await
     }
 }

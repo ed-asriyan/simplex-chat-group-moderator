@@ -53,10 +53,7 @@ impl GroupAdministrationApplication {
     /// model a key is to ask. The first check that does not pass stops the
     /// save.
     async fn verify_api_keys(&self, rules: &[ModerationRule]) -> Result<(), Err> {
-        let checks: BTreeSet<KeyUse> = rules
-            .iter()
-            .flat_map(|rule| rule.condition.key_uses())
-            .collect();
+        let checks: BTreeSet<KeyUse> = rules.iter().flat_map(|rule| rule.key_uses()).collect();
         for key_use in &checks {
             let check = match key_use {
                 KeyUse::OpenAiModeration { api_key } => self.openai.verify(api_key).await,

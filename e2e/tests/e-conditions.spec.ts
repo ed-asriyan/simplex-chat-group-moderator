@@ -1,45 +1,44 @@
 // E. Conditions: what the owner sees when adding each in the editor, and what
 // it matches, with its reason line.
-import { expect, Locator, Page, test } from '@playwright/test';
+import { expect, Page, test } from '@playwright/test';
 import { Person, settingsLink } from '../harness/person';
 import { advance } from '../harness/stack';
-import { addCondition, anotherMember, apply, emptyEditor, moderated, moderatedAnyway, notice, rule, rules, scene, untouched } from './helpers';
+import { anotherMember, apply, conditionEditor, looks, moderated, moderatedAnyway, rule, rules, scene, untouched } from './helpers';
 
 const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n');
 const words = (n: number) => Array.from({ length: n }, (_, i) => `w${i}`).join(' ');
 
 /** A number field: its label, its default and its limits. */
-async function number(pane: Locator, title: string, value: string, min?: string, max?: string) {
-  const field = pane.getByRole('spinbutton', { name: title, exact: true });
+async function number(page: Page, title: string, value: string, min?: string, max?: string) {
+  const field = page.getByRole('spinbutton', { name: title, exact: true });
   await expect(field).toHaveValue(value);
   if (min !== undefined) await expect(field).toHaveAttribute('min', min);
   if (max !== undefined) await expect(field).toHaveAttribute('max', max);
 }
 
 /** A list field: its label with no entries, and its limits, shown in bulk edit. */
-async function list(pane: Locator, title: string, limits?: string) {
-  const label = new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')} · 0`);
-  await expect(pane.getByText(label)).toBeVisible();
+async function list(page: Page, title: string, limits?: string) {
+  await expect(page.getByRole('textbox', { name: `Add to ${title}`, exact: true })).toBeVisible();
+  await expect(page.getByRole('list', { name: title, exact: true })).toHaveCount(0);
   if (limits) {
-    await pane.getByRole('button', { name: 'bulk edit' }).first().click();
-    await expect(pane.getByText(limits)).toBeVisible();
+    await page.getByRole('button', { name: `Bulk edit ${title}`, exact: true }).click();
+    await expect(page.getByText(limits)).toBeVisible();
   }
 }
 
-/** No field at all under the condition. */
-async function noField(pane: Locator) {
-  await expect(pane.getByRole('spinbutton')).toHaveCount(0);
-  await expect(pane.getByRole('textbox')).toHaveCount(0);
-  await expect(pane.getByRole('checkbox')).toHaveCount(0);
+/** No field at all under the condition, but the rule's own name. */
+async function noField(page: Page) {
+  await expect(page.getByRole('spinbutton')).toHaveCount(0);
+  await expect(page.getByRole('textbox')).toHaveCount(1);
+  await expect(page.getByRole('checkbox')).toHaveCount(0);
 }
 
-/** Adds a rule with the condition `type` (the picker's label); its pane looks as approved. */
-async function adding(page: Page, type: string): Promise<Locator> {
-  await emptyEditor(page);
-  const pane = await addCondition(page, type);
-  await expect(pane).toHaveScreenshot(`condition-${slug(type)}.png`);
-  return pane;
+/** Adds a rule with the condition `title`; its page looks as approved. */
+async function adding(page: Page, title: string, trigger: 'messages' | 'joins' = 'messages'): Promise<Page> {
+  await conditionEditor(page, title, trigger);
+  await looks(page, `condition-${slug(title)}${trigger === 'joins' ? '-for-joins' : ''}`);
+  return page;
 }
 
 const slug = (label: string) => label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -48,7 +47,7 @@ const slug = (label: string) => label.toLowerCase().replace(/[^a-z0-9]+/g, '-').
 
 // US-E1
 test('message contains any of these words', async ({ page }) => {
-  await list(await adding(page, 'Contains a listed word'), 'Words / Phrases', 'Up to 10000 entries, 100 characters each.');
+  await list(await adding(page, 'Message Contains Any of These Words'), 'Words / Phrases', 'Up to 10000 entries, 100 characters each.');
   const s = await scene(rules(rule({ type: 'ContainsWords', keywords: ['spam', 'blow job', 'ass', 'badword'] })));
   await untouched(s, 'a classic move');
   // 'sраm' has a Cyrillic р and а.
@@ -61,7 +60,7 @@ test('message contains any of these words', async ({ page }) => {
 
 // US-E2
 test('message exactly matches any of these texts', async ({ page }) => {
-  const pane = await adding(page, 'Exactly matches a listed text');
+  const pane = await adding(page, 'Message Exactly Matches Any of These Texts');
   await list(pane, 'Texts', 'Up to 10000 entries, 1000 characters each.');
   await expect(pane.getByRole('checkbox', { name: 'Case sensitive' })).not.toBeChecked();
   const s = await scene(rules(rule({ type: 'MatchesExactMessage', messages: ['buy now'], case_sensitive: false })));
@@ -74,7 +73,7 @@ test('message exactly matches any of these texts', async ({ page }) => {
 
 // US-E3
 test('message matches any of these regex patterns', async ({ page }) => {
-  await list(await adding(page, 'Matches a regex pattern'), 'Regex Patterns', 'Up to 100 entries, 200 characters each.');
+  await list(await adding(page, 'Message Matches Any of These Regex Patterns'), 'Regex Patterns', 'Up to 100 entries, 200 characters each.');
   const s = await scene(rules(rule({ type: 'MatchesRegex', patterns: ['\\d{4,}'] })));
   await moderated(s, 'call 5551234', ["matches regex pattern: '\\d{4,}'"]);
   await untouched(s, 'call 555');
@@ -82,7 +81,7 @@ test('message matches any of these regex patterns', async ({ page }) => {
 
 // US-E4
 test('message contains repeated sequence', async ({ page }) => {
-  const pane = await adding(page, 'Contains a repeated sequence');
+  const pane = await adding(page, 'Message Contains Repeated Sequence');
   await number(pane, 'Minimum Repeats in a Row', '5', '2');
   await number(pane, 'Minimum Sequence Length', '1', '1', '50');
   const s = await scene(rules(rule({ type: 'ContainsRepeatedSequence', min_repeats: 5, min_length: 1 })));
@@ -98,7 +97,7 @@ test('message contains repeated sequence', async ({ page }) => {
 
 // US-E5
 test('message contains a link to any of these websites', async ({ page }) => {
-  await list(await adding(page, 'Link to a listed website'), 'Websites', 'Up to 10000 entries, 100 characters each.');
+  await list(await adding(page, 'Message Contains a Link to Any of These Websites'), 'Websites', 'Up to 10000 entries, 100 characters each.');
   const s = await scene(rules(rule({ type: 'ContainsLinksInList', domains: ['spam.example'] })));
   await moderated(s, 'see https://spam.example/offer', ['spam.example']);
   await moderatedAnyway(s, 'see www.spam.example');
@@ -108,7 +107,7 @@ test('message contains a link to any of these websites', async ({ page }) => {
 
 // US-E6
 test('message contains a link to a website outside this list', async ({ page }) => {
-  await list(await adding(page, 'Link outside this list'), 'Websites');
+  await list(await adding(page, 'Message Contains a Link to a Website Outside This List'), 'Websites');
   const s = await scene(rules(rule({ type: 'ContainsLinksOutsideList', domains: ['simplex.chat'] })));
   await untouched(s, 'https://simplex.chat/blog');
   await moderated(s, 'https://spam.example', ['spam.example']);
@@ -118,7 +117,7 @@ test('message contains a link to a website outside this list', async ({ page }) 
 
 // US-E7
 test('message contains a link outside top 100 websites', async ({ page }) => {
-  await list(await adding(page, 'Link outside top 100'), 'Extra Websites Added to Top 100');
+  await list(await adding(page, 'Message Contains a Link Outside Top 100 Websites'), 'Extra Websites Added to Top 100');
   const s = await scene(rules(rule({ type: 'ContainsLinksOutsideTop100', domains: [] })));
   await untouched(s, 'https://github.com/simplex-chat');
   await moderated(s, 'https://spam.example', ['spam.example']);
@@ -128,7 +127,7 @@ test('message contains a link outside top 100 websites', async ({ page }) => {
 
 // US-E8
 test('message is empty or blank', async ({ page }) => {
-  await noField(await adding(page, 'Is Empty or Blank'));
+  await noField(await adding(page, 'Message Is Empty or Blank'));
   const s = await scene(rules(rule({ type: 'IsBlank' })));
   await moderated(s, '   ', ['empty message'], null);
   await moderated(s, '​', ['empty message'], '​');
@@ -137,7 +136,7 @@ test('message is empty or blank', async ({ page }) => {
 
 // US-E9
 test('message contains invisible characters', async ({ page }) => {
-  await noField(await adding(page, 'Contains Invisible Characters'));
+  await noField(await adding(page, 'Message Contains Invisible Characters'));
   const s = await scene(rules(rule({ type: 'ContainsInvisibleCharacters' })));
   await moderated(s, 'hi​there', ['invisible characters']);
   await untouched(s, 'family 👨‍👩‍👧');
@@ -145,7 +144,7 @@ test('message contains invisible characters', async ({ page }) => {
 
 // US-E10
 test('message exceeds max characters', async ({ page }) => {
-  await number(await adding(page, 'Exceeds max characters'), 'Max Characters', '1000', '1');
+  await number(await adding(page, 'Message Exceeds Max Characters'), 'Max Characters', '1000', '1');
   const s = await scene(rules(rule({ type: 'ExceedsMaxCharacters', max_characters: 1000 })));
   await moderated(s, 'x'.repeat(1203), ['1203 characters'], `${'x'.repeat(300)}...`);
   await untouched(s, 'x'.repeat(1000));
@@ -153,7 +152,7 @@ test('message exceeds max characters', async ({ page }) => {
 
 // US-E11
 test('message exceeds max words', async ({ page }) => {
-  await number(await adding(page, 'Exceeds max words'), 'Max Words', '150', '1');
+  await number(await adding(page, 'Message Exceeds Max Words'), 'Max Words', '150', '1');
   const s = await scene(rules(rule({ type: 'ExceedsMaxWords', max_words: 150 })));
   await moderated(s, words(152), ['152 words'], `${words(152).slice(0, 300)}...`);
   await untouched(s, words(150));
@@ -161,7 +160,7 @@ test('message exceeds max words', async ({ page }) => {
 
 // US-E12
 test('message exceeds max lines', async ({ page }) => {
-  const pane = await adding(page, 'Exceeds max lines');
+  const pane = await adding(page, 'Message Exceeds Max Lines');
   await number(pane, 'Max Lines', '10', '1');
   await number(pane, 'Characters per Line (Screen Wrap)', '40', '0');
   const s = await scene(rules(rule({ type: 'ExceedsMaxLines', max_lines: 10, chars_per_line: 40 })));
@@ -177,7 +176,7 @@ test('message exceeds max lines', async ({ page }) => {
 
 // US-E13
 test('message contains an image', async ({ page }) => {
-  await noField(await adding(page, 'Contains an image'));
+  await noField(await adding(page, 'Message Contains an Image'));
   const s = await scene(rules(rule({ type: 'ContainsImage' })));
   await moderated(s, { type: 'image', text: '', image: PIXEL }, ['contains an image'], null);
   await untouched(s, 'just text');
@@ -188,7 +187,7 @@ test('message contains an image', async ({ page }) => {
 
 // US-E14
 test('message contains a video', async ({ page }) => {
-  await noField(await adding(page, 'Contains a video'));
+  await noField(await adding(page, 'Message Contains a Video'));
   const s = await scene(rules(rule({ type: 'ContainsVideo' })));
   await moderated(s, { type: 'video', text: '', image: PIXEL, duration: 1 }, ['contains a video'], null);
   await untouched(s, { type: 'image', text: '', image: PIXEL });
@@ -196,7 +195,7 @@ test('message contains a video', async ({ page }) => {
 
 // US-E15
 test('message contains a voice message', async ({ page }) => {
-  await noField(await adding(page, 'Contains a voice message'));
+  await noField(await adding(page, 'Message Contains a Voice Message'));
   const s = await scene(rules(rule({ type: 'ContainsVoiceMessage' })));
   await moderated(s, { type: 'voice', text: '', duration: 1 }, ['contains a voice message'], null);
   await untouched(s, 'just text');
@@ -204,7 +203,7 @@ test('message contains a voice message', async ({ page }) => {
 
 // US-E16
 test('message contains a file', async ({ page }) => {
-  await noField(await adding(page, 'Contains a file'));
+  await noField(await adding(page, 'Message Contains a File'));
   const s = await scene(rules(rule({ type: 'ContainsFile' })));
   await moderated(s, { type: 'file', text: '' }, ['contains a file'], null);
   await untouched(s, { type: 'image', text: '', image: PIXEL });
@@ -214,7 +213,7 @@ test('message contains a file', async ({ page }) => {
 
 // US-E17
 test('author hits message rate limit', async ({ page }) => {
-  const pane = await adding(page, 'Message rate limit');
+  const pane = await adding(page, 'Author Hits Message Rate Limit');
   await number(pane, 'Number of Messages', '5', '1');
   await number(pane, 'Time Window (Minutes)', '1', '1', '60');
   const s = await scene(rules(rule({ type: 'AuthorHitsMessageRateLimit', message_count: 5, time_window_minutes: 1 })));
@@ -224,7 +223,7 @@ test('author hits message rate limit', async ({ page }) => {
 
 // US-E18
 test('author hits character rate limit', async ({ page }) => {
-  const pane = await adding(page, 'Character rate limit');
+  const pane = await adding(page, 'Author Hits Character Rate Limit');
   await number(pane, 'Number of Characters', '2000', '1');
   await number(pane, 'Time Window (Minutes)', '1', '1', '60');
   const s = await scene(rules(rule({ type: 'AuthorHitsCharacterRateLimit', character_count: 2000, time_window_minutes: 1 })));
@@ -234,7 +233,7 @@ test('author hits character rate limit', async ({ page }) => {
 
 // US-E19
 test('author hits line rate limit', async ({ page }) => {
-  const pane = await adding(page, 'Line rate limit');
+  const pane = await adding(page, 'Author Hits Line Rate Limit');
   await number(pane, 'Number of Lines', '30', '1');
   await number(pane, 'Time Window (Minutes)', '1', '1', '60');
   await number(pane, 'Characters per Line (Screen Wrap)', '40', '0');
@@ -245,7 +244,7 @@ test('author hits line rate limit', async ({ page }) => {
 
 // US-E20
 test('author hits moderation rate limit', async ({ page }) => {
-  const pane = await adding(page, 'Moderation rate limit');
+  const pane = await adding(page, 'Author Hits Moderation Rate Limit');
   await number(pane, 'Number of Moderated Messages', '3', '1');
   await number(pane, 'Time Window (Minutes)', '60', '1', '60');
   const s = await scene(rules(
@@ -262,7 +261,7 @@ test('author hits moderation rate limit', async ({ page }) => {
 
 // US-E21
 test('author joined recently', async ({ page }) => {
-  await number(await adding(page, 'Joined recently'), 'Joined Less Than (Minutes) Ago', '60', '1');
+  await number(await adding(page, 'Author Joined Recently'), 'Joined Less Than (Minutes) Ago', '60', '1');
   // A member who was in the group before the bot joined never matches.
   const alice = await Person.join('Alice');
   await alice.message();
@@ -287,6 +286,38 @@ test('author joined recently', async ({ page }) => {
   await bob.seesNothing(4000);
 });
 
+// ---- The member's name ----
+
+// US-E31
+test("member's name contains any of these words", async ({ page }) => {
+  await list(await adding(page, "Member's Name Contains Any of These Words"), 'Words / Phrases', 'Up to 10000 entries, 100 characters each.');
+  // It is offered in a rule for when someone joins too.
+  await adding(page, "Member's Name Contains Any of These Words", 'joins');
+  // In a rule for when someone sends a message, it reads the name of the message's author.
+  const s = await scene(rules(rule({ type: 'MemberNameContainsWords', keywords: ['casino'] })), 'owner', 'Free Casino Bonus');
+  await moderated(s, 'hello', ["name contains word: 'casino'"]);
+  await moderated(s, 'hello again', ["name contains word: 'casino'"]);
+  // The full name is read as the display name is.
+  const t = await scene(rules(rule({ type: 'MemberNameContainsWords', keywords: ['casino'] })), 'owner', ['Bobby', 'Casino Fan']);
+  await moderated(t, 'hello', ["name contains word: 'casino'"]);
+  // Whole words only: another name is left alone.
+  const u = await scene(rules(rule({ type: 'MemberNameContainsWords', keywords: ['casino'] })));
+  await untouched(u, 'hello');
+});
+
+// US-E32
+test("member's name contains a link outside this list", async ({ page }) => {
+  await list(await adding(page, "Member's Name Contains a Link Outside This List"), 'Websites', 'Up to 10000 entries, 100 characters each.');
+  await adding(page, "Member's Name Contains a Link Outside This List", 'joins');
+  const s = await scene(rules(rule({ type: 'MemberNameContainsLinksOutsideList', domains: ['simplex.chat'] })), 'owner', ['Bob{}', 'Bob | spam [dot] example']);
+  await moderated(s, 'hello', ['name links to spam.example']);
+  // A link in the list does not match; with an empty list, any link does.
+  const t = await scene(rules(rule({ type: 'MemberNameContainsLinksOutsideList', domains: ['simplex.chat'] })), 'owner', ['Bob{}', 'Bob (simplex.chat)']);
+  await untouched(t, 'hello');
+  await apply(t, rules(rule({ type: 'MemberNameContainsLinksOutsideList', domains: [] })));
+  await moderated(t, 'hello', ['name links to simplex.chat']);
+});
+
 // ---- The group ----
 
 /** Bob and Carol alternate, `n` messages in all, the last one moderated with `reason`. */
@@ -298,7 +329,7 @@ async function together(n: number, text: (i: number) => string, reason: string) 
 
 // US-E22
 test('group hits message rate limit', async ({ page }) => {
-  const pane = await adding(page, 'Group message rate limit');
+  const pane = await adding(page, 'Group Hits Message Rate Limit');
   await number(pane, 'Number of Messages', '30', '1');
   await number(pane, 'Time Window (Minutes)', '1', '1', '60');
   const { s, carol } = await together(30, String, '');
@@ -313,7 +344,7 @@ test('group hits message rate limit', async ({ page }) => {
 
 // US-E23
 test('group hits character rate limit', async ({ page }) => {
-  const pane = await adding(page, 'Group character rate limit');
+  const pane = await adding(page, 'Group Hits Character Rate Limit');
   await number(pane, 'Number of Characters', '10000', '1');
   await number(pane, 'Time Window (Minutes)', '1', '1', '60');
   const { s, carol } = await together(2, String, '');
@@ -325,7 +356,7 @@ test('group hits character rate limit', async ({ page }) => {
 
 // US-E24
 test('group hits line rate limit', async ({ page }) => {
-  const pane = await adding(page, 'Group line rate limit');
+  const pane = await adding(page, 'Group Hits Line Rate Limit');
   await number(pane, 'Number of Lines', '150', '1');
   await number(pane, 'Time Window (Minutes)', '1', '1', '60');
   await number(pane, 'Characters per Line (Screen Wrap)', '40', '0');
@@ -376,8 +407,8 @@ test('flagged by OpenRouter Instruction: its fields', async ({ page }) => {
 
 // US-E27
 test('all of these conditions match', async ({ page }) => {
-  const pane = await adding(page, 'All of these (AND)');
-  await expect(pane.getByRole('button', { name: '+ Add to AND' })).toBeVisible();
+  const pane = await adding(page, 'All of These Conditions Match (AND)');
+  await expect(pane.getByRole('button', { name: 'Add to AND', exact: true })).toBeVisible();
   const s = await scene(rules(rule({ type: 'All', conditions: [
     { type: 'ContainsWords', keywords: ['spam'] }, { type: 'ContainsLinksInList', domains: ['casino.example'] },
   ] })));
@@ -388,8 +419,8 @@ test('all of these conditions match', async ({ page }) => {
 
 // US-E28
 test('any of these conditions match', async ({ page }) => {
-  const pane = await adding(page, 'Any of these (OR)');
-  await expect(pane.getByRole('button', { name: '+ Add to OR' })).toBeVisible();
+  const pane = await adding(page, 'Any of These Conditions Match (OR)');
+  await expect(pane.getByRole('button', { name: 'Add to OR', exact: true })).toBeVisible();
   const s = await scene(rules(rule({ type: 'Any', conditions: [
     { type: 'ContainsWords', keywords: ['spam'] }, { type: 'ContainsLinksInList', domains: ['spam.example'] },
   ] })));
@@ -401,17 +432,16 @@ test('any of these conditions match', async ({ page }) => {
 // US-E29
 test('this condition does not match', async ({ page }) => {
   // Wrapped from the condition's menu, the condition sits inside the NOT.
-  const pane = await adding(page, 'Exceeds max characters');
-  await pane.getByRole('button', { name: '⋮' }).first().click();
-  await pane.getByRole('button', { name: 'Wrap in NOT' }).click();
-  const types = pane.getByRole('combobox', { name: 'Condition type' });
-  await expect(types).toHaveCount(2);
-  await expect(types.nth(0).locator('option:checked')).toHaveText('Does not match');
-  await expect(types.nth(1).locator('option:checked')).toHaveText('Exceeds max characters');
+  await adding(page, 'Message Exceeds Max Characters');
+  await page.getByRole('button', { name: 'More for “Message Exceeds Max Characters”', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Wrap in NOT' }).click();
+  await expect(page.getByText('This Condition Does Not Match (NOT)', { exact: true })).toBeVisible();
+  await expect(page.getByText('Message Exceeds Max Characters', { exact: true })).toBeVisible();
+  await looks(page, 'condition-wrapped-in-not');
   // Picked from the type list, it starts empty, with nothing to add to it.
-  const empty = await adding(page, 'Does not match');
-  await expect(empty.getByRole('combobox', { name: 'Condition type' })).toHaveCount(1);
-  await expect(empty.getByRole('button', { name: /^\+ Add to/ })).toHaveCount(0);
+  await adding(page, 'This Condition Does Not Match (NOT)');
+  await expect(page.getByText('This Condition Does Not Match (NOT)', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Add to /})).toHaveCount(0);
   const s = await scene(rules(rule({ type: 'Not', condition: { type: 'ExceedsMaxCharacters', max_characters: 1000 } })));
   await moderated(s, 'hi', ['does not match: has more than 1000 characters']);
   await untouched(s, 'x'.repeat(1001));
@@ -433,5 +463,3 @@ test('combinations nest up to 8 levels and 64 conditions', async () => {
   const fits = { type: 'Any', conditions: Array.from({ length: 63 }, (_, i) => ({ type: 'ContainsWords', keywords: [`w${i}`] })) };
   expect(await s.owner.ask(settingsLink(s.id, rules(rule(fits))))).toBe('✅ Group settings updated.');
 });
-
-void notice;

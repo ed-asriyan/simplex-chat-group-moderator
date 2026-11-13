@@ -7,6 +7,7 @@ use crate::domain::moderator::ports::conditions::{
     ContainsWords, ExceedsMaxCharacters, ExceedsMaxLines, ExceedsMaxWords, FlaggedByOmniModeration,
     FlaggedByOpenRouterInstruction, GroupHitsCharacterRateLimit, GroupHitsLineRateLimit,
     GroupHitsMessageRateLimit, IsBlank, MatchesExactMessage, MatchesRegex,
+    MemberNameContainsLinksOutsideList, MemberNameContainsWords,
 };
 use async_trait::async_trait;
 use rand::RngExt;
@@ -16,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use crate::domain::moderator::ports::{
     CategoryTrigger, Err, Group, GroupConfig, GroupId, GroupMode, MessengerGroupId,
     ModerationAction, ModerationCondition, ModerationRepository, OpenAiCategory,
-    OwnedModerationRule, UserId,
+    OwnedModerationRule, RuleDraft, UserId,
 };
 const GROUP_ID_MIN: i64 = 1;
 const GROUP_ID_MAX: i64 = 1_000_000;
@@ -139,6 +140,10 @@ fn insert_condition(
         }) => "GroupHitsCharacterRateLimit",
         ModerationCondition::GroupHitsLineRateLimit(_) => "GroupHitsLineRateLimit",
         ModerationCondition::AuthorJoinedRecently(_) => "AuthorJoinedRecently",
+        ModerationCondition::MemberNameContainsWords(_) => "MemberNameContainsWords",
+        ModerationCondition::MemberNameContainsLinksOutsideList(_) => {
+            "MemberNameContainsLinksOutsideList"
+        }
         ModerationCondition::FlaggedByOmniModeration(_) => "FlaggedByOmniModeration",
         ModerationCondition::FlaggedByOpenRouterInstruction(FlaggedByOpenRouterInstruction {
             ..
@@ -160,6 +165,24 @@ fn insert_condition(
         ModerationCondition::Not { condition } => {
             insert_condition(tx, rule_id, Some(condition_id), 0, condition)?;
         }
+        ModerationCondition::MemberNameContainsWords(MemberNameContainsWords { keywords }) => {
+            insert_condition_list(
+                tx,
+                "moderation_condition__member_name_contains_words__keywords",
+                "keyword",
+                condition_id,
+                keywords,
+            )?
+        }
+        ModerationCondition::MemberNameContainsLinksOutsideList(
+            MemberNameContainsLinksOutsideList { domains },
+        ) => insert_condition_list(
+            tx,
+            "moderation_condition__member_name_contains_links_outside_list__domains",
+            "domain",
+            condition_id,
+            domains,
+        )?,
         ModerationCondition::ContainsWords(ContainsWords { keywords }) => insert_condition_list(
             tx,
             "moderation_condition__contains_words__keywords",
@@ -625,14 +648,24 @@ impl ModerationRepository for SqliteModerationRepository {
             .map_err(|e| -> Err { e.to_string().into() })?;
 
             for (rank, rule) in rules.iter().enumerate() {
+                let draft = RuleDraft::from(rule.clone());
                 tx.execute(
-                    "INSERT INTO moderation_rules (group_id, rank) VALUES (?1, ?2)",
-                    rusqlite::params![gid, rank as i64],
+                    "INSERT INTO moderation_rules (group_id, rank, name, trigger, enabled)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    rusqlite::params![
+                        gid,
+                        rank as i64,
+                        draft.name,
+                        draft.trigger.name(),
+                        draft.enabled
+                    ],
                 )
                 .map_err(|e| -> Err { e.to_string().into() })?;
                 let rule_id = tx.last_insert_rowid();
-                insert_actions(&tx, rule_id, &rule.actions)?;
-                insert_condition(&tx, rule_id, None, 0, &rule.condition)?;
+                insert_actions(&tx, rule_id, &draft.actions)?;
+                if let Some(condition) = &draft.condition {
+                    insert_condition(&tx, rule_id, None, 0, condition)?;
+                }
             }
 
             tx.commit().map_err(|e| -> Err { e.to_string().into() })?;

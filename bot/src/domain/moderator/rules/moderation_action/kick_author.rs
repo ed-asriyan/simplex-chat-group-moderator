@@ -3,8 +3,9 @@
 #[cfg(test)]
 mod tests;
 
-use super::{Action, ActionContext, ActionReport, Effect, Silence};
+use super::{Action, ActionContext, ActionReport, Effect, Silence, ActionOn};
 use crate::domain::moderator::ports::Err;
+use crate::domain::moderator::rules::common::member::Member;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -17,7 +18,6 @@ pub struct KickAuthor {
     pub delete_all_messages: bool,
 }
 
-#[async_trait]
 impl Action for KickAuthor {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
         Ok(())
@@ -38,13 +38,20 @@ impl Action for KickAuthor {
         2
     }
 
-    async fn execute(&self, ctx: &ActionContext<'_>) -> Result<ActionReport, Err> {
-        let message = ctx.group_message;
+    fn title(&self) -> &'static str {
+        "Kick the member"
+    }
+}
+
+#[async_trait]
+impl<S: Member + ?Sized> ActionOn<S> for KickAuthor {
+    async fn execute(&self, ctx: &ActionContext<'_, S>) -> Result<ActionReport, Err> {
+        let member = ctx.subject;
         ctx.ports
             .group_moderator
             .kick_member(
-                &message.group.id,
-                &message.author_id,
+                &member.group().id,
+                &member.member_id(),
                 self.delete_all_messages,
             )
             .await?;
@@ -52,7 +59,7 @@ impl Action for KickAuthor {
         let cancelled = ctx
             .ports
             .restores
-            .delete_for_member(&message.group.id, &message.author_id)
+            .delete_for_member(&member.group().id, &member.member_id())
             .await;
         Ok(ActionReport {
             bookkeeping_error: cancelled.err(),

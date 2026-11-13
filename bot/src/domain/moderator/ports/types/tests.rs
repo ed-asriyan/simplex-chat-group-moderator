@@ -182,3 +182,71 @@ fn test_group_mode_names_round_trip() {
     }
     assert_eq!(GroupMode::from_name("loud"), None);
 }
+
+// ---------------------------------------------------------------------------
+// The configuration with rules for both triggers (US-C1, US-C2)
+// ---------------------------------------------------------------------------
+
+use super::{Trigger, TriggerEvent};
+
+// US-C1: the link's JSON carries the mode and rules of both triggers, off ones included.
+#[test]
+fn test_a_configuration_with_rules_of_both_triggers_parses_and_comes_back_unchanged() {
+    let json = serde_json::json!({
+        "mode": "dry",
+        "rules": [
+            {
+                "name": "Banned words", "trigger": "message_posted", "enabled": true,
+                "condition": { "type": "ContainsWords", "keywords": ["spam"] },
+                "actions": [{ "type": "ModerateMessage" }]
+            },
+            {
+                "name": "Spam names", "trigger": "member_joined", "enabled": false,
+                "condition": { "type": "MemberNameContainsWords", "keywords": ["casino"] },
+                "actions": [{ "type": "KickAuthor", "delete_all_messages": false }]
+            },
+            {
+                "trigger": "member_joined",
+                "actions": [{ "type": "SetAuthorObserver", "duration_minutes": 60 }]
+            }
+        ]
+    });
+    let config: GroupConfig = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(config.rules.len(), 3);
+    assert_eq!(config.rules[1].trigger(), Trigger::MemberJoined);
+    assert!(!config.rules[1].enabled);
+    let again: GroupConfig =
+        serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
+    assert_eq!(again.rules, config.rules);
+}
+
+// US-C2: a rule a trigger cannot take refuses the whole configuration.
+#[test]
+fn test_a_configuration_with_a_rule_its_trigger_does_not_take_is_refused() {
+    let err = serde_json::from_value::<GroupConfig>(serde_json::json!({
+        "mode": "notifications",
+        "rules": [{
+            "trigger": "member_joined",
+            "actions": [{ "type": "ModerateMessage" }]
+        }]
+    }))
+    .unwrap_err()
+    .to_string();
+    assert!(
+        err.contains("'Moderate the message' does not work in a rule for when someone joins."),
+        "{err}"
+    );
+}
+
+// US-D1, US-D6: an event is checked against the rules of its own trigger.
+#[test]
+fn test_an_event_knows_its_trigger() {
+    assert_eq!(
+        TriggerEvent::MessagePosted {
+            message: "hello".to_string()
+        }
+        .trigger(),
+        Trigger::MessagePosted
+    );
+    assert_eq!(TriggerEvent::MemberJoined.trigger(), Trigger::MemberJoined);
+}

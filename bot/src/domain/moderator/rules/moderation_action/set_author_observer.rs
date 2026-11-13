@@ -3,8 +3,9 @@
 #[cfg(test)]
 mod tests;
 
-use super::{Action, ActionContext, ActionReport, Effect, Silence};
+use super::{Action, ActionContext, ActionReport, Effect, Silence, ActionOn};
 use crate::domain::moderator::ports::{Err, GroupMemberRole};
+use crate::domain::moderator::rules::common::member::Member;
 use async_trait::async_trait;
 use chrono::Duration as ChronoDuration;
 use serde::{Deserialize, Serialize};
@@ -23,7 +24,6 @@ pub struct SetAuthorObserver {
     pub duration_minutes: u32,
 }
 
-#[async_trait]
 impl Action for SetAuthorObserver {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
         let duration_minutes = self.duration_minutes;
@@ -52,13 +52,20 @@ impl Action for SetAuthorObserver {
         0
     }
 
-    async fn execute(&self, ctx: &ActionContext<'_>) -> Result<ActionReport, Err> {
-        let message = ctx.group_message;
+    fn title(&self) -> &'static str {
+        "Set the member as observer"
+    }
+}
+
+#[async_trait]
+impl<S: Member + ?Sized> ActionOn<S> for SetAuthorObserver {
+    async fn execute(&self, ctx: &ActionContext<'_, S>) -> Result<ActionReport, Err> {
+        let member = ctx.subject;
         ctx.ports
             .group_moderator
             .set_member_role(
-                &message.group.id,
-                &message.author_id,
+                &member.group().id,
+                &member.member_id(),
                 GroupMemberRole::Observer,
             )
             .await?;
@@ -66,9 +73,9 @@ impl Action for SetAuthorObserver {
             ctx.ports
                 .restores
                 .save(
-                    &message.group.id,
-                    &message.author_id,
-                    message.timestamp + ChronoDuration::minutes(i64::from(self.duration_minutes)),
+                    &member.group().id,
+                    &member.member_id(),
+                    member.timestamp() + ChronoDuration::minutes(i64::from(self.duration_minutes)),
                 )
                 .await
         } else {
@@ -76,7 +83,7 @@ impl Action for SetAuthorObserver {
             // restriction scheduled would otherwise still lift this one.
             ctx.ports
                 .restores
-                .delete_for_member(&message.group.id, &message.author_id)
+                .delete_for_member(&member.group().id, &member.member_id())
                 .await
         };
         Ok(ActionReport {

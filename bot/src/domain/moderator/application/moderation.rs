@@ -3,14 +3,15 @@ use std::sync::Arc;
 
 use crate::domain::moderator::ports::{
     Err, GroupCharacterActivityRepository, GroupLineActivityRepository, GroupMessage,
-    GroupMessageActivityRepository, GroupMessageHistoryRepository, GroupModerator,
-    MemberRestoreRepository, ModerationEngine, ModerationNotifier, ModerationRepository,
-    ModerationRule, OpenAi, OpenRouter, UserCharacterActivityRepository,
-    UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
+    GroupMessageActivityRepository, GroupMessageHistoryRepository, GroupModerator, MemberJoin,
+    MemberRestoreRepository, ModerationEngine, ModerationNotifier, ModerationReport,
+    ModerationRepository, ModerationRule, OpenAi, OpenRouter, TriggerEvent,
+    UserCharacterActivityRepository, UserLineActivityRepository, UserMessageActivityRepository,
+    UserModerationActivityRepository,
 };
 use crate::domain::moderator::rules::{
-    ActionPorts, ConditionPorts, execute_actions, record_activity, record_moderated,
-    record_outcome, should_moderate,
+    ActionPorts, ConditionPorts, execute_join_actions, execute_message_actions, record_activity,
+    record_moderated, record_outcome, should_moderate_join, should_moderate_message,
 };
 
 #[cfg(test)]
@@ -107,7 +108,7 @@ impl ModerationEngine for MessageModerationApplication {
         let ports = self.ports();
         record_activity(&group_message, &rules_list, &ports).await?;
 
-        let matched = should_moderate(&group_message, &rules_list, &ports).await?;
+        let matched = should_moderate_message(&group_message, &rules_list, &ports).await?;
 
         let mut deleted = false;
         if let Some(matched) = matched {
@@ -119,7 +120,8 @@ impl ModerationEngine for MessageModerationApplication {
 
             if group.as_ref().is_none_or(|g| g.mode.executes_actions()) {
                 let outcome =
-                    execute_actions(&group_message, &matched.actions, &self.action_ports()).await?;
+                    execute_message_actions(&group_message, &matched.actions, &self.action_ports())
+                        .await?;
                 deleted = outcome.message_deleted;
                 // Bookkeeping the bot keeps for itself: failing it must not
                 // call off the moderation of the message or the owner's
@@ -133,12 +135,17 @@ impl ModerationEngine for MessageModerationApplication {
                 // Best-effort: a failed notification must not undo moderation.
                 let _ = self
                     .notifier
-                    .notify_moderation_action(
+                    .notify_moderation(
                         group.owner_id,
                         &group,
-                        &matched.actions,
-                        &group_message.text,
-                        &matched.reasons,
+                        &ModerationReport {
+                            event: TriggerEvent::MessagePosted {
+                                message: group_message.text.clone(),
+                            },
+                            member_name: group_message.author_name.clone(),
+                            actions: matched.actions_as_written(),
+                            reasons: matched.reasons.clone(),
+                        },
                     )
                     .await;
             }
@@ -152,6 +159,59 @@ impl ModerationEngine for MessageModerationApplication {
 
         self.repository
             .set_group_name(&group_message.group.id, &group_message.group.name)
+            .await?;
+
+        match bookkeeping {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
+
+    async fn process_member_join(&self, join: MemberJoin) -> Result<(), Err> {
+        let Some(group) = self
+            .repository
+            .get_group_by_messenger_id(&join.group.id)
+            .await?
+        else {
+            return Ok(());
+        };
+        let rules: Vec<ModerationRule> = self
+            .repository
+            .get_group_rules_by_messenger_id(&join.group.id)
+            .await?
+            .into_iter()
+            .map(|owned| owned.rule)
+            .collect();
+
+        let mut bookkeeping: Option<Err> = None;
+        if let Some(matched) = should_moderate_join(&join, &rules, &self.ports()).await? {
+            if group.mode.executes_actions() {
+                let outcome =
+                    execute_join_actions(&join, &matched.actions, &self.action_ports()).await?;
+                // As for a message: the bot's own records failing must not call
+                // off the owner's notification.
+                bookkeeping = outcome.bookkeeping_error;
+            }
+            if group.mode.notifies_owner() {
+                // Best-effort: a failed notification must not undo moderation.
+                let _ = self
+                    .notifier
+                    .notify_moderation(
+                        group.owner_id,
+                        &group,
+                        &ModerationReport {
+                            event: TriggerEvent::MemberJoined,
+                            member_name: join.display_name.clone(),
+                            actions: matched.actions_as_written(),
+                            reasons: matched.reasons.clone(),
+                        },
+                    )
+                    .await;
+            }
+        }
+
+        self.repository
+            .set_group_name(&join.group.id, &join.group.name)
             .await?;
 
         match bookkeeping {

@@ -1,243 +1,561 @@
-// G. The web editor, as the owner uses it in a browser.
-import { expect, Locator, Page, test } from '@playwright/test';
+// G. The web editor, as the owner uses it in a browser: the group's overview,
+// a rule's page and the page for a new rule. Every element is reached by its
+// role and its accessible name.
+import { expect, Page, test } from '@playwright/test';
 import { configOf } from '../harness/person';
 import { EDITOR } from '../harness/stack';
-import { currentLink, editorUrl, emptyEditor, looks, open, rule, rules, scene } from './helpers';
+import {
+  JOINS, MESSAGES, applyDialog, currentLink, editorUrl, emptyEditor, joinRule, looks, named, newRule, open, openRule, pickable,
+  rule, rules, savedConfig, scene, section, toGroup,
+} from './helpers';
 
 test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
 
-const STEPS = `1️⃣ Choose the group's mode. 2️⃣ Pick a rule in the list, or add a new one, and for each rule set the 🔎 Condition — what to detect — and the ⚡ Actions — what the bot does when a message matches. 3️⃣ When you're done, press "Apply changes" and send the copied link back to the bot.`;
-const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`);
-const W = (keywords: string[]) => rule({ type: 'ContainsWords', keywords });
-const pane = (page: Page) => page.getByRole('region', { name: 'Rule', exact: true });
 const clipboard = (page: Page) => page.evaluate(() => navigator.clipboard.readText());
+const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`);
+const msg = (keywords: string[]) => ({ type: 'ContainsWords', keywords });
+const MODERATE = [{ type: 'ModerateMessage' }];
+const KICK = [{ type: 'KickAuthor', delete_all_messages: false }];
+const BANNED = named('Banned words', 'message_posted', msg(['spam', 'casino']), MODERATE);
+const NEWCOMERS = named('Links from newcomers', 'message_posted', {
+  type: 'All',
+  conditions: [{ type: 'AuthorJoinedRecently', time_window_minutes: 60 }, { type: 'ContainsLinksOutsideTop100', domains: [] }],
+}, [{ type: 'SetAuthorObserver', duration_minutes: 60 }, { type: 'ModerateMessage' }]);
+const FLOOD = named('Flood', 'message_posted', { type: 'AuthorHitsMessageRateLimit', message_count: 5, time_window_minutes: 1 }, KICK);
+const SPAM_NAMES = named('Spam names', 'member_joined', { type: 'MemberNameContainsWords', keywords: ['casino'] }, KICK);
+const UNNAMED = rule({ type: 'AuthorHitsMessageRateLimit', message_count: 5, time_window_minutes: 1 }, KICK);
 
 /** What a person reads in `locator`, its whitespace as the browser shows it. */
-async function textOf(locator: Locator): Promise<string> {
+async function textOf(locator: ReturnType<Page['locator']>): Promise<string> {
   return (await locator.innerText()).replace(/\s+/g, ' ');
 }
 
-/** Back to the rules list: a phone shows either the list or one rule. */
-async function toList(page: Page) {
-  const back = page.getByRole('button', { name: '‹ Rules' });
-  if (await back.isVisible()) await back.click();
+const mode = (page: Page, name: 'Notifications' | 'Silent' | 'Dry') => page.getByRole('radio', { name: new RegExp(`^${name} `) });
+const nameField = (page: Page) => page.getByRole('textbox', { name: 'Name', exact: true });
+const row = (page: Page, name: string) => page.getByRole('listitem').filter({ has: page.getByRole('button', { name, exact: true }) });
+const undo = (page: Page) => page.getByRole('button', { name: 'Undo', exact: true });
+const redo = (page: Page) => page.getByRole('button', { name: 'Redo', exact: true });
+const menuOf = (page: Page, name: string) => page.getByRole('button', { name: `More for “${name}”`, exact: true });
+const choose = (page: Page, item: string) => page.getByRole('menuitem', { name: item, exact: true });
+
+/** The titles of the rules of a section, in the order they are checked. */
+async function order(page: Page, name: string): Promise<string[]> {
+  const grips = section(page, name).getByRole('button', { name: /^Move “/ });
+  return grips.evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')!.replace(/^Move “|”$/g, '')));
 }
 
-/** Opens rule `n` from the list. */
-async function openRule(page: Page, n: number) {
-  await toList(page);
-  await page.getByRole('button', { name: new RegExp(`^${n} IF `) }).click();
+async function rename(page: Page, text: string) {
+  await nameField(page).fill(text);
+  await nameField(page).press('Tab');
 }
 
-async function apply(page: Page) {
-  await page.getByRole('button', { name: 'Apply changes' }).click();
-  return page.getByRole('dialog', { name: 'Changes before you send them' });
-}
+// ---------------------------------------------------------------------------
+// The overview
+// ---------------------------------------------------------------------------
 
 // US-G1
-test('the editor shows the group settings and the rules', async ({ page }) => {
+test('the editor opens on the group overview: the group, its mode and its rules in two sections', async ({ page }) => {
   // At a fixed bot id first, for the screenshots; then by the group's own link.
-  await open(page, editorUrl(rules(W(['a']), W(['b']), W(['c']))));
-  await looks(page, 'editor-rules');
-  await emptyEditor(page);
-  await expect(page.getByText('No rules yet. Nothing is moderated until you add one.')).toBeVisible();
-  await looks(page, 'editor-empty');
-  const s = await scene(rules(W(['a']), W(['b']), W(['c'])));
+  await open(page, editorUrl(rules(BANNED, NEWCOMERS, UNNAMED, { ...FLOOD, name: 'Flood', enabled: false }, SPAM_NAMES)));
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Crypto Chat');
+  await expect(page.getByText('Moderation settings · Moderator Bot')).toBeVisible();
+  await expect(page.getByRole('region', { name: '🛡 Mode' })).toBeVisible();
+  await expect(section(page, MESSAGES)).toContainText('Checked top to bottom.');
+  await expect(section(page, JOINS)).toContainText('Checked top to bottom.');
+  // A rule is one line: its name, or what it does; its actions in short under a name; its switch.
+  await expect(row(page, 'Banned words')).toContainText('🗑 moderate');
+  await expect(row(page, 'Links from newcomers')).toContainText('👁 observer · 🗑 moderate');
+  await expect(row(page, 'IF author sent at least 5 messages in 1 min THEN 🚪 kick')).toBeVisible();
+  await expect(row(page, 'Flood')).toContainText('Off');
+  await expect(row(page, 'Spam names').getByRole('switch', { name: 'Spam names' })).toBeChecked();
+  await looks(page, 'overview-rules');
+  // By the group's own link: the bot's link carries the group's name.
+  const s = await scene(rules(BANNED, SPAM_NAMES));
   await open(page, await currentLink(s));
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Moderation settings for Moderator Bot');
-  await expect(page.getByText(STEPS)).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Group settings' })).toBeVisible();
-  await expect(page.getByRole('combobox', { name: '🛡 Mode' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Rules' })).toBeVisible();
-  await expect(page.getByText('3 total')).toBeVisible();
-  await expect(page.getByRole('button', { name: /^\d IF / })).toHaveCount(3);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Crypto Chat');
+  await expect(row(page, 'Banned words')).toBeVisible();
+});
+
+// US-G1
+test('an empty section says what that means', async ({ page }) => {
+  await emptyEditor(page);
+  await expect(section(page, MESSAGES)).toContainText('No rules yet. Nothing is moderated until you add one.');
+  await expect(section(page, JOINS)).toContainText('No rules yet. Nobody is checked when they join.');
+  await looks(page, 'overview-empty');
+});
+
+// US-G1
+test('a link without a group name shows the group by its number', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED), '7', null));
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Group 7');
+});
+
+// US-G1
+test('the overview menu holds Edit all with AI, Import JSON and Export JSON', async ({ page }) => {
+  await emptyEditor(page);
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await expect(page.getByRole('menuitem')).toHaveText(['Edit all with AI', 'Import JSON', 'Export JSON']);
+  await looks(page, 'overview-menu');
 });
 
 // US-G1
 test('a rule of a type the editor does not know is kept as it is', async ({ page }) => {
-  const unknown = { actions: [{ type: 'ModerateMessage' }], condition: { type: 'FutureType', level: 3 } };
-  await open(page, editorUrl(rules(unknown, W(['a']))));
-  await openRule(page, 1);
-  const type = pane(page).getByRole('combobox', { name: 'Condition type' });
-  await expect(type.locator('option:checked')).toHaveText('FutureType (unknown)');
-  await expect(pane(page).getByRole('spinbutton')).toHaveCount(0);
-  await pane(page).getByRole('button', { name: 'ⓘ' }).nth(1).click();
-  await expect(pane(page).getByText("This type is not in this editor's schema. It is kept as it is — leave it alone unless you mean to replace it.")).toBeVisible();
+  const unknown = named('From the future', 'message_posted', { type: 'FutureType', level: 3 }, MODERATE);
+  await open(page, editorUrl(rules(unknown, BANNED)));
+  await openRule(page, 'From the future');
+  await expect(page.getByText('FutureType (unknown)', { exact: true })).toBeVisible();
+  await expect(page.getByText('❓')).toBeVisible();
+  await expect(page.getByRole('spinbutton')).toHaveCount(0);
+  await page.getByRole('button', { name: 'About “FutureType (unknown)”', exact: true }).click();
+  await expect(page.getByText("This type is not in this editor's schema. It is kept as it is — leave it alone unless you mean to replace it.")).toBeVisible();
   await looks(page, 'unknown-type');
-  await toList(page);
-  await page.getByRole('combobox', { name: '🛡 Mode' }).selectOption({ label: 'Dry — only tell me what it would do' });
-  await (await apply(page)).getByRole('button', { name: 'Copy the link' }).click();
-  expect(configOf(await clipboard(page)).rules[0]).toEqual(unknown);
+  await toGroup(page);
+  await mode(page, 'Dry').check();
+  expect((await savedConfig(page)).rules[0]).toEqual(unknown);
 });
 
 // US-G1
 test('a link without a bot id, or with settings that cannot be read', async ({ page }) => {
-  await open(page, editorUrl(rules(W(['a'])), null));
+  await open(page, editorUrl(rules(BANNED), null));
   await expect(page.getByText('No bot ID found in the URL. Open the link the bot sent you in a direct message — a link opened by hand cannot be applied.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Apply changes' })).toBeHidden();
+  await expect(page.getByRole('button', { name: /^Apply/ })).toBeHidden();
   await looks(page, 'no-bot-id');
   await open(page, `${EDITOR}/#bot_id=7&config=garbage`);
   await expect(page.getByText('The settings in this link could not be read. Starting from scratch.')).toBeVisible();
-  await expect(page.getByText('0 total')).toBeVisible();
+  await expect(section(page, MESSAGES)).toContainText('No rules yet.');
   await looks(page, 'unreadable-settings');
 });
 
+// ---------------------------------------------------------------------------
+// The mode
+// ---------------------------------------------------------------------------
+
 // US-G2
-test('the mode is chosen in group settings', async ({ page }) => {
+test('the mode is picked on the overview, each of three with its line', async ({ page }) => {
   await emptyEditor(page);
-  const mode = page.getByRole('combobox', { name: '🛡 Mode' });
-  await expect(mode.locator('option')).toHaveText(['Notifications — act and tell me', 'Silent — act without telling me', 'Dry — only tell me what it would do']);
-  await mode.selectOption({ label: 'Silent — act without telling me' });
-  await (await apply(page)).getByRole('button', { name: 'Copy the link' }).click();
-  await expect(page.getByText('Link copied.')).toBeVisible();
-  await looks(page, 'link-copied');
-  expect(configOf(await clipboard(page)).mode).toBe('silent');
+  const group = page.getByRole('radiogroup', { name: '🛡 Mode' });
+  await expect(group.getByRole('radio')).toHaveCount(3);
+  await expect(mode(page, 'Notifications')).toHaveAccessibleName(/Act and tell me/);
+  await expect(mode(page, 'Silent')).toHaveAccessibleName(/Act without telling me/);
+  await expect(mode(page, 'Dry')).toHaveAccessibleName(/Only tell me what it would do/);
+  await expect(mode(page, 'Notifications')).toBeChecked();
+  await mode(page, 'Silent').check();
+  await looks(page, 'mode-silent');
+  expect((await savedConfig(page)).mode).toBe('silent');
+  await mode(page, 'Dry').check();
+  expect((await savedConfig(page)).mode).toBe('dry');
+});
+
+// ---------------------------------------------------------------------------
+// A rule's page
+// ---------------------------------------------------------------------------
+
+// US-G3
+test('a rule opens on its own page, with its way back', async ({ page }) => {
+  await open(page, editorUrl(rules(NEWCOMERS, UNNAMED)));
+  await openRule(page, 'Links from newcomers');
+  await expect(page.getByRole('button', { name: 'Back to rules' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Links from newcomers');
+  await expect(nameField(page)).toHaveValue('Links from newcomers');
+  await expect(page.getByRole('radio', { name: '💬 Someone sends a message' })).toBeChecked();
+  await expect(page.getByRole('radio', { name: '🚪 Someone joins' })).not.toBeChecked();
+  for (const part of ['When', 'If', 'Then']) await expect(page.getByRole('heading', { name: part, exact: true })).toBeVisible();
+  await expect(page.getByText('The bot runs them in this order.')).toBeVisible();
+  // The conditions as rows titled by their type, the actions in the order the bot runs them.
+  await expect(page.getByText('All of These Conditions Match (AND)', { exact: true })).toBeVisible();
+  await expect(page.getByText('Author Joined Recently', { exact: true })).toBeVisible();
+  await expect(page.getByText('Message Contains a Link Outside Top 100 Websites', { exact: true })).toBeVisible();
+  await expect(page.getByText('Set the member as observer', { exact: true })).toBeVisible();
+  await expect(page.getByText('Moderate the message', { exact: true })).toBeVisible();
+  await looks(page, 'rule-page');
+  // The way back, and the browser's.
+  await toGroup(page);
+  await expect(section(page, MESSAGES)).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Links from newcomers');
+  await page.goBack();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Crypto Chat');
+  // A rule with no name shows what it does as the placeholder of its name.
+  await openRule(page, 'IF author sent at least 5 messages in 1 min THEN 🚪 kick');
+  await expect(nameField(page)).toHaveValue('');
+  await expect(nameField(page)).toHaveAttribute('placeholder', 'IF author sent at least 5 messages in 1 min THEN 🚪 kick');
 });
 
 // US-G3
-test('a rule is added from conditions grouped by subject', async ({ page }) => {
-  await emptyEditor(page);
-  await page.getByRole('button', { name: '+ Add rule' }).click();
-  const type = pane(page).getByRole('combobox', { name: 'Condition type' });
-  await expect(type.locator('optgroup')).toHaveCount(7);
-  for (const group of ['Message text', 'Links', 'Size & shape', 'Attachments', 'Author', 'Group']) {
-    await expect(type.locator(`optgroup[label="${group}"]`)).toHaveCount(1);
-  }
-  await type.selectOption({ label: 'Message rate limit' });
-  await expect(pane(page).getByRole('spinbutton', { name: 'Number of Messages' })).toHaveValue('5');
-  await expect(pane(page).getByRole('spinbutton', { name: 'Time Window (Minutes)' })).toHaveValue('1');
-  await pane(page).getByRole('button', { name: 'ⓘ' }).nth(1).click();
-  await expect(pane(page).getByText('👤 Author Hits Message Rate Limit', { exact: false }).first()).toBeVisible();
-  await looks(page, 'new-rule');
+test('a field shows its default and limits, and what it is for in a sentence, with More for the rest', async ({ page }) => {
+  await open(page, editorUrl(rules(NEWCOMERS)));
+  await openRule(page, 'Links from newcomers');
+  const minutes = page.getByRole('spinbutton', { name: 'Joined Less Than (Minutes) Ago', exact: true });
+  await expect(minutes).toHaveValue('60');
+  await expect(minutes).toHaveAttribute('min', '1');
+  const first = 'Matches if the author joined the group less than this many minutes before sending the message.';
+  const rest = 'For example, 60 matches members during their first hour in the group.';
+  await expect(page.getByText(first)).toBeVisible();
+  await expect(page.getByText(rest)).toHaveCount(0);
+  await page.getByRole('button', { name: 'More', exact: true }).first().click();
+  await expect(page.getByText(rest)).toBeVisible();
+  await looks(page, 'field-more');
+  await page.getByRole('button', { name: 'Less', exact: true }).click();
+  await expect(page.getByText(rest)).toHaveCount(0);
+  // The type's full description is behind its ⓘ.
+  await page.getByRole('button', { name: 'About “Author Joined Recently”', exact: true }).click();
+  await expect(page.getByText('Matches if the author joined the group less than this many minutes before sending the message', { exact: false }).first()).toBeVisible();
+  // A folded condition shows its settings in one line.
+  await open(page, editorUrl(rules(BANNED)));
+  await openRule(page, 'Banned words');
+  await page.getByRole('button', { name: 'Collapse “Message Contains Any of These Words”', exact: true }).click();
+  await expect(page.getByText('spam, casino', { exact: true })).toBeVisible();
+});
+
+// US-G3
+test("a condition's menu holds its changes, and an action's holds Change type and Delete", async ({ page }) => {
+  await open(page, editorUrl(rules(NEWCOMERS)));
+  await openRule(page, 'Links from newcomers');
+  await menuOf(page, 'All of These Conditions Match (AND)').click();
+  await expect(page.getByRole('menuitem')).toHaveText(['Change type…', 'Wrap in NOT', 'Wrap in AND', 'Unwrap', 'Delete']);
+  await looks(page, 'condition-menu');
+  await page.keyboard.press('Escape');
+  await menuOf(page, 'Set the member as observer').click();
+  await expect(page.getByRole('menuitem')).toHaveText(['Change type…', 'Delete']);
+});
+
+// US-G3
+test('Add condition lists the types the trigger takes, in tabs and with a search', async ({ page }) => {
+  await open(page, editorUrl(rules(FLOOD, SPAM_NAMES)));
+  await openRule(page, 'Flood');
+  await page.getByRole('button', { name: 'Add condition', exact: true }).click();
+  const list = page.getByRole('dialog', { name: 'Pick a condition' });
+  const tabs = list.getByRole('tab');
+  await expect(tabs).toHaveText(['All', 'Message text', 'Links', 'Shape and size', 'Attachments', 'Member', 'Group', 'Combine']);
+  await expect(list.getByRole('tab', { name: 'All', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(list.getByRole('button', { name: /^Message Contains Any of These Words\s/ })).toBeVisible();
+  await looks(page, 'condition-picker');
+  await list.getByRole('tab', { name: 'Links', exact: true }).click();
+  await expect(list.getByRole('button', { name: /^Message Contains a Link/ })).toHaveCount(3);
+  await expect(list.getByRole('button', { name: /^Message Contains Any of These Words\s/ })).toHaveCount(0);
+  await looks(page, 'condition-picker-links');
+  await list.getByRole('tab', { name: 'All', exact: true }).click();
+  await list.getByRole('searchbox', { name: 'Search the types' }).fill('top 100');
+  await expect(list.getByRole('button', { name: /^Message Contains a Link Outside Top 100 Websites\s/ })).toBeVisible();
+  await expect(list.getByRole('button', { name: /^Message Contains Any of These Words\s/ })).toHaveCount(0);
+  // A bold word in a description stays in its line.
+  await expect(list.getByRole('button', { name: /Google GitHub|Google, GitHub/ })).toBeVisible();
+  await list.getByRole('button', { name: 'Close', exact: true }).click();
+  // For when someone joins, only what reads a person's name and the combinations.
+  await toGroup(page);
+  await openRule(page, 'Spam names');
+  await page.getByRole('button', { name: 'Add condition', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Pick a condition' }).getByRole('tab')).toHaveText(['All', 'Member', 'Combine']);
+});
+
+// US-G3
+test('a rule for when someone joins can have no condition', async ({ page }) => {
+  await open(page, editorUrl(rules(joinRule(undefined, [{ type: 'SetAuthorObserver', duration_minutes: 60 }], 'Quarantine newcomers'))));
+  await expect(row(page, 'Quarantine newcomers')).toBeVisible();
+  await openRule(page, 'Quarantine newcomers');
+  await expect(page.getByText('Everyone who joins', { exact: true })).toBeVisible();
+  await looks(page, 'join-rule-no-condition');
+});
+
+// US-G3
+test('When moves the rule to the other section, and what does not work there is marked', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED, NEWCOMERS, SPAM_NAMES)));
+  await openRule(page, 'Banned words');
+  await page.getByRole('radio', { name: '🚪 Someone joins' }).check();
+  await expect(page.getByText("Doesn't work with this trigger", { exact: true })).toHaveCount(2);
+  await looks(page, 'when-changed');
+  await toGroup(page);
+  // The end of the other section.
+  expect(await order(page, MESSAGES)).toEqual(['Links from newcomers']);
+  expect(await order(page, JOINS)).toEqual(['Spam names', 'Banned words']);
+  // It stays marked until the condition and the action are changed or removed; and the bot would refuse it.
+  await openRule(page, 'Banned words');
+  await page.getByRole('radio', { name: '💬 Someone sends a message' }).check();
+  await expect(page.getByText("Doesn't work with this trigger", { exact: true })).toHaveCount(0);
+});
+
+// US-G3
+test('a rule is duplicated, and deleted', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED, NEWCOMERS)));
+  await openRule(page, 'Banned words');
+  await page.getByRole('button', { name: 'More for this rule', exact: true }).click();
+  await choose(page, 'Duplicate').click();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Banned words (copy)');
+  await toGroup(page);
+  expect(await order(page, MESSAGES)).toEqual(['Banned words', 'Banned words (copy)', 'Links from newcomers']);
+  await openRule(page, 'Banned words (copy)');
+  await page.getByRole('button', { name: 'More for this rule', exact: true }).click();
+  await choose(page, 'Delete').click();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Crypto Chat');
+  expect(await order(page, MESSAGES)).toEqual(['Banned words', 'Links from newcomers']);
 });
 
 // US-G3
 test('a list is edited entry by entry, filtered, or as text', async ({ page }) => {
-  await open(page, editorUrl(rules(W([]), W(words(150)))));
-  await openRule(page, 1);
-  const add = pane(page).getByRole('textbox', { name: 'add + Enter' });
+  await open(page, editorUrl(rules(named('Empty', 'message_posted', msg([]), MODERATE), named('Long', 'message_posted', msg(words(150)), MODERATE))));
+  await openRule(page, 'Empty');
+  const add = page.getByRole('textbox', { name: 'Add to Words / Phrases', exact: true });
   await add.fill('spam');
   await add.press('Enter');
-  await expect(pane(page).getByRole('button', { name: 'Remove spam' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove spam' })).toBeVisible();
   await looks(page, 'list-entries');
   await add.fill('spam');
   await add.press('Enter');
   await expect(page.getByText('That entry is already in the list.')).toBeVisible();
-  await pane(page).getByRole('button', { name: 'Remove spam' }).click();
-  await expect(pane(page).getByRole('button', { name: 'Remove spam' })).toHaveCount(0);
-  await openRule(page, 2);
-  const filter = pane(page).getByRole('textbox', { name: 'Filter Words / Phrases' });
+  await page.getByRole('button', { name: 'Remove spam' }).click();
+  await expect(page.getByRole('button', { name: 'Remove spam' })).toHaveCount(0);
+  await toGroup(page);
+  await openRule(page, 'Long');
+  const filter = page.getByRole('searchbox', { name: 'Filter Words / Phrases' });
   await expect(filter).toHaveAttribute('placeholder', 'filter 150 entries');
   await filter.fill('word149');
-  await expect(pane(page).getByRole('button', { name: /^Remove word/ })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: /^Remove word/ })).toHaveCount(1);
   await looks(page, 'long-list-filtered');
-  await pane(page).getByRole('button', { name: 'bulk edit' }).click();
-  await expect(pane(page).getByText('One per line; applied when you click away — this is how a long list gets pasted in, or replaced wholesale. Up to 10000 entries, 100 characters each.')).toBeVisible();
+  await page.getByRole('button', { name: 'Bulk edit Words / Phrases' }).click();
+  await expect(page.getByText('One per line; applied when you click away — this is how a long list gets pasted in, or replaced wholesale. Up to 10000 entries, 100 characters each.')).toBeVisible();
   await looks(page, 'bulk-edit');
-  await pane(page).getByRole('button', { name: 'chips' }).click();
-  await expect(pane(page).getByRole('textbox', { name: 'add + Enter' })).toBeVisible();
+  await page.getByRole('button', { name: 'Show Words / Phrases as chips' }).click();
+  await expect(add).toBeVisible();
 });
 
 // US-G4
 test('changing a type keeps what both types have, and a composite unwraps', async ({ page }) => {
+  const nested = named('Nested', 'message_posted', {
+    type: 'Any',
+    conditions: [{ type: 'All', conditions: [msg(['x']), { type: 'IsBlank' }] }, msg(['y'])],
+  }, MODERATE);
   await open(page, editorUrl(rules(
-    rule({ type: 'All', conditions: [{ type: 'ContainsWords', keywords: ['a'] }, { type: 'ContainsWords', keywords: ['b'] }] }),
-    rule({ type: 'ContainsLinksInList', domains: ['spam.example'] }),
-    rule({ type: 'Any', conditions: [{ type: 'All', conditions: [{ type: 'ContainsWords', keywords: ['x'] }, { type: 'IsBlank' }] }, { type: 'ContainsWords', keywords: ['y'] }] }),
+    named('Both', 'message_posted', { type: 'All', conditions: [msg(['a']), msg(['b'])] }, MODERATE),
+    named('Links', 'message_posted', { type: 'ContainsLinksInList', domains: ['spam.example'] }, MODERATE),
+    nested,
   )));
-  await openRule(page, 1);
-  await pane(page).getByRole('combobox', { name: 'Condition type' }).first().selectOption({ label: 'Any of these (OR)' });
-  await expect(pane(page).getByRole('combobox', { name: 'Condition type' })).toHaveCount(3);
-  await openRule(page, 2);
-  await pane(page).getByRole('combobox', { name: 'Condition type' }).first().selectOption({ label: 'Link outside this list' });
-  await expect(pane(page).getByRole('button', { name: 'Remove spam.example' })).toBeVisible();
-  await openRule(page, 3);
-  await pane(page).getByRole('button', { name: '⋮' }).nth(1).click();
-  await looks(page, 'condition-menu');
-  await pane(page).getByRole('button', { name: 'Unwrap' }).click();
-  await expect(pane(page).getByRole('combobox', { name: 'Condition type' })).toHaveCount(4);
+  // All becomes Any, with its whole subtree.
+  await openRule(page, 'Both');
+  await menuOf(page, 'All of These Conditions Match (AND)').click();
+  await choose(page, 'Change type…').click();
+  await expect(page.getByRole('dialog', { name: "Change the condition's type" })).toBeVisible();
+  await pickable(page, 'Any of These Conditions Match (OR)').click();
+  await expect(page.getByText('Any of These Conditions Match (OR)', { exact: true })).toBeVisible();
+  await expect(page.getByText('Message Contains Any of These Words', { exact: true })).toHaveCount(2);
+  await toGroup(page);
+  // A link condition becomes another with its domains.
+  await openRule(page, 'Links');
+  await menuOf(page, 'Message Contains a Link to Any of These Websites').click();
+  await choose(page, 'Change type…').click();
+  await pickable(page, 'Message Contains a Link to a Website Outside This List').click();
+  await expect(page.getByRole('button', { name: 'Remove spam.example' })).toBeVisible();
+  await toGroup(page);
+  // A composite inside another is unwrapped: its conditions move up into the parent.
+  await openRule(page, 'Nested');
+  await menuOf(page, 'All of These Conditions Match (AND)').click();
+  await looks(page, 'condition-menu-unwrap');
+  await choose(page, 'Unwrap').click();
+  await expect(page.getByText('All of These Conditions Match (AND)', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Message Is Empty or Blank', { exact: true })).toBeVisible();
   await looks(page, 'unwrapped');
-  await (await apply(page)).getByRole('button', { name: 'Copy the link' }).click();
-  const saved = configOf(await clipboard(page));
+  const saved = await savedConfig(page);
   expect(saved.rules[0].condition.type).toBe('Any');
   expect(saved.rules[0].condition.conditions).toHaveLength(2);
   expect(saved.rules[1].condition).toEqual({ type: 'ContainsLinksOutsideList', domains: ['spam.example'] });
   expect(saved.rules[2].condition.conditions).toHaveLength(3);
 });
 
+// US-G4
+test('an action changes its type too', async ({ page }) => {
+  await open(page, editorUrl(rules(named('Kick', 'message_posted', msg(['a']), [{ type: 'ModerateMessage' }]))));
+  await openRule(page, 'Kick');
+  await menuOf(page, 'Moderate the message').click();
+  await choose(page, 'Change type…').click();
+  await expect(page.getByRole('dialog', { name: "Change the action's type" })).toBeVisible();
+  await pickable(page, 'Kick the member').click();
+  await expect(page.getByText('Kick the member', { exact: true })).toBeVisible();
+  expect((await savedConfig(page)).rules[0].actions[0].type).toBe('KickAuthor');
+});
+
 // US-G5
 test('the editor warns past the limits, and marks a covered action', async ({ page }) => {
   const tree = (nots: number, leaves: number): unknown =>
-    nots === 0 ? { type: 'All', conditions: Array.from({ length: leaves }, (_, i) => ({ type: 'ContainsWords', keywords: [`w${i}`] })) } : { type: 'Not', condition: tree(nots - 1, leaves) };
+    nots === 0 ? { type: 'All', conditions: Array.from({ length: leaves }, (_, i) => msg([`w${i}`])) } : { type: 'Not', condition: tree(nots - 1, leaves) };
   await open(page, editorUrl(rules(
-    rule(tree(7, 62)),
-    rule({ type: 'IsBlank' }, [{ type: 'ModerateMessage' }, { type: 'KickAuthor', delete_all_messages: true }]),
+    named('Too deep', 'message_posted', tree(7, 62), MODERATE),
+    named('Covered', 'message_posted', { type: 'IsBlank' }, [{ type: 'ModerateMessage' }, { type: 'KickAuthor', delete_all_messages: true }]),
   )));
-  await openRule(page, 1);
-  await expect(pane(page).getByText('This rule has 70 conditions nested 9 levels deep. The bot accepts at most 64 conditions and 8 levels, so simplify it before applying — otherwise the rules will be rejected.')).toBeVisible();
+  await openRule(page, 'Too deep');
+  await expect(page.getByText('This rule has 70 conditions nested 9 levels deep. The bot accepts at most 64 conditions and 8 levels, so simplify it before applying — otherwise the rules will be rejected.')).toBeVisible();
   await looks(page, 'limits-warning');
-  await openRule(page, 2);
-  const covered = pane(page).getByText('covered', { exact: true });
-  await expect(covered).toBeVisible();
-  await expect(covered).toHaveAttribute('title', 'A stronger action on this rule already covers it');
+  await toGroup(page);
+  await openRule(page, 'Covered');
+  await expect(page.getByText('covered', { exact: true })).toBeVisible();
+  await expect(page.getByText('A stronger action on this rule already covers it, so the bot skips this one.')).toBeVisible();
   await looks(page, 'covered-action');
 });
 
+// ---------------------------------------------------------------------------
+// Undo and redo
+// ---------------------------------------------------------------------------
+
 // US-G6
-test('every change can be undone and redone', async ({ page }) => {
-  await emptyEditor(page);
-  const undo = page.getByRole('button', { name: 'Undo' });
-  const redo = page.getByRole('button', { name: 'Redo' });
-  await expect(undo).toBeHidden();
-  await expect(redo).toBeHidden();
-  const mode = page.getByRole('combobox', { name: '🛡 Mode' });
-  await mode.selectOption({ label: 'Dry — only tell me what it would do' });
-  await undo.click();
-  await expect(mode).toHaveValue(/c0|notifications/);
-  await expect(redo).toBeVisible();
-  await expect(undo).toBeHidden();
+test('on the overview every change can be undone and redone', async ({ page }) => {
+  await open(page, editorUrl(rules(FLOOD)));
+  await expect(undo(page)).toBeHidden();
+  await expect(redo(page)).toBeHidden();
+  await mode(page, 'Dry').check();
+  await undo(page).click();
+  await expect(mode(page, 'Notifications')).toBeChecked();
+  await expect(redo(page)).toBeVisible();
+  await expect(undo(page)).toBeHidden();
   await looks(page, 'redo-shown');
-  await redo.click();
-  await expect(mode.locator('option:checked')).toHaveText('Dry — only tell me what it would do');
+  await redo(page).click();
+  await expect(mode(page, 'Dry')).toBeChecked();
   // The keys, where there is a keyboard.
   if (!test.info().project.use.isMobile) {
-    await page.locator('body').click();
+    await page.locator('body').click({ position: { x: 5, y: 5 } });
     await page.keyboard.press('Control+z');
-    await expect(mode.locator('option:checked')).toHaveText('Notifications — act and tell me');
+    await expect(mode(page, 'Notifications')).toBeChecked();
     await page.keyboard.press('Control+Shift+z');
-    await expect(mode.locator('option:checked')).toHaveText('Dry — only tell me what it would do');
+    await expect(mode(page, 'Dry')).toBeChecked();
+    await page.keyboard.press('Control+z');
+    await page.keyboard.press('Control+y');
+    await expect(mode(page, 'Dry')).toBeChecked();
   }
-  // Up to 20 steps.
-  for (let i = 0; i < 25; i++) {
-    await toList(page);
-    await page.getByRole('button', { name: '+ Add rule' }).click();
+  // Up to 20 steps: 25 changes, and the first five are not undone.
+  const flood = page.getByRole('switch', { name: 'Flood', exact: true });
+  for (let i = 0; i < 25; i++) await flood.click();
+  for (let i = 0; i < 20; i++) await undo(page).click();
+  await expect(undo(page)).toBeHidden();
+  await expect(flood).not.toBeChecked();
+});
+
+// US-G6
+test("on a rule's page Undo goes through what was changed there, and no rule that is not on the screen", async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED, NEWCOMERS)));
+  await openRule(page, 'Banned words');
+  await expect(undo(page)).toBeHidden();
+  await rename(page, 'Words');
+  await expect(undo(page)).toBeVisible();
+  await toGroup(page);
+  // Another rule: nothing was changed on its page yet.
+  await openRule(page, 'Links from newcomers');
+  await expect(undo(page)).toBeHidden();
+  await rename(page, 'Newcomers');
+  await undo(page).click();
+  await expect(nameField(page)).toHaveValue('Links from newcomers');
+  await expect(undo(page)).toBeHidden();
+  await expect(redo(page)).toBeVisible();
+  if (!test.info().project.use.isMobile) {
+    await page.locator('body').click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press('Control+z');
   }
-  for (let i = 0; i < 20; i++) await undo.click();
-  await expect(undo).toBeHidden();
-  await toList(page);
-  await expect(page.getByText('5 total')).toBeVisible();
+  await toGroup(page);
+  // The first rule is as it was changed: the overview undoes it.
+  expect(await order(page, MESSAGES)).toEqual(['Words', 'Links from newcomers']);
+  await undo(page).click();
+  expect(await order(page, MESSAGES)).toEqual(['Banned words', 'Links from newcomers']);
+});
+
+// ---------------------------------------------------------------------------
+// What changed
+// ---------------------------------------------------------------------------
+
+// US-G7
+test('Apply shows every change before it is sent, each marked, under its section', async ({ page }) => {
+  await open(page, editorUrl({ mode: 'dry', rules: [BANNED, NEWCOMERS, SPAM_NAMES] }));
+  await expect(page.getByRole('button', { name: 'Apply changes', exact: true })).toBeVisible();
+  await mode(page, 'Notifications').check();
+  await row(page, 'Banned words').getByRole('switch').click();
+  await openRule(page, 'Links from newcomers');
+  await rename(page, 'Links from new members');
+  await toGroup(page);
+  await newRule(page);
+  await page.getByRole('button', { name: /^Start from a template/ }).click();
+  await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: /^🌊 Flood/ }).click();
+  await toGroup(page);
+  // The button counts the changes: the mode, the switch, the name, the new rule.
+  await expect(page.getByRole('button', { name: 'Apply 4 changes', exact: true })).toBeVisible();
+  const dialog = await applyDialog(page);
+  await expect(dialog).toContainText('3 → 4 rules');
+  await expect(dialog).toContainText('🛡 Mode: Dry — only tell me what it would do → Notifications — act and tell me');
+  await expect(dialog.getByRole('heading', { name: MESSAGES })).toBeVisible();
+  await expect(dialog).toContainText('turned off');
+  await expect(dialog).toContainText('renamed');
+  await expect(dialog).toContainText('was “Links from newcomers”');
+  await expect(dialog).toContainText('added');
+  await expect(dialog).toContainText('Unchanged: Spam names');
+  await looks(page, 'apply-dialog');
 });
 
 // US-G7
-test('apply changes shows every change before it is sent', async ({ page }) => {
-  await open(page, editorUrl({ mode: 'dry', rules: [W(['a']), W(['b'])] }));
-  await page.getByRole('combobox', { name: '🛡 Mode' }).selectOption({ label: 'Notifications — act and tell me' });
-  await page.getByRole('button', { name: '+ Add rule' }).click();
-  const dialog = await apply(page);
-  await expect(dialog).toContainText('2 → 3 rules');
-  await expect(dialog).toContainText('🛡 Mode: Dry — only tell me what it would do → Notifications — act and tell me');
-  await expect(dialog).toContainText('added');
-  await expect(dialog).toContainText('Unchanged rules: 1, 2');
-  await looks(page, 'apply-dialog');
-  await dialog.getByRole('button', { name: 'Cancel' }).click();
-  await open(page, editorUrl(rules(W(['a']))));
-  const none = await apply(page);
-  await expect(none).toContainText('Nothing has changed since you opened this page. You can still copy the link and send it again.');
+test('a rule that moved shows its old place', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED, NEWCOMERS, FLOOD)));
+  await menuOf(page, 'Flood').click();
+  await choose(page, 'Move up').click();
+  const dialog = await applyDialog(page);
+  await expect(dialog).toContainText('moved');
+  await expect(dialog).toContainText(/was (2nd|3rd)/);
+  await looks(page, 'apply-moved');
+});
+
+// US-G7
+test('a rule whose When changed shows under its new section, with its old one', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED, NEWCOMERS)));
+  await openRule(page, 'Banned words');
+  await page.getByRole('radio', { name: '🚪 Someone joins' }).check();
+  await toGroup(page);
+  const dialog = await applyDialog(page);
+  await expect(dialog.getByRole('heading', { name: JOINS })).toBeVisible();
+  await expect(dialog).toContainText('changed');
+  await expect(dialog).toContainText('was 💬 When someone sends a message');
+  await looks(page, 'apply-changed-when');
+});
+
+// US-G7
+test('a list that lost entries is shown, and a deleted rule is removed', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED, FLOOD)));
+  await openRule(page, 'Banned words');
+  await page.getByRole('button', { name: 'Remove casino' }).click();
+  await toGroup(page);
+  await menuOf(page, 'Flood').click();
+  await choose(page, 'Delete').click();
+  const dialog = await applyDialog(page);
+  await expect(dialog).toContainText('2 → 1 rules');
+  await expect(dialog).toContainText('removed');
+  await looks(page, 'apply-lost-entries');
+});
+
+// US-G7
+test('with no change, the dialog says so', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED)));
+  const dialog = await applyDialog(page);
+  await expect(dialog).toContainText('Nothing has changed since you opened this page. You can still copy the link and send it again.');
   await looks(page, 'apply-no-change');
 });
 
 // US-G7
-test('apply changes warns when the link nears what one message carries', async ({ page }) => {
+test('an incomplete rule cannot be sent: the dialog says what it lacks and offers its page', async ({ page }) => {
+  await emptyEditor(page);
+  await newRule(page);
+  await page.getByRole('button', { name: /^Build it myself/ }).click();
+  await page.keyboard.press('Escape');
+  await toGroup(page);
+  const dialog = await applyDialog(page);
+  await expect(dialog).toContainText('“New rule” has no condition yet. Finish it or delete it before sending.');
+  await expect(dialog.getByRole('button', { name: 'Copy the link' })).toHaveCount(0);
+  await looks(page, 'apply-incomplete-condition');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  // Without an action.
+  await emptyEditor(page);
+  await newRule(page, 'joins');
+  await page.getByRole('button', { name: /^Build it myself/ }).click();
+  await page.keyboard.press('Escape');
+  await toGroup(page);
+  const lacking = await applyDialog(page);
+  await expect(lacking).toContainText('“New rule” has no action yet. Finish it or delete it before sending.');
+  await lacking.getByRole('button', { name: /^Open “New rule”/ }).click();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('New rule');
+});
+
+// US-G7
+test('Apply warns when the link nears what one message carries', async ({ page }) => {
   // Words that do not compress: 1,100 of them make a link of about 11,700 bytes, 1,700 one of about 17,700.
   const word = (i: number) => {
     let x = (i * 2654435761) >>> 0;
@@ -249,32 +567,42 @@ test('apply changes warns when the link nears what one message carries', async (
     return s + i;
   };
   const long = (n: number) => Array.from({ length: n }, (_, i) => word(i));
-  await open(page, editorUrl(rules(W(long(1100)))));
-  expect(await textOf(await apply(page))).toMatch(/This link is 1\d,\d{3} bytes, (7\d|8\d|9\d)% of what a single chat message can carry\. Once it passes 15,000, the bot will no longer be able to read it\./);
+  await open(page, editorUrl(rules(named('Long', 'message_posted', msg(long(1100)), MODERATE))));
+  expect(await textOf(await applyDialog(page))).toMatch(/This link is 1\d,\d{3} bytes, (7\d|8\d|9\d)% of what a single chat message can carry\. Once it passes 15,000, the bot will no longer be able to read it\./);
   await looks(page, 'size-warning');
-  await open(page, editorUrl(rules(W(long(1700)))));
-  expect(await textOf(await apply(page))).toMatch(/This link is 1\d,\d{3} bytes — past the 15,000 a single chat message can carry\. The bot will not be able to read it\. Shorten a long list before sending\./);
+  await open(page, editorUrl(rules(named('Long', 'message_posted', msg(long(1700)), MODERATE))));
+  expect(await textOf(await applyDialog(page))).toMatch(/This link is 1\d,\d{3} bytes — past the 15,000 a single chat message can carry\. The bot will not be able to read it\. Shorten a long list before sending\./);
   await looks(page, 'size-over');
 });
 
+// US-G7: "a reorder inside All or Any is not a change" cannot be played: the editor has no way to
+// reorder the conditions inside one.
+
 // US-G8, US-C1
 test('the copied link, sent to the bot, saves the changes', async ({ page }) => {
-  const s = await scene(rules(W(['spam'])));
+  const s = await scene(rules(BANNED));
   await open(page, await currentLink(s));
-  await page.getByRole('combobox', { name: '🛡 Mode' }).selectOption({ label: 'Dry — only tell me what it would do' });
-  const dialog = await apply(page);
+  await mode(page, 'Dry').check();
+  const dialog = await applyDialog(page);
   await dialog.getByRole('button', { name: 'Copy the link' }).click();
-  await expect(dialog.getByText('Link copied.')).toBeVisible();
-  expect(await textOf(dialog)).toContain('Link copied. Paste it into your chat with the bot and send it — that is what applies the changes.');
+  await expect(dialog).toContainText('Link copied. Paste it into your chat with the bot and send it — that is what applies the changes.');
   await expect(dialog.getByRole('button', { name: 'Close' })).toBeVisible();
+  await looks(page, 'link-copied');
   const copied = await clipboard(page);
-  expect(copied).toMatch(new RegExp(`^\\[Settings for group ${s.id}\\]\\(${EDITOR.replace(/[.]/g, '\\.')}/?#bot_id=${s.id}&config=\\S+\\)$`));
+  expect(copied).toMatch(new RegExp(`^\\[Settings for Crypto Chat\\]\\(${EDITOR.replace(/[.]/g, '\\.')}/?#bot_id=${s.id}&group=Crypto%20Chat&config=\\S+\\)$`));
   expect(await s.owner.ask(copied)).toBe('✅ Group settings updated.');
   await s.owner.send('/groups');
   expect(configOf(await s.owner.message()).mode).toBe('dry');
   // From then on, the changes are counted from what was copied.
   await dialog.getByRole('button', { name: 'Close' }).click();
-  await expect(await apply(page)).toContainText('Nothing has changed since you opened this page.');
+  await expect(await applyDialog(page)).toContainText('Nothing has changed since you opened this page.');
+});
+
+// US-G8
+test('a link without a group name is copied as the settings for the group by its number', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED), '7', null));
+  await savedConfig(page);
+  expect(await clipboard(page)).toMatch(new RegExp(`^\\[Settings for group 7\\]\\(${EDITOR.replace(/[.]/g, '\\.')}/?#bot_id=7&config=\\S+\\)$`));
 });
 
 // US-G8
@@ -282,93 +610,123 @@ test('the editor says so when it cannot copy', async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: () => Promise.reject(new Error('denied')), readText: () => Promise.reject(new Error('denied')) } });
   });
-  await open(page, editorUrl(rules(W(['a']))));
-  const dialog = await apply(page);
+  await open(page, editorUrl(rules(BANNED)));
+  const dialog = await applyDialog(page);
   await dialog.getByRole('button', { name: 'Copy the link' }).click();
   await expect(dialog.getByText('Could not reach the clipboard.')).toBeVisible();
   expect(await textOf(dialog)).toContain('Could not reach the clipboard. Copy the whole address from the address bar and send that to the bot.');
   await looks(page, 'clipboard-failed');
 });
 
-const AI = (page: Page) => page.getByRole('dialog', { name: 'Edit your settings with AI' });
+// ---------------------------------------------------------------------------
+// Edit with AI
+// ---------------------------------------------------------------------------
+
+const AI_ALL = (page: Page) => page.getByRole('dialog', { name: 'Edit your settings with AI' });
 const reply = (config: unknown) => '```json\n' + JSON.stringify(config) + '\n```';
 
+async function editAll(page: Page) {
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await choose(page, 'Edit all with AI').click();
+}
+
 // US-G9
-test('edit with AI: copy the prompt, paste the answer', async ({ page }) => {
-  await open(page, editorUrl(rules(W(['a']), W(['b']))));
-  await page.getByRole('button', { name: 'Edit with AI' }).click();
-  await expect(AI(page).getByRole('heading', { name: 'Copy the question' })).toBeVisible();
-  await looks(page, 'ai-dialog');
-  await AI(page).getByRole('button', { name: 'Copy the prompt' }).click();
+test('Edit all with AI: copy the prompt, paste the answer', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED, NEWCOMERS)));
+  await editAll(page);
+  await expect(AI_ALL(page).getByRole('heading', { name: 'Copy the question' })).toBeVisible();
+  await expect(AI_ALL(page).getByRole('heading', { name: 'Paste what it answers' })).toBeVisible();
+  // Its footer: Cancel, and what loads the answer, beside it.
+  await expect(AI_ALL(page).getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+  await looks(page, 'ai-all-dialog');
+  await AI_ALL(page).getByRole('button', { name: 'Copy the prompt' }).click();
   await expect(page.getByText('Prompt copied. Paste it into your AI chat.')).toBeVisible();
-  expect(await clipboard(page)).toContain('"keywords"');
-  await expect(AI(page).getByRole('heading', { name: 'Paste what it answers' })).toBeVisible();
-  const box = AI(page).getByRole('textbox', { name: "Paste the AI's reply here" });
-  const load = AI(page).getByRole('button', { name: 'Load into the editor' });
+  const prompt = await clipboard(page);
+  expect(prompt).toContain('"keywords"');
+  expect(prompt).toContain('Banned words');
+  const box = AI_ALL(page).getByRole('textbox', { name: 'Paste what it answers' });
+  const load = AI_ALL(page).getByRole('button', { name: 'Load into the editor', exact: true });
   await load.click();
-  await expect(AI(page)).toContainText("Paste the AI's reply first.");
+  await expect(AI_ALL(page)).toContainText("Paste the AI's reply first.");
   await box.fill('I cannot help with that.');
   await load.click();
-  await expect(AI(page)).toContainText("No settings found in that text. Copy the AI's whole reply, or just its code block.");
-  await box.fill(reply(rules({ actions: [], condition: { type: 'ContainsWords', keywords: ['a'] } })));
+  await expect(AI_ALL(page)).toContainText("No settings found in that text. Copy the AI's whole reply, or just its code block.");
+  await box.fill(reply(rules({ actions: [], condition: msg(['a']) })));
   await load.click();
-  await expect(AI(page)).toContainText("Not loaded — the AI's settings have problems:");
-  await looks(page, 'ai-problems');
-  await box.fill(reply(rules(W(['a', 'z']), W(['b']), W(['c']))));
+  await expect(AI_ALL(page)).toContainText("Not loaded — the AI's settings have problems:");
+  await looks(page, 'ai-all-problems');
+  await box.fill(reply(rules(
+    { ...BANNED, condition: msg(['spam', 'casino', 'scam']) }, NEWCOMERS, FLOOD,
+  )));
   await load.click();
-  await expect(AI(page)).toContainText('Loaded 3 rules — 1 changed, 1 added. Press Apply changes when you are ready; you will see exactly what changed before anything is sent.');
-  await looks(page, 'ai-loaded');
-  await AI(page).getByRole('button', { name: 'Undo the load' }).click();
-  await expect(AI(page)).toContainText('Reverted to the settings and rules you had before pasting.');
-  await expect(page.getByText('2 total')).toBeVisible();
-  await box.fill(reply(rules(W(['a']), W(['b']), W(['c']))));
+  await expect(AI_ALL(page)).toContainText('Loaded 3 rules — 1 changed, 1 added. Press Apply changes when you are ready; you will see exactly what changed before anything is sent.');
+  await looks(page, 'ai-all-loaded');
+  await AI_ALL(page).getByRole('button', { name: 'Undo the load' }).click();
+  await expect(AI_ALL(page)).toContainText('Reverted to the settings and rules you had before pasting.');
+  await AI_ALL(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(row(page, 'Flood')).toHaveCount(0);
+  // After a later edit the load cannot be undone from here.
+  await editAll(page);
+  await box.fill(reply(rules(BANNED, NEWCOMERS, FLOOD)));
   await load.click();
-  await AI(page).getByRole('button', { name: 'Close' }).last().click();
-  await page.getByRole('button', { name: '+ Add rule' }).click();
-  await page.getByRole('button', { name: 'Edit with AI' }).click();
-  await AI(page).getByRole('button', { name: 'Undo the load' }).click();
+  await AI_ALL(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+  await mode(page, 'Silent').check();
+  await editAll(page);
+  await AI_ALL(page).getByRole('button', { name: 'Undo the load' }).click();
   await expect(page.getByText('You have edited the settings since. Use Undo in the header to step back.')).toBeVisible();
 });
 
 // US-G10
-test('edit with AI: long lists and keys stay out of the prompt', async ({ page }) => {
+test('Edit with AI: long lists and keys stay out of the prompt', async ({ page }) => {
   const key = 'sk-or-v1-secret-a1b2';
   const ai = { type: 'FlaggedByOpenRouterInstruction', api_key: key, model: 'google/gemini-2.5-flash-lite', instruction: 'Match ads.', context_messages: 0, max_attempts: 3, retry_delay_seconds: 1 };
-  const config = rules(W(words(150)), rule(ai));
+  const config = rules(named('Long', 'message_posted', msg(words(150)), MODERATE), named('Ads', 'message_posted', ai, MODERATE));
   await open(page, editorUrl(config));
-  await page.getByRole('button', { name: 'Edit with AI' }).click();
-  await expect(AI(page).getByText('1 long list sent as a placeholder')).toBeVisible();
-  await AI(page).getByRole('button', { name: 'Copy the prompt' }).click();
+  await editAll(page);
+  await expect(AI_ALL(page).getByText('1 long list sent as a placeholder')).toBeVisible();
+  await AI_ALL(page).getByRole('button', { name: 'Copy the prompt' }).click();
   const prompt = await clipboard(page);
   expect(prompt).toContain('<<KEEP LIST 1: 150 ENTRIES>>');
   expect(prompt).toContain('<<KEEP SECRET 1>>');
   expect(prompt).not.toContain(key);
-  const box = AI(page).getByRole('textbox', { name: "Paste the AI's reply here" });
-  const load = AI(page).getByRole('button', { name: 'Load into the editor' });
-  await box.fill(reply(rules(W(['<<KEEP LIST 1: 140 ENTRIES>>']), rule({ ...ai, api_key: '<<KEEP SECRET 1>>' }))));
+  const box = AI_ALL(page).getByRole('textbox', { name: 'Paste what it answers' });
+  const load = AI_ALL(page).getByRole('button', { name: 'Load into the editor', exact: true });
+  await box.fill(reply(rules(named('Long', 'message_posted', msg(['<<KEEP LIST 1: 140 ENTRIES>>']), MODERATE), named('Ads', 'message_posted', { ...ai, api_key: '<<KEEP SECRET 1>>' }, MODERATE))));
   await load.click();
-  await expect(AI(page)).toContainText('the AI wrote 140 where your list has 150 entries — it looks like it edited the list blind');
-  await box.fill(reply(rules(W(['<<KEEP LIST 1: 150 ENTRIES>>']), rule({ ...ai, api_key: 'sk-made-up' }))));
+  await expect(AI_ALL(page)).toContainText('the AI wrote 140 where your list has 150 entries — it looks like it edited the list blind');
+  await box.fill(reply(rules(named('Long', 'message_posted', msg(['<<KEEP LIST 1: 150 ENTRIES>>']), MODERATE), named('Ads', 'message_posted', { ...ai, api_key: 'sk-made-up' }, MODERATE))));
   await load.click();
-  await expect(AI(page)).toContainText('the AI wrote its own value into the secret field “api_key”. Secrets never go through the AI');
+  await expect(AI_ALL(page)).toContainText('the AI wrote its own value into the secret field “api_key”. Secrets never go through the AI');
   // Ticked, the list goes in full.
-  await AI(page).getByText('1 long list sent as a placeholder').click();
+  await AI_ALL(page).getByText('1 long list sent as a placeholder').click();
   await looks(page, 'ai-long-lists');
-  await AI(page).getByRole('checkbox').first().check();
-  await AI(page).getByRole('button', { name: 'Copy the prompt' }).click();
+  await AI_ALL(page).getByRole('checkbox').first().check();
+  await AI_ALL(page).getByRole('button', { name: 'Copy the prompt' }).click();
   expect(await clipboard(page)).toContain('word149');
   // Two long lists.
-  await open(page, editorUrl(rules(W(words(150)), W(words(120)))));
-  await page.getByRole('button', { name: 'Edit with AI' }).click();
-  await expect(AI(page).getByText('2 long lists sent as a placeholder')).toBeVisible();
+  await open(page, editorUrl(rules(named('A', 'message_posted', msg(words(150)), MODERATE), named('B', 'message_posted', msg(words(120)), MODERATE))));
+  await editAll(page);
+  await expect(AI_ALL(page).getByText('2 long lists sent as a placeholder')).toBeVisible();
+});
+
+// US-G10
+test('a long list stays out of a rule prompt too', async ({ page }) => {
+  await open(page, editorUrl(rules(named('Long', 'message_posted', msg(words(150)), MODERATE))));
+  await openRule(page, 'Long');
+  await page.getByRole('button', { name: '✨ Edit with AI' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit “Long” with AI' });
+  await expect(dialog.getByText('1 long list sent as a placeholder')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Copy the prompt' }).click();
+  expect(await clipboard(page)).toContain('<<KEEP LIST 1: 150 ENTRIES>>');
 });
 
 // US-G11
-test('import and export JSON', async ({ page }) => {
+test('import and export JSON, from the overview menu', async ({ page }) => {
   const key = 'sk-or-v1-secret-a1b2';
   const ai = { type: 'FlaggedByOpenRouterInstruction', api_key: key, model: 'google/gemini-2.5-flash-lite', instruction: 'Match ads.', context_messages: 0, max_attempts: 3, retry_delay_seconds: 1 };
-  await open(page, editorUrl(rules(rule(ai))));
-  await page.getByRole('button', { name: 'Import JSON' }).click();
+  await open(page, editorUrl(rules(named('Ads', 'message_posted', ai, MODERATE))));
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await choose(page, 'Import JSON').click();
   const imp = page.getByRole('dialog', { name: 'Import settings from JSON' });
   await expect(imp.getByRole('button', { name: 'Choose JSON file' })).toBeVisible();
   const box = imp.getByRole('textbox');
@@ -382,20 +740,20 @@ test('import and export JSON', async ({ page }) => {
   await load.click();
   await expect(imp).toContainText('The rules list is missing.');
   await looks(page, 'import-problem');
-  await box.fill(JSON.stringify(rules(W(['a']), W(['b']), rule(ai))));
+  await box.fill(JSON.stringify(rules(BANNED, FLOOD, named('Ads', 'message_posted', ai, MODERATE))));
   await load.click();
   await expect(page.getByText('Loaded the settings and 3 rules. Press Apply changes to send.')).toBeVisible();
-  await expect(page.getByText('3 total')).toBeVisible();
-  await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(page.getByText('1 total')).toBeVisible();
-  await page.getByRole('button', { name: 'Export JSON' }).click();
+  expect(await order(page, MESSAGES)).toEqual(['Banned words', 'Flood', 'Ads']);
+  await undo(page).click();
+  expect(await order(page, MESSAGES)).toEqual(['Ads']);
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await choose(page, 'Export JSON').click();
   const exp = page.getByRole('dialog', { name: 'Export settings as JSON' });
   await expect(exp.getByRole('checkbox', { name: 'Clear secret values (API keys)' })).toBeChecked();
   await looks(page, 'export-dialog');
   await exp.getByRole('button', { name: 'Copy JSON' }).click();
   await expect(page.getByText('Settings copied as JSON.')).toBeVisible();
   expect(JSON.parse(await clipboard(page)).rules[0].condition.api_key).toBe('');
-  await page.getByRole('button', { name: 'Export JSON' }).click();
   await exp.getByRole('checkbox', { name: 'Clear secret values (API keys)' }).uncheck();
   const download = page.waitForEvent('download');
   await exp.getByRole('button', { name: 'Download JSON' }).click();
@@ -409,3 +767,379 @@ test('import and export JSON', async ({ page }) => {
   expect(saved.rules[0].condition.api_key).toBe(key);
 });
 
+// ---------------------------------------------------------------------------
+// The order of the rules, and turning one off
+// ---------------------------------------------------------------------------
+
+// US-G12
+test("a rule moves from its ⋯ menu: Move up and Move down, none where there is nowhere to go", async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED, NEWCOMERS, FLOOD, SPAM_NAMES)));
+  await menuOf(page, 'Banned words').click();
+  await expect(page.getByRole('menuitem')).toHaveText(['Move down', 'Disable', 'Delete']);
+  await page.keyboard.press('Escape');
+  await menuOf(page, 'Flood').click();
+  await expect(page.getByRole('menuitem')).toHaveText(['Move up', 'Disable', 'Delete']);
+  await looks(page, 'rule-menu');
+  await choose(page, 'Move up').click();
+  expect(await order(page, MESSAGES)).toEqual(['Banned words', 'Flood', 'Links from newcomers']);
+  await menuOf(page, 'Banned words').click();
+  await choose(page, 'Move down').click();
+  expect(await order(page, MESSAGES)).toEqual(['Flood', 'Banned words', 'Links from newcomers']);
+  // A rule is only ever moved within its section.
+  expect(await order(page, JOINS)).toEqual(['Spam names']);
+  await menuOf(page, 'Spam names').click();
+  await expect(page.getByRole('menuitem')).toHaveText(['Disable', 'Delete']);
+});
+
+// US-G12
+test('a rule moves by its handle, with the arrow keys and by dragging', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED, NEWCOMERS, FLOOD)));
+  const grip = (name: string) => page.getByRole('button', { name: `Move “${name}”`, exact: true });
+  await grip('Banned words').focus();
+  await page.keyboard.press('ArrowDown');
+  expect(await order(page, MESSAGES)).toEqual(['Links from newcomers', 'Banned words', 'Flood']);
+  await grip('Banned words').focus();
+  await page.keyboard.press('ArrowUp');
+  expect(await order(page, MESSAGES)).toEqual(['Banned words', 'Links from newcomers', 'Flood']);
+  // Dragged down past the rule below it.
+  const box = (await grip('Banned words').boundingBox())!;
+  const below = (await grip('Links from newcomers').boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, below.y + 40, { steps: 10 });
+  await page.mouse.up();
+  expect(await order(page, MESSAGES)).toEqual(['Links from newcomers', 'Banned words', 'Flood']);
+  // The order is a change, and a change that can be undone.
+  await undo(page).click();
+  expect(await order(page, MESSAGES)).toEqual(['Banned words', 'Links from newcomers', 'Flood']);
+});
+
+// US-G12
+test("the ⋯ menu's Delete removes the rule, as a change that can be undone", async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED, FLOOD)));
+  await menuOf(page, 'Flood').click();
+  await choose(page, 'Delete').click();
+  expect(await order(page, MESSAGES)).toEqual(['Banned words']);
+  await undo(page).click();
+  expect(await order(page, MESSAGES)).toEqual(['Banned words', 'Flood']);
+});
+
+// US-G13
+test('a rule is turned off with its switch, or in its menu, and turned on again', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED, FLOOD)));
+  const flood = page.getByRole('switch', { name: 'Flood', exact: true });
+  await expect(flood).toBeChecked();
+  await flood.click();
+  await expect(flood).not.toBeChecked();
+  await expect(row(page, 'Flood')).toContainText('Off');
+  await looks(page, 'rule-off');
+  // Its page says so, with a way to turn it on.
+  await openRule(page, 'Flood');
+  await expect(page.getByText('⏸ This rule is off — the bot skips it.')).toBeVisible();
+  await looks(page, 'rule-off-page');
+  await page.getByRole('button', { name: 'Enable', exact: true }).click();
+  await expect(page.getByText('⏸ This rule is off — the bot skips it.')).toHaveCount(0);
+  await toGroup(page);
+  await expect(flood).toBeChecked();
+  // The menu says Disable, then Enable.
+  await menuOf(page, 'Flood').click();
+  await choose(page, 'Disable').click();
+  await expect(flood).not.toBeChecked();
+  await menuOf(page, 'Flood').click();
+  await choose(page, 'Enable').click();
+  await expect(flood).toBeChecked();
+});
+
+// US-G13
+test('a rule that is off is sent, kept by the bot and not checked', async ({ page }) => {
+  const s = await scene(rules(named('Banned words', 'message_posted', msg(['spam']), MODERATE)));
+  await open(page, await currentLink(s));
+  await page.getByRole('switch', { name: 'Banned words', exact: true }).click();
+  const dialog = await applyDialog(page);
+  await expect(dialog).toContainText('turned off');
+  await dialog.getByRole('button', { name: 'Copy the link' }).click();
+  expect(await s.owner.ask(await clipboard(page))).toBe('✅ Group settings updated.');
+  // The bot does not check it...
+  await s.member.post(s.memberGroup, 'spam');
+  await s.member.seesNothing(4000);
+  await s.owner.hearsNothing(0);
+  // ...but keeps it: the next link has it, off.
+  await s.owner.send('/groups');
+  const got = configOf(await s.owner.message());
+  expect(got.rules).toHaveLength(1);
+  expect(got.rules[0].enabled).toBe(false);
+  await open(page, await currentLink(s));
+  await expect(page.getByRole('switch', { name: 'Banned words', exact: true })).not.toBeChecked();
+});
+
+// ---------------------------------------------------------------------------
+// A new rule
+// ---------------------------------------------------------------------------
+
+// US-G14
+test('+ Add rule opens the New rule page, with three ways to start, and nothing is added until one is picked', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED)));
+  await newRule(page);
+  await expect(page.getByRole('button', { name: 'Back to rules' })).toBeVisible();
+  await expect(page.getByText('When someone sends a message', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Start from a template/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Create with AI/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Build it myself/ })).toBeVisible();
+  await looks(page, 'new-rule-messages');
+  await toGroup(page);
+  expect(await order(page, MESSAGES)).toEqual(['Banned words']);
+  // For when someone joins.
+  await newRule(page, 'joins');
+  await expect(page.getByText('When someone joins', { exact: true })).toBeVisible();
+  await looks(page, 'new-rule-joins');
+  await page.goBack();
+  expect(await order(page, JOINS)).toEqual([]);
+});
+
+// US-G14
+test('Build it myself adds a rule with nothing in it, which is incomplete until it has what the bot needs', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED)));
+  await newRule(page);
+  await page.getByRole('button', { name: /^Build it myself/ }).click();
+  // Its page opens with the condition types to pick from.
+  await expect(page.getByRole('dialog', { name: 'Pick a condition' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByText('Pick a condition and at least one action — the bot takes no rule without them.')).toBeVisible();
+  await looks(page, 'rule-incomplete');
+  await toGroup(page);
+  await expect(row(page, 'New rule')).toContainText('Incomplete');
+  expect(await order(page, MESSAGES)).toEqual(['Banned words', 'New rule']);
+  await looks(page, 'overview-incomplete');
+  // Given a condition and an action, it is complete.
+  await openRule(page, 'New rule');
+  await page.getByRole('button', { name: 'Add condition', exact: true }).click();
+  await pickable(page, 'Message Is Empty or Blank').click();
+  await page.getByRole('button', { name: 'Add action', exact: true }).click();
+  await pickable(page, 'Moderate the message').click();
+  await expect(page.getByText('Pick a condition and at least one action — the bot takes no rule without them.')).toHaveCount(0);
+  await toGroup(page);
+  // With nothing to call it by, it is called by what it does.
+  await expect(page.getByRole('button', { name: /^IF is empty or blank/ })).toBeVisible();
+  await expect(page.getByText('Incomplete', { exact: true })).toHaveCount(0);
+});
+
+// US-G14
+test('a rule for when someone joins needs only an action', async ({ page }) => {
+  await emptyEditor(page);
+  await newRule(page, 'joins');
+  await page.getByRole('button', { name: /^Build it myself/ }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByText('Pick at least one action — the bot takes no rule without one.')).toBeVisible();
+  await page.getByRole('button', { name: 'Add action', exact: true }).click();
+  await pickable(page, 'Kick the member').click();
+  await expect(page.getByText('Pick at least one action — the bot takes no rule without one.')).toHaveCount(0);
+});
+
+// US-G15
+test('Start from a template opens a sheet with the templates of the trigger', async ({ page }) => {
+  await emptyEditor(page);
+  await newRule(page);
+  await page.getByRole('button', { name: /^Start from a template/ }).click();
+  const sheet = page.getByRole('dialog', { name: 'Start from a template' });
+  for (const [title, then] of [
+    ['🚫 Banned words', 'THEN 🗑 moderate'],
+    ['🔗 Links from newcomers', 'THEN 🗑 moderate'],
+    ['🌊 Flood', 'THEN 👁 observer'],
+    ['📏 Walls of text', 'THEN 🗑 moderate'],
+  ]) {
+    const item = sheet.getByRole('button', { name: new RegExp(`^${title}`) });
+    await expect(item).toContainText('IF ');
+    await expect(item).toContainText(then);
+  }
+  await expect(sheet.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+  await looks(page, 'templates-sheet-messages');
+  await sheet.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await toGroup(page);
+  await newRule(page, 'joins');
+  await page.getByRole('button', { name: /^Start from a template/ }).click();
+  const joins = page.getByRole('dialog', { name: 'Start from a template' });
+  await expect(joins.getByRole('button', { name: /^👁 Quarantine newcomers/ })).toContainText('THEN 👁 observer');
+  await expect(joins.getByRole('button', { name: /^🚫 Spam names/ })).toBeVisible();
+  await expect(joins.getByRole('button', { name: /^🔗 Links in names/ })).toBeVisible();
+  await expect(joins.getByRole('button', { name: /^🚫 Banned words/ })).toHaveCount(0);
+  await looks(page, 'templates-sheet-joins');
+});
+
+// US-G15
+test('a template is added at the end of its section, named after itself, and opens its page', async ({ page }) => {
+  await emptyEditor(page);
+  const take = async (trigger: 'messages' | 'joins', title: RegExp) => {
+    await newRule(page, trigger);
+    await page.getByRole('button', { name: /^Start from a template/ }).click();
+    await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: title }).click();
+  };
+  await take('messages', /^🚫 Banned words/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Banned words');
+  // Its list is empty, to fill in.
+  await expect(page.getByRole('textbox', { name: 'Add to Words / Phrases', exact: true })).toBeFocused();
+  await toGroup(page);
+  await take('messages', /^🔗 Links from newcomers/);
+  await toGroup(page);
+  await take('messages', /^🌊 Flood/);
+  await toGroup(page);
+  await take('messages', /^📏 Walls of text/);
+  await toGroup(page);
+  // The same template twice: the second has a number.
+  await take('messages', /^🚫 Banned words/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Banned words 2');
+  await toGroup(page);
+  await take('joins', /^👁 Quarantine newcomers/);
+  await toGroup(page);
+  await take('joins', /^🚫 Spam names/);
+  await toGroup(page);
+  await take('joins', /^🔗 Links in names/);
+  await toGroup(page);
+  expect(await order(page, MESSAGES)).toEqual(['Banned words', 'Links from newcomers', 'Flood', 'Walls of text', 'Banned words 2']);
+  expect(await order(page, JOINS)).toEqual(['Quarantine newcomers', 'Spam names', 'Links in names']);
+  const saved = (await savedConfig(page)).rules;
+  const by = (name: string) => saved.find((r: any) => r.name === name);
+  expect(by('Banned words')).toMatchObject({ trigger: 'message_posted', condition: { type: 'ContainsWords', keywords: [] }, actions: [{ type: 'ModerateMessage' }] });
+  expect(by('Links from newcomers').condition).toMatchObject({ type: 'All', conditions: [{ type: 'AuthorJoinedRecently', time_window_minutes: 60 }, { type: 'ContainsLinksOutsideTop100' }] });
+  expect(by('Flood')).toMatchObject({ condition: { type: 'AuthorHitsMessageRateLimit', message_count: 5, time_window_minutes: 1 }, actions: [{ type: 'SetAuthorObserver', duration_minutes: 10 }] });
+  expect(by('Walls of text')).toMatchObject({ condition: { type: 'ExceedsMaxLines', max_lines: 10, chars_per_line: 40 }, actions: [{ type: 'ModerateMessage' }] });
+  expect(by('Quarantine newcomers')).toMatchObject({ trigger: 'member_joined', actions: [{ type: 'SetAuthorObserver', duration_minutes: 60 }] });
+  expect(by('Quarantine newcomers').condition).toBeUndefined();
+  expect(by('Spam names')).toMatchObject({ trigger: 'member_joined', condition: { type: 'MemberNameContainsWords', keywords: [] }, actions: [{ type: 'KickAuthor', delete_all_messages: false }] });
+  expect(by('Links in names')).toMatchObject({ trigger: 'member_joined', condition: { type: 'MemberNameContainsLinksOutsideList', domains: [] }, actions: [{ type: 'KickAuthor' }] });
+  // Taking one is a change that can be undone.
+  await undo(page).click();
+  expect(await order(page, JOINS)).toEqual(['Quarantine newcomers', 'Spam names']);
+});
+
+// US-G16
+test('Create with AI: describe the rule, copy the prompt, paste the answer', async ({ page }) => {
+  await emptyEditor(page);
+  await newRule(page, 'joins');
+  await page.getByRole('button', { name: /^Create with AI/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Create a rule with AI' });
+  await expect(dialog.getByRole('heading', { name: 'What should the rule do?' })).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'Copy the question' })).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'Paste what it answers' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+  await looks(page, 'ai-create-dialog');
+  // With nothing written.
+  await dialog.getByRole('button', { name: 'Copy the prompt' }).click();
+  await expect(dialog).toContainText('Describe the rule first.');
+  await dialog.getByRole('textbox', { name: 'What should the rule do?' }).fill('Kick anyone whose name advertises a casino');
+  await dialog.getByRole('button', { name: 'Copy the prompt' }).click();
+  await expect(page.getByText('Prompt copied. Paste it into your AI chat.')).toBeVisible();
+  const prompt = await clipboard(page);
+  // What it says, and what the trigger takes.
+  expect(prompt).toContain('Kick anyone whose name advertises a casino');
+  expect(prompt).toContain('MemberNameContainsWords');
+  expect(prompt).toContain('KickAuthor');
+  expect(prompt).not.toContain('ContainsImage');
+  expect(prompt).not.toContain('ModerateMessage');
+  const box = dialog.getByRole('textbox', { name: 'Paste what it answers' });
+  const add = dialog.getByRole('button', { name: 'Add the rule', exact: true });
+  await add.click();
+  // Nothing written says so; and what is no rule, a mistake or several rules.
+  await box.fill('');
+  await add.click();
+  await expect(dialog).toContainText("Paste the AI's reply first.");
+  await box.fill('I cannot help with that.');
+  await add.click();
+  await expect(dialog).toContainText("No rule found in that text. Copy the AI's whole reply, or just its code block.");
+  await box.fill(reply({ name: 'Bad', actions: [], condition: { type: 'MemberNameContainsWords', keywords: ['casino'] } }));
+  await add.click();
+  await expect(dialog).toContainText("Not added — the AI's rule has problems:");
+  await looks(page, 'ai-create-problems');
+  const one = { name: 'Casino names', condition: { type: 'MemberNameContainsWords', keywords: ['casino'] }, actions: KICK };
+  await box.fill(reply([one, one, one]));
+  await add.click();
+  await expect(dialog).toContainText('The answer has 3 rules — ask the AI for one.');
+  // A valid rule: added at the end of the section, with the section's trigger; its page opens.
+  await box.fill(reply(one));
+  await add.click();
+  await expect(page.getByText('Added “Casino names”. Press Apply changes when you are ready.')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Casino names');
+  await expect(page.getByRole('radio', { name: '🚪 Someone joins' })).toBeChecked();
+  await toGroup(page);
+  expect(await order(page, JOINS)).toEqual(['Casino names']);
+  expect((await savedConfig(page)).rules[0].trigger).toBe('member_joined');
+  await undo(page).click();
+  expect(await order(page, JOINS)).toEqual([]);
+});
+
+// US-G16
+test('Create with AI for messages offers the rule only what the trigger takes, and refuses what does not fit', async ({ page }) => {
+  await emptyEditor(page);
+  await newRule(page);
+  await page.getByRole('button', { name: /^Create with AI/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Create a rule with AI' });
+  await dialog.getByRole('textbox', { name: 'What should the rule do?' }).fill('Delete images');
+  await dialog.getByRole('button', { name: 'Copy the prompt' }).click();
+  const prompt = await clipboard(page);
+  expect(prompt).toContain('ContainsImage');
+  expect(prompt).toContain('ModerateMessage');
+  const box = dialog.getByRole('textbox', { name: 'Paste what it answers' });
+  await box.fill(reply({ name: 'Images', condition: { type: 'ContainsImage' }, actions: MODERATE }));
+  await dialog.getByRole('button', { name: 'Add the rule', exact: true }).click();
+  await expect(page.getByText('Added “Images”. Press Apply changes when you are ready.')).toBeVisible();
+});
+
+// US-G17
+test('Edit with AI on a rule: its prompt holds this rule alone, and the answer replaces it and nothing else', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED, NEWCOMERS)));
+  await openRule(page, 'Banned words');
+  await page.getByRole('button', { name: '✨ Edit with AI' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit “Banned words” with AI' });
+  await expect(dialog.getByRole('heading', { name: 'Copy the question' })).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'Paste what it answers' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+  await looks(page, 'ai-rule-dialog');
+  await dialog.getByRole('button', { name: 'Copy the prompt' }).click();
+  await expect(page.getByText('Prompt copied. Paste it into your AI chat.')).toBeVisible();
+  const prompt = await clipboard(page);
+  expect(prompt).toContain('"spam"');
+  // Nothing else of the configuration goes into it.
+  expect(prompt).not.toContain('Links from newcomers');
+  expect(prompt).not.toContain('"mode"');
+  const box = dialog.getByRole('textbox', { name: 'Paste what it answers' });
+  const load = dialog.getByRole('button', { name: 'Load into the rule', exact: true });
+  await load.click();
+  await expect(dialog).toContainText("Paste the AI's reply first.");
+  await box.fill('I cannot help with that.');
+  await load.click();
+  await expect(dialog).toContainText("No rule found in that text. Copy the AI's whole reply, or just its code block.");
+  const changed = { name: 'Banned words', condition: msg(['spam', 'casino', 'scam']), actions: MODERATE };
+  // Several rules, or a whole configuration, are more than this rule.
+  await box.fill(reply([changed, changed, changed]));
+  await load.click();
+  await expect(dialog).toContainText('The answer has 3 rules — ask the AI for this one rule only.');
+  await box.fill(reply(rules(changed, changed, changed)));
+  await load.click();
+  await expect(dialog).toContainText('The answer has 3 rules — ask the AI for this one rule only.');
+  await box.fill(reply({ name: 'Banned words', actions: [], condition: msg(['x']) }));
+  await load.click();
+  await expect(dialog).toContainText("Not loaded — the AI's rule has problems:");
+  await looks(page, 'ai-rule-problems');
+  await box.fill(reply(changed));
+  await load.click();
+  await expect(dialog).toContainText('Updated “Banned words”. Press Apply changes when you are ready.');
+  await looks(page, 'ai-rule-loaded');
+  await dialog.getByRole('button', { name: 'Undo the load' }).click();
+  await expect(dialog).toContainText('Reverted to the rule you had before pasting.');
+  await box.fill(reply(changed));
+  await load.click();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const saved = await savedConfig(page);
+  expect(saved.rules[0].condition.keywords).toEqual(['spam', 'casino', 'scam']);
+  // Nothing else changed.
+  expect(saved.rules[1]).toEqual(NEWCOMERS);
+  // After a later edit the load cannot be undone from here.
+  await openRule(page, 'Banned words');
+  await page.getByRole('button', { name: '✨ Edit with AI' }).click();
+  await box.fill(reply({ ...changed, condition: msg(['again']) }));
+  await load.click();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await rename(page, 'Words');
+  await page.getByRole('button', { name: '✨ Edit with AI' }).click();
+  await page.getByRole('dialog', { name: 'Edit “Words” with AI' }).getByRole('button', { name: 'Undo the load' }).click();
+  await expect(page.getByText('You have edited the settings since. Use Undo in the header to step back.')).toBeVisible();
+});

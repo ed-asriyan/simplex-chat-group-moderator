@@ -7,8 +7,8 @@ mod filter;
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext, Needs};
-use crate::domain::moderator::ports::Err;
+use super::{Condition, ConditionContext, Needs, ConditionOn};
+use crate::domain::moderator::ports::{Err, GroupMessage};
 use crate::domain::moderator::rules::common::rate_limit;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,6 @@ pub struct AuthorHitsModerationRateLimit {
     pub time_window_minutes: u32,
 }
 
-#[async_trait]
 impl Condition for AuthorHitsModerationRateLimit {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
         Ok(())
@@ -36,8 +35,18 @@ impl Condition for AuthorHitsModerationRateLimit {
             self.message_count, self.time_window_minutes
         )
     }
+    fn needs(&self) -> Needs {
+        Needs::author_moderations(self.time_window_minutes)
+    }
 
-    async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
+    fn depends_on_other_rules(&self) -> bool {
+        true
+    }
+}
+
+#[async_trait]
+impl ConditionOn<GroupMessage> for AuthorHitsModerationRateLimit {
+    async fn should_moderate(&self, ctx: &ConditionContext<'_, GroupMessage>) -> Result<Option<String>, Err> {
         // This message counts toward the limit when another rule moderates
         // it: otherwise one clean message could never trip the limit.
         if ctx.moderated_by_other_rules {
@@ -45,15 +54,15 @@ impl Condition for AuthorHitsModerationRateLimit {
                 return Ok(None);
             }
             let since =
-                rate_limit::window_start(ctx.group_message.timestamp, self.time_window_minutes);
+                rate_limit::window_start(ctx.subject.timestamp, self.time_window_minutes);
             let count = ctx
                 .ports
                 .moderation_activity_repo
                 .count_moderated_messages_since(
-                    &ctx.group_message.group.id,
-                    &ctx.group_message.author_id,
+                    &ctx.subject.group.id,
+                    &ctx.subject.author_id,
                     since,
-                    ctx.group_message.timestamp,
+                    ctx.subject.timestamp,
                 )
                 .await?
                 + 1;
@@ -65,20 +74,12 @@ impl Condition for AuthorHitsModerationRateLimit {
         }
         filter::check(
             ctx.ports.moderation_activity_repo,
-            &ctx.group_message.group.id,
-            &ctx.group_message.author_id,
+            &ctx.subject.group.id,
+            &ctx.subject.author_id,
             self.message_count,
             self.time_window_minutes,
-            ctx.group_message.timestamp,
+            ctx.subject.timestamp,
         )
         .await
-    }
-
-    fn needs(&self) -> Needs {
-        Needs::author_moderations(self.time_window_minutes)
-    }
-
-    fn depends_on_other_rules(&self) -> bool {
-        true
     }
 }

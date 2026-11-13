@@ -115,6 +115,18 @@
               "time_window_minutes": 1440
             },
             {
+              "type": "MemberNameContainsWords",
+              "keywords": [
+                "casino"
+              ]
+            },
+            {
+              "type": "MemberNameContainsLinksOutsideList",
+              "domains": [
+                "simplex.chat"
+              ]
+            },
+            {
               "type": "GroupHitsMessageRateLimit",
               "message_count": 50,
               "time_window_minutes": 1

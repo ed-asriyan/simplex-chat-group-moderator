@@ -6,8 +6,8 @@ mod instruction_context;
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext, KeyUse, Needs};
-use crate::domain::moderator::ports::{ApiRetry, Err};
+use super::{Condition, ConditionContext, KeyUse, Needs, ConditionOn};
+use crate::domain::moderator::ports::{ApiRetry, Err, GroupMessage};
 use crate::domain::moderator::rules::common::api_key::normalize as normalize_api_key;
 use crate::domain::moderator::rules::common::api_retry;
 use async_trait::async_trait;
@@ -64,7 +64,6 @@ pub struct FlaggedByOpenRouterInstruction {
     pub retry: ApiRetry,
 }
 
-#[async_trait]
 impl Condition for FlaggedByOpenRouterInstruction {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
         normalize_api_key(&mut self.api_key, "OpenRouter", TITLE)?;
@@ -102,9 +101,22 @@ impl Condition for FlaggedByOpenRouterInstruction {
     fn describe(&self) -> String {
         format!("flagged by OpenRouter instruction ({})", self.model)
     }
+    fn needs(&self) -> Needs {
+        Needs::history(self.context_messages)
+    }
 
-    async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
-        let text = &ctx.group_message.text;
+    fn key_uses(&self) -> Vec<KeyUse> {
+        vec![KeyUse::OpenRouterModel {
+            api_key: self.api_key.clone(),
+            model: self.model.clone(),
+        }]
+    }
+}
+
+#[async_trait]
+impl ConditionOn<GroupMessage> for FlaggedByOpenRouterInstruction {
+    async fn should_moderate(&self, ctx: &ConditionContext<'_, GroupMessage>) -> Result<Option<String>, Err> {
+        let text = &ctx.subject.text;
         if text.trim().is_empty() {
             return Ok(None);
         }
@@ -115,10 +127,10 @@ impl Condition for FlaggedByOpenRouterInstruction {
                 .ports
                 .message_history
                 .messages_before(
-                    &ctx.group_message.group.id,
-                    &ctx.group_message.message_id,
+                    &ctx.subject.group.id,
+                    &ctx.subject.message_id,
                     self.context_messages,
-                    ctx.group_message.timestamp,
+                    ctx.subject.timestamp,
                 )
                 .await
             {
@@ -136,7 +148,7 @@ impl Condition for FlaggedByOpenRouterInstruction {
                 &self.api_key,
                 &self.model,
                 &self.instruction,
-                &ctx.group_message.author_name,
+                &ctx.subject.author_name,
                 text,
                 &context,
                 &self.retry,
@@ -149,17 +161,6 @@ impl Condition for FlaggedByOpenRouterInstruction {
             ))),
             Ok(_) | Err(_) => Ok(None),
         }
-    }
-
-    fn needs(&self) -> Needs {
-        Needs::history(self.context_messages)
-    }
-
-    fn key_uses(&self) -> Vec<KeyUse> {
-        vec![KeyUse::OpenRouterModel {
-            api_key: self.api_key.clone(),
-            model: self.model.clone(),
-        }]
     }
 }
 
