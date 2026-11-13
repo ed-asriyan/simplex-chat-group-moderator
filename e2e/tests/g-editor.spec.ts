@@ -115,11 +115,7 @@ test('a rule of a type the editor does not know is kept as it is', async ({ page
 });
 
 // US-G1
-test('a link without a bot id, or with settings that cannot be read', async ({ page }) => {
-  await open(page, editorUrl(rules(BANNED), null));
-  await expect(page.getByText('No bot ID found in the URL. Open the link the bot sent you in a direct message — a link opened by hand cannot be applied.')).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Apply/ })).toBeHidden();
-  await looks(page, 'no-bot-id');
+test('a link whose settings cannot be read opens the editor empty, with a note', async ({ page }) => {
   await open(page, `${EDITOR}/#bot_id=7&config=garbage`);
   await expect(page.getByText('The settings in this link could not be read. Starting from scratch.')).toBeVisible();
   await expect(section(page, MESSAGES)).toContainText('No rules yet.');
@@ -1142,4 +1138,123 @@ test('Edit with AI on a rule: its prompt holds this rule alone, and the answer r
   await page.getByRole('button', { name: '✨ Edit with AI' }).click();
   await page.getByRole('dialog', { name: 'Edit “Words” with AI' }).getByRole('button', { name: 'Undo the load' }).click();
   await expect(page.getByText('You have edited the settings since. Use Undo in the header to step back.')).toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// The demo
+// ---------------------------------------------------------------------------
+
+const DEMO_BANNER = "🧪 This is a demo. Everything works as it will for your own group: add rules, change them, try the AI. Nothing here reaches any group. To moderate yours, invite the bot to it as moderator or higher, and the link it sends you opens this editor on your group's rules.";
+const DEMO_NOTE = "This is a demo, so there is nothing to send. Invite the bot to your group, and the link it sends you opens this editor on your group's rules.";
+const banner = (page: Page) => page.getByRole('note');
+
+// US-G18
+test('the link of the welcome opens a demo group with no rules, in the mode Notifications, under a banner', async ({ page }) => {
+  await open(page, EDITOR);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Demo group');
+  await expect(page.getByText('Moderation settings · Moderator Bot', { exact: true })).toBeVisible();
+  await expect(banner(page)).toHaveText(DEMO_BANNER);
+  await expect(mode(page, 'Notifications')).toBeChecked();
+  await expect(section(page, MESSAGES)).toContainText('No rules yet. Nothing is moderated until you add one.');
+  await expect(section(page, JOINS)).toContainText('No rules yet. Nobody is checked when they join.');
+  await expect(page.getByRole('button', { name: 'Apply changes', exact: true })).toBeVisible();
+  await expect(page.getByText('No bot ID found in the URL.')).toHaveCount(0);
+  await looks(page, 'demo');
+});
+
+// US-G18
+test('the demo banner is above the New rule page and a rule\'s page too', async ({ page }) => {
+  await open(page, EDITOR);
+  await newRule(page);
+  await expect(banner(page)).toHaveText(DEMO_BANNER);
+  await looks(page, 'demo-new-rule');
+  await page.getByRole('button', { name: /^Start from a template/ }).click();
+  await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: /^🚫 Banned words/ }).click();
+  await expect(page.getByRole('heading', { name: 'Banned words', level: 1 })).toBeVisible();
+  await expect(banner(page)).toHaveText(DEMO_BANNER);
+});
+
+// US-G18
+test('the demo works as the editor of a group: a rule can be added, and Apply counts it', async ({ page }) => {
+  await open(page, EDITOR);
+  await newRule(page);
+  await page.getByRole('button', { name: /^Start from a template/ }).click();
+  await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: /^🌊 Flood/ }).click();
+  await toGroup(page);
+  await expect(row(page, 'Flood')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Apply 1 change', exact: true })).toBeVisible();
+  await expect(undo(page)).toBeVisible();
+});
+
+// US-G18
+test('Apply with no change in the demo says there is nothing to send, and has no Copy the link', async ({ page }) => {
+  await open(page, EDITOR);
+  const dialog = await applyDialog(page);
+  await expect(dialog).toContainText('Nothing has changed since you opened this page.');
+  await expect(dialog).not.toContainText('You can still copy the link');
+  await expect(dialog).toContainText(DEMO_NOTE);
+  await expect(dialog.getByRole('button', { name: 'Copy the link' })).toHaveCount(0);
+  await looks(page, 'demo-apply-no-change');
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toBeHidden();
+});
+
+// US-G18
+test('Apply with changes in the demo lists them as for a group, and has no Copy the link', async ({ page }) => {
+  await open(page, EDITOR);
+  await mode(page, 'Dry').check();
+  await newRule(page);
+  await page.getByRole('button', { name: /^Start from a template/ }).click();
+  await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: /^🌊 Flood/ }).click();
+  await toGroup(page);
+  const dialog = await applyDialog(page);
+  await expect(dialog).toContainText('0 → 1 rules');
+  await expect(dialog).toContainText('🛡 Mode: Notifications — act and tell me → Dry — only tell me what it would do');
+  await expect(dialog.getByRole('heading', { name: MESSAGES })).toBeVisible();
+  await expect(dialog).toContainText('added');
+  await expect(dialog).toContainText(DEMO_NOTE);
+  await expect(dialog.getByRole('button', { name: 'Copy the link' })).toHaveCount(0);
+  await looks(page, 'demo-apply-changed');
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toBeHidden();
+});
+
+// US-G18: a rule that is not finished is refused as for a group (US-G7).
+test('Apply with a rule not finished in the demo names the rule, as for a group', async ({ page }) => {
+  await open(page, EDITOR);
+  await newRule(page);
+  await page.getByRole('button', { name: /^Build it myself/ }).click();
+  await page.keyboard.press('Escape');
+  await toGroup(page);
+  const dialog = await applyDialog(page);
+  await expect(dialog).toContainText('“New rule” has no condition yet. Finish it or delete it before sending.');
+  await expect(dialog.getByRole('button', { name: 'Copy the link' })).toHaveCount(0);
+});
+
+// US-G18
+test('a link with settings but no bot id opens the demo on those settings', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED, SPAM_NAMES), null));
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Demo group');
+  await expect(banner(page)).toHaveText(DEMO_BANNER);
+  await expect(row(page, 'Banned words')).toBeVisible();
+  await expect(row(page, 'Spam names')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Apply changes', exact: true })).toBeVisible();
+});
+
+// US-G18
+test('a link without a bot id whose settings cannot be read opens the demo, with the note', async ({ page }) => {
+  await open(page, `${EDITOR}/#config=garbage`);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Demo group');
+  await expect(banner(page)).toHaveText(DEMO_BANNER);
+  await expect(page.getByText('The settings in this link could not be read. Starting from scratch.')).toBeVisible();
+});
+
+// US-G18
+test('a group\'s own link opens no demo', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED)));
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Crypto Chat');
+  await expect(banner(page)).toHaveCount(0);
+  const dialog = await applyDialog(page);
+  await expect(dialog.getByRole('button', { name: 'Copy the link' })).toBeVisible();
+  await expect(dialog).not.toContainText(DEMO_NOTE);
 });

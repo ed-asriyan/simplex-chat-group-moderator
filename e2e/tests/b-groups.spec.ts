@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 import { Person, botId, configOf, settingsLink } from '../harness/person';
 import { EDITOR } from '../harness/stack';
 
-const NO_GROUPS = "You don't have any groups yet. Invite me to your group as **moderator** or higher to get started — /help explains how.";
+const NO_GROUPS = `You don't have any groups yet. Invite me to your group as **moderator** or higher to get started — /help explains how. Want to look around first? [Try the editor on a demo group](${EDITOR}).`;
 
 // US-B1
 for (const role of ['moderator', 'admin', 'owner']) {
