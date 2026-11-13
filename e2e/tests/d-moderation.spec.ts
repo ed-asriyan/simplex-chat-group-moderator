@@ -162,6 +162,19 @@ test('a moderator, an admin or an owner who joins is never checked either', asyn
   }
 });
 
+// US-D5: joining is no event for a moderator, an admin or an owner, whichever way they come in.
+test('someone the owner adds as a moderator, an admin or an owner is never checked', async () => {
+  const s = await scene(rules(joinRule(undefined, [{ type: 'KickAuthor', delete_all_messages: false }], 'Everyone out')));
+  for (const role of ['moderator', 'admin', 'owner']) {
+    const person = await Person.create(role);
+    await s.owner.befriend(person);
+    await s.owner.addToGroup(s.ownerGroup, person, role);
+    await person.acceptInvitation();
+    await person.seesNothing(5000);
+    await s.owner.hearsNothing(0);
+  }
+});
+
 // ---- When someone joins ----
 
 /** The name Free Casino Bonus, as a display name made unique at its end. */
@@ -243,8 +256,29 @@ test('dry mode tells what it would do on a join, and does nothing', async () => 
   await bob.seesNothing(3000);
 });
 
-// US-D6: someone added to the group by another member is checked as one who joins by its link;
-// that needs two people who are each other's contacts, which this stack does not set up, so it is
-// left to the unit tests.
+// US-D6
+test('someone added to the group by another member is checked as one who joins by its link', async () => {
+  const s = await scene(rules(joinRule({ type: 'MemberNameContainsWords', keywords: ['casino'] }, [{ type: 'KickAuthor', delete_all_messages: false }], 'Spam names')));
+  // Bob, a member, adds a contact of his.
+  const carol = await Person.create(FREE);
+  await s.member.befriend(carol);
+  await s.member.addToGroup(s.memberGroup, carol);
+  await carol.acceptInvitation();
+  expect(await carol.seesInGroup()).toEqual({ kind: 'removed' });
+  expect(await s.owner.message()).toBe(joinNotice('kicked the member', carol.name, ["**Spam names**: name contains word: 'casino'"]));
+});
+
+// US-D6
+test('someone the owner adds to the group as a member or an observer is checked', async () => {
+  const s = await scene(rules(joinRule(undefined, [{ type: 'KickAuthor', delete_all_messages: false }], 'Everyone out')));
+  for (const role of ['member', 'observer']) {
+    const person = await Person.create(`Added${role}`);
+    await s.owner.befriend(person);
+    await s.owner.addToGroup(s.ownerGroup, person, role);
+    await person.acceptInvitation();
+    expect(await person.seesInGroup()).toEqual({ kind: 'removed' });
+    expect(await s.owner.message()).toBe(joinNotice('kicked the member', person.name, ['**Everyone out**: everyone who joins']));
+  }
+});
 
 const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';

@@ -163,6 +163,41 @@ export class Person {
     return { group, link };
   }
 
+  /** The other people this person is connected to, by name: their contact ids in this person's CLI. */
+  private contacts = new Map<string, number>();
+
+  /** Connects two people as contacts of each other, which adding one to a group the other is in needs. */
+  async befriend(other: Person) {
+    await this.activate();
+    const r = await this.cli.command('/connect');
+    const link = JSON.stringify(r).match(/"connShortLink":"([^"]+)"/) || JSON.stringify(r).match(/"connFullLink":"([^"]+)"/);
+    if (!link) throw new Error(`invitation: ${JSON.stringify(r)}`);
+    await other.activate();
+    const sent = await other.cli.command(`/c ${link[1]}`);
+    if (sent.type !== 'sentConfirmation' && sent.type !== 'sentInvitation') throw new Error(`accept the invitation: ${JSON.stringify(sent)}`);
+    this.contacts.set(other.name, (await this.until((e) => e.type === 'contactConnected')).contact.contactId);
+    other.contacts.set(this.name, (await other.until((e) => e.type === 'contactConnected')).contact.contactId);
+  }
+
+  /** Adds a contact of this person's to the group with `role`, as a member or an owner adds someone: they are asked to join, with `acceptInvitation`. */
+  async addToGroup(group: number, other: Person, role = 'member') {
+    await this.activate();
+    const id = this.contacts.get(other.name);
+    if (id === undefined) throw new Error(`${this.name} is not connected to ${other.name}`);
+    const r = await this.cli.command(`/_add #${group} ${id} ${role}`);
+    if (r.type !== 'sentGroupInvitation') throw new Error(`add to the group: ${JSON.stringify(r)}`);
+  }
+
+  /** Accepts the invitation to a group; returns its id in this person's CLI once they are in. What the bot does to them next is still to be seen with `seesInGroup`. */
+  async acceptInvitation(): Promise<number> {
+    const invitation = await this.until((e) => e.type === 'receivedGroupInvitation');
+    await this.activate();
+    const r = await this.cli.command(`/_join #${invitation.groupInfo.groupId}`);
+    if (r.type === 'chatCmdError') throw new Error(`join: ${JSON.stringify(r)}`);
+    const joined = await this.until((e) => e.type === 'userJoinedGroup');
+    return joined.groupInfo.groupId;
+  }
+
   /** A link to join the group with `role` (a member by default); a group has one for each role, made the first time. */
   async groupLink(group: number, role = 'member'): Promise<string> {
     const key = `${group}/${role}`;
