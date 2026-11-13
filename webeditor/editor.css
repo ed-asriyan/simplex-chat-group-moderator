@@ -1694,6 +1694,18 @@ dialog::backdrop {
         --field: 16px;
     }
 
+    /* The count of rules goes under the title instead of squeezing it. */
+    #applydlg .sheet-head {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        padding: 14px 20px 12px;
+    }
+
+    #applydlg .meta {
+        margin-right: 0;
+    }
+
     .appbar-in {
         min-height: 56px;
         padding: 8px 12px;
