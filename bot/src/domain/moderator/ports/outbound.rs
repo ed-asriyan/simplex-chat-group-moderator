@@ -10,20 +10,35 @@ use super::types::{
     ApiRetry, Err, Group, GroupConfig, GroupId, GroupMemberRole, GroupMode,
     InstructionContextMessage, KeyCheck, MessageId, MessengerGroupId, ModerationAction,
     OpenAiModerationResult, OpenRouterInstructionVerdict, OwnedModerationRule, RecentGroupMessage,
-    ScheduledMemberRestore, UserId,
+    RuleReason, ScheduledMemberRestore, UserId,
 };
 
-/// Outbound port: notify a group owner of the actions a message called for —
-/// carried out, or only reported, as the group's mode says.
+/// Outbound port: notify a group owner of the actions the rules called for —
+/// carried out, or only reported, as the group's mode says (`group.mode`).
+/// Never called for a group in the mode `Silent`.
 #[async_trait]
 pub trait ModerationNotifier: Send + Sync {
-    async fn notify_moderation_action(
+    /// A member's message matched (US-D2, US-D4). `message` is its text;
+    /// `reasons` has one entry per matched rule, in the order of the rules.
+    async fn notify_message_moderated(
         &self,
         user_id: UserId,
         group: &Group,
         actions: &[ModerationAction],
         message: &str,
-        reasons: &[String],
+        reasons: &[RuleReason],
+    ) -> Result<(), Err>;
+
+    /// Someone who joined matched (US-D6). `member_name` is their display
+    /// name; `reasons` has one entry per matched rule, in the order of the
+    /// rules.
+    async fn notify_join_moderated(
+        &self,
+        user_id: UserId,
+        group: &Group,
+        actions: &[ModerationAction],
+        member_name: &str,
+        reasons: &[RuleReason],
     ) -> Result<(), Err>;
 }
 

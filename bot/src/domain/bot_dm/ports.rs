@@ -18,6 +18,15 @@ pub enum ModerationAction {
     KickAuthor { delete_all_messages: bool },
 }
 
+/// Why one rule matched, as the owner reads it in a notification (US-D2,
+/// US-D6): the rule's name, if it has one, and what matched. This context's own
+/// copy of the moderator's type; the notification router translates between them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuleReason {
+    pub rule_name: Option<String>,
+    pub reason: String,
+}
+
 #[derive(Debug)]
 pub struct Message {
     pub text: String,
@@ -60,9 +69,11 @@ pub trait BotMessenger: Send + Sync {
 
 /// Inbound port: deliver a notification to a group owner that the bot performed
 /// moderation actions in their group — or, when `performed` is false, would
-/// have.
+/// have. `actions` are in the order they were carried out, `reasons` in the
+/// order of the rules, one per matched rule.
 #[async_trait]
 pub trait ModerationNotificationReceiver: Send + Sync {
+    /// About a member's message, quoted from `message` (US-D2, US-D4).
     async fn send_moderation_notification(
         &self,
         user_id: UserId,
@@ -70,7 +81,19 @@ pub trait ModerationNotificationReceiver: Send + Sync {
         actions: &[ModerationAction],
         performed: bool,
         message: &str,
-        reasons: &[String],
+        reasons: &[RuleReason],
+    ) -> Result<(), Err>;
+
+    /// About someone who joined, named by their display name `member_name`
+    /// (US-D6).
+    async fn send_join_moderation_notification(
+        &self,
+        user_id: UserId,
+        group: &Group,
+        actions: &[ModerationAction],
+        performed: bool,
+        member_name: &str,
+        reasons: &[RuleReason],
     ) -> Result<(), Err>;
 }
 
@@ -84,6 +107,8 @@ pub trait GroupOperations: Send + Sync {
         invitation: &GroupInvitation,
     ) -> Result<Group, JoinError>;
 
+    /// The groups the user owns, each with its current name, which the
+    /// editor link carries (US-B4).
     async fn get_groups(&self, user_id: UserId) -> Result<Vec<Group>, Err>;
 
     /// Replace the group's whole configuration — its mode and its rules —
@@ -95,6 +120,7 @@ pub trait GroupOperations: Send + Sync {
         json: &str,
     ) -> Result<(), Err>;
 
-    /// The group's whole configuration as JSON.
+    /// The group's whole configuration as JSON, its rules that are off
+    /// included (US-B4).
     async fn get_config_json(&self, user_id: UserId, group_id: GroupId) -> Result<String, Err>;
 }

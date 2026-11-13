@@ -16,7 +16,7 @@ mod fakes;
 #[cfg(test)]
 mod tests;
 
-use crate::domain::moderator::ports::{Err, GroupMessage};
+use crate::domain::moderator::ports::{Err, GroupMessage, Trigger};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -55,6 +55,13 @@ pub(in crate::domain::moderator::rules) trait Action:
     /// stops what is left of the moderation; a failure of the bot's own
     /// records goes into the report instead, so that it does not.
     async fn execute(&self, ctx: &ActionContext<'_>) -> Result<ActionReport, Err>;
+
+    /// The triggers a rule holding this action may have; a rule with another
+    /// is refused when an owner saves it (US-C2). An action on the member
+    /// works for both; one on the message needs a message (US-F1).
+    fn triggers(&self) -> &'static [Trigger] {
+        &[Trigger::MessagePosted]
+    }
 }
 
 /// Declares every action — one line each, `Variant => module` — and builds

@@ -28,7 +28,7 @@
 #[cfg(test)]
 mod tests;
 
-use crate::domain::moderator::ports::Err;
+use crate::domain::moderator::ports::{Err, Trigger};
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
@@ -80,6 +80,13 @@ pub(in crate::domain::moderator::rules) trait Condition:
     /// can be checked when an owner saves the rule.
     fn key_uses(&self) -> Vec<KeyUse> {
         Vec::new()
+    }
+
+    /// The triggers a rule holding this condition may have; a rule with
+    /// another is refused when an owner saves it (US-C2). Most read a
+    /// message, so work in message rules only.
+    fn triggers(&self) -> &'static [Trigger] {
+        &[Trigger::MessagePosted]
     }
 }
 
@@ -177,6 +184,8 @@ conditions! {
     GroupHitsCharacterRateLimit => group_hits_character_rate_limit,
     GroupHitsLineRateLimit => group_hits_line_rate_limit,
     AuthorJoinedRecently => author_joined_recently,
+    MemberNameContainsWords => member_name_contains_words,
+    MemberNameContainsLinksOutsideList => member_name_contains_links_outside_list,
     FlaggedByOmniModeration => flagged_by_omni_moderation,
     FlaggedByOpenRouterInstruction => flagged_by_open_router_instruction,
 }

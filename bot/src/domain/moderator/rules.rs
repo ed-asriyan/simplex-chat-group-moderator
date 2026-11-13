@@ -115,19 +115,20 @@ pub use moderation_action::{
     ActionOutcome, ActionPorts, ModerationAction, actions, execute_actions,
 };
 pub use moderation_condition::{ConditionPorts, KeyUse, ModerationCondition, conditions};
-pub use moderation_rule::ModerationRule;
+pub use moderation_rule::{MAX_RULE_NAME_CHARS, ModerationRule, Trigger};
 
-use super::ports::{Err, GroupMessage};
+use super::ports::{Err, GroupMessage, RuleReason};
 use moderation_condition::{ConditionContext, check_condition};
 
-/// Result of evaluating message against moderation rules.
+/// What the rules for one message or one join call for.
 ///
 /// `actions` is the merged, non-redundant plan in execution order — it is what
-/// the application performs and what the owner is told about.
+/// the application performs and what the owner is told about. `reasons` has one
+/// entry per matched rule, in the order of the rules (US-D2, US-D6).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModerationMatch {
     pub actions: Vec<ModerationAction>,
-    pub reasons: Vec<String>,
+    pub reasons: Vec<RuleReason>,
 }
 
 pub async fn should_moderate(
