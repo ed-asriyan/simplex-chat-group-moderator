@@ -415,6 +415,14 @@ svg {
     color: var(--warn);
 }
 
+.alert.demo {
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+}
+
 .alert.off {
     background: var(--card);
     border: 1px dashed var(--line-2);
@@ -1644,6 +1652,13 @@ dialog::backdrop {
 .blocked {
     margin-right: auto;
     color: var(--danger);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.foot-note {
+    margin-right: auto;
+    color: var(--ink-2);
     font-size: 14px;
     font-weight: 500;
 }
