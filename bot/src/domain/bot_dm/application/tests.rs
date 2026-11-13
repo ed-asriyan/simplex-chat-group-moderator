@@ -14,6 +14,7 @@ const KICK_ALL: ModerationAction = ModerationAction::KickAuthor {
     delete_all_messages: true,
 };
 
+// US-D2, US-F2, US-F3
 #[test]
 fn test_describes_a_single_action() {
     assert_eq!(
@@ -27,20 +28,21 @@ fn test_describes_a_single_action() {
             }],
             false
         ),
-        "🛡 I set the author as observer"
+        "🛡 I set the member as observer"
     );
-    assert_eq!(describe_actions(&[KICK], false), "🛡 I kicked the author");
+    assert_eq!(describe_actions(&[KICK], false), "🛡 I kicked the member");
     assert_eq!(
         describe_actions(&[KICK_ALL], false),
-        "🛡 I kicked the author and deleted all their messages"
+        "🛡 I kicked the member and deleted all their messages"
     );
 }
 
+// US-D2
 #[test]
 fn test_describes_several_actions_as_one_sentence() {
     assert_eq!(
         describe_actions(&[ModerationAction::ModerateMessage, KICK], false),
-        "🛡 I moderated the message and kicked the author"
+        "🛡 I moderated the message and kicked the member"
     );
     assert_eq!(
         describe_actions(
@@ -53,22 +55,24 @@ fn test_describes_several_actions_as_one_sentence() {
             ],
             false
         ),
-        "🛡 I set the author as observer, moderated the message and kicked the author"
+        "🛡 I set the member as observer, moderated the message and kicked the member"
     );
 }
 
+// US-D4
 #[test]
 fn test_dry_mode_switches_to_what_would_have_happened() {
     assert_eq!(
         describe_actions(&[ModerationAction::ModerateMessage, KICK], true),
-        "🛡 I would moderate the message and kick the author"
+        "🛡 I would moderate the message and kick the member"
     );
     assert_eq!(
         describe_actions(&[KICK_ALL], true),
-        "🛡 I would kick the author and delete all their messages"
+        "🛡 I would kick the member and delete all their messages"
     );
 }
 
+// US-D2, US-F2
 #[test]
 fn test_describes_a_timed_observer_restriction() {
     assert_eq!(
@@ -78,7 +82,7 @@ fn test_describes_a_timed_observer_restriction() {
             }],
             false
         ),
-        "🛡 I set the author as observer for 30 minutes"
+        "🛡 I set the member as observer for 30 minutes"
     );
     assert_eq!(
         describe_actions(
@@ -87,7 +91,7 @@ fn test_describes_a_timed_observer_restriction() {
             }],
             true
         ),
-        "🛡 I would set the author as observer for 1 minute"
+        "🛡 I would set the member as observer for 1 minute"
     );
 }
 
@@ -217,12 +221,16 @@ async fn test_the_mode_is_no_longer_a_command() {
     }
 }
 
+// US-B4: the link carries the group's name and its whole configuration.
 #[tokio::test]
 async fn test_groups_links_the_whole_config() {
     let (sent, _) = send("/groups").await;
 
     assert_eq!(sent.len(), 1);
-    let link = format!("{EDITOR}#bot_id=5&config={}", lz_compress(CONFIG));
+    let link = format!(
+        "{EDITOR}#bot_id=5&group=Test%20Group&config={}",
+        lz_compress(CONFIG)
+    );
     assert!(sent[0].contains(&link), "{}", sent[0]);
 }
 
@@ -323,6 +331,7 @@ fn message_notification(
     }
 }
 
+// US-D2
 #[tokio::test]
 async fn test_a_notification_quotes_the_message_and_lists_the_reasons() {
     let messenger = Arc::new(RecordingMessenger::default());
@@ -367,6 +376,7 @@ async fn test_a_notification_quotes_the_message_and_lists_the_reasons() {
     );
 }
 
+// US-D2
 #[tokio::test]
 async fn test_a_notification_about_a_message_without_text_says_so() {
     let messenger = Arc::new(RecordingMessenger::default());
@@ -389,4 +399,156 @@ async fn test_a_notification_about_a_message_without_text_says_so() {
     .unwrap();
 
     assert!(messenger.sent()[0].contains("**The message:**\n_(no text)_\n\n"));
+}
+
+// ---- the names of rules, and a join (US-D2, US-D6) ----
+
+const ISSUE: &str = "https://github.com/ed-asriyan/simplex-chat-group-moderator/issues/new?template=moderation-rule-bug.yml";
+
+async fn notified(notification: ModerationNotification) -> String {
+    let messenger = Arc::new(RecordingMessenger::default());
+    let app = BotDmApplication::new(
+        messenger.clone(),
+        Arc::new(OneGroup::default()),
+        EDITOR.to_string(),
+    );
+    let group = Group {
+        id: 5,
+        name: "Crypto Chat".to_string(),
+    };
+    app.send_moderation_notification(1, &group, &notification)
+        .await
+        .unwrap();
+    let sent = messenger.sent();
+    assert_eq!(sent.len(), 1);
+    sent[0].clone()
+}
+
+fn reason(rule_name: Option<&str>, reason: &str) -> RuleReason {
+    RuleReason {
+        rule_name: rule_name.map(str::to_string),
+        reason: reason.to_string(),
+    }
+}
+
+fn join_notification(
+    performed: bool,
+    actions: Vec<ModerationAction>,
+    reasons: Vec<RuleReason>,
+) -> ModerationNotification {
+    ModerationNotification {
+        event: TriggerEvent::MemberJoined,
+        performed,
+        member_name: "Free Casino Bonus".to_string(),
+        actions,
+        reasons,
+    }
+}
+
+// US-D2: a matched rule's name is in bold before what matched; a rule without a
+// name gives what matched alone.
+#[tokio::test]
+async fn test_a_notification_names_the_rules_that_matched() {
+    let text = notified(ModerationNotification {
+        event: TriggerEvent::MessagePosted {
+            message: "Buy cheap followers at https://spam.example".to_string(),
+        },
+        performed: true,
+        member_name: "Bob".to_string(),
+        actions: vec![
+            ModerationAction::SetAuthorObserver {
+                duration_minutes: 60,
+            },
+            ModerationAction::ModerateMessage,
+        ],
+        reasons: vec![
+            reason(Some("Links from newcomers"), "spam.example"),
+            reason(None, "contains word: 'buy'"),
+        ],
+    })
+    .await;
+    assert_eq!(
+        text,
+        format!(
+            "🛡 I set the member as observer for 60 minutes and moderated the message in **Crypto Chat**.\n\n**The message:**\n> Buy cheap followers at https://spam.example\n\n**Reason:**\n- **Links from newcomers**: spam.example\n- contains word: 'buy'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
+        )
+    );
+}
+
+// US-D6
+#[tokio::test]
+async fn test_a_join_notification_says_who_joined_and_why() {
+    let text = notified(join_notification(
+        true,
+        vec![ModerationAction::KickAuthor {
+            delete_all_messages: false,
+        }],
+        vec![reason(Some("Spam names"), "name contains word: 'casino'")],
+    ))
+    .await;
+    assert_eq!(
+        text,
+        format!(
+            "🛡 I kicked the member when they joined **Crypto Chat**.\n\n**The member:** Free Casino Bonus\n\n**Reason:**\n- **Spam names**: name contains word: 'casino'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
+        )
+    );
+}
+
+// US-D6: with the mode Dry, what it would have done.
+#[tokio::test]
+async fn test_a_dry_join_notification_says_what_it_would_have_done() {
+    let text = notified(join_notification(
+        false,
+        vec![ModerationAction::KickAuthor {
+            delete_all_messages: false,
+        }],
+        vec![reason(Some("Spam names"), "name contains word: 'casino'")],
+    ))
+    .await;
+    assert!(
+        text.starts_with("🛡 I would kick the member when they joined **Crypto Chat**.\n\n**The member:** Free Casino Bonus\n"),
+        "{text}"
+    );
+}
+
+// US-D6: the actions are named as in a message's notification.
+#[tokio::test]
+async fn test_a_join_notification_names_the_actions_as_a_messages_does() {
+    let observer = notified(join_notification(
+        true,
+        vec![ModerationAction::SetAuthorObserver {
+            duration_minutes: 60,
+        }],
+        vec![reason(Some("Quarantine newcomers"), "everyone who joins")],
+    ))
+    .await;
+    assert!(
+        observer.starts_with(
+            "🛡 I set the member as observer for 60 minutes when they joined **Crypto Chat**."
+        ),
+        "{observer}"
+    );
+    assert!(
+        observer.contains("- **Quarantine newcomers**: everyone who joins\n"),
+        "{observer}"
+    );
+
+    let kick_all = notified(join_notification(
+        true,
+        vec![ModerationAction::KickAuthor {
+            delete_all_messages: true,
+        }],
+        vec![reason(None, "name links to spam.example")],
+    ))
+    .await;
+    assert!(
+        kick_all.starts_with(
+            "🛡 I kicked the member and deleted all their messages when they joined **Crypto Chat**."
+        ),
+        "{kick_all}"
+    );
+    assert!(
+        kick_all.contains("**Reason:**\n- name links to spam.example\n\n"),
+        "{kick_all}"
+    );
 }

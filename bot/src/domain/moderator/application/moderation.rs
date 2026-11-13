@@ -4,14 +4,14 @@ use std::sync::Arc;
 use crate::domain::moderator::ports::{
     Err, GroupCharacterActivityRepository, GroupLineActivityRepository, GroupMessage,
     GroupMessageActivityRepository, GroupMessageHistoryRepository, GroupModerator, MemberJoin,
-    MemberRestoreRepository, ModerationAction, ModerationEngine, ModerationNotifier,
-    ModerationReport, ModerationRepository, ModerationRule, OpenAi, OpenRouter, TriggerEvent,
+    MemberRestoreRepository, ModerationEngine, ModerationNotifier, ModerationReport,
+    ModerationRepository, ModerationRule, OpenAi, OpenRouter, TriggerEvent,
     UserCharacterActivityRepository, UserLineActivityRepository, UserMessageActivityRepository,
     UserModerationActivityRepository,
 };
 use crate::domain::moderator::rules::{
-    ActionPorts, ConditionPorts, execute_join_actions, execute_message_actions, record_activity,
-    record_moderated, record_outcome, should_moderate_message,
+    ActionPorts, ConditionPorts, execute_message_actions, record_activity, record_moderated,
+    record_outcome, should_moderate_message,
 };
 
 #[cfg(test)]
@@ -143,11 +143,7 @@ impl ModerationEngine for MessageModerationApplication {
                                 message: group_message.text.clone(),
                             },
                             member_name: group_message.author_name.clone(),
-                            actions: matched
-                                .actions
-                                .iter()
-                                .map(|action| ModerationAction::from(*action))
-                                .collect(),
+                            actions: matched.actions_as_written(),
                             reasons: matched.reasons.clone(),
                         },
                     )

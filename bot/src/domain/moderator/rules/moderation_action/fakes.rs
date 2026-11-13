@@ -7,8 +7,9 @@ use std::sync::Mutex;
 
 use super::{ActionContext, ActionPorts, ActionReport};
 use crate::domain::moderator::ports::{
-    Err, GroupId, GroupMemberRole, GroupMessage, GroupModerator, MemberRestoreRepository,
-    MessageId, MessengerGroup, MessengerGroupId, ScheduledMemberRestore, UserId,
+    Err, GroupId, GroupMemberRole, GroupMessage, GroupModerator, MemberJoin,
+    MemberRestoreRepository, MessageId, MessengerGroup, MessengerGroupId, ScheduledMemberRestore,
+    UserId,
 };
 
 /// The message every action test acts on: message 7 by member 42 in group 1.
@@ -27,6 +28,21 @@ pub fn message() -> GroupMessage {
         timestamp: at(0),
         author_joined_at: None,
         is_edit: false,
+    }
+}
+
+/// The person every join test acts on: member 42, who joined group 1 at the same
+/// moment [`message`] was sent.
+pub fn join() -> MemberJoin {
+    MemberJoin {
+        group: MessengerGroup {
+            id: 1,
+            name: "group".into(),
+        },
+        member_id: 42,
+        display_name: "newcomer".into(),
+        full_name: String::new(),
+        timestamp: at(0),
     }
 }
 
@@ -77,6 +93,23 @@ impl Recorder {
         };
         let ctx = ActionContext {
             subject: &message,
+            ports: &ports,
+        };
+        action.execute(&ctx).await
+    }
+
+    /// Carries out `action` on [`join`] with this recorder as every port.
+    pub async fn execute_on_join(
+        &self,
+        action: &dyn super::ActionOn<MemberJoin>,
+    ) -> Result<ActionReport, Err> {
+        let join = join();
+        let ports = ActionPorts {
+            group_moderator: self,
+            restores: self,
+        };
+        let ctx = ActionContext {
+            subject: &join,
             ports: &ports,
         };
         action.execute(&ctx).await

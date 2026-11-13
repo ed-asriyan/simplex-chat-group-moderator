@@ -11,6 +11,9 @@
 //! `ModerationRule` is its draft's, so the refusal is what the owner reads
 //! when the configuration they send does not parse.
 
+#[cfg(test)]
+mod tests;
+
 use super::trigger::Trigger;
 use super::trigger::member_joined::{JoinAction, JoinCondition};
 use super::trigger::message_posted::{MessageAction, MessageCondition};

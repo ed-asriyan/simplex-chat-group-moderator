@@ -9,6 +9,9 @@
 //! trigger and to as many as list it; one a trigger lists must be checkable on
 //! that trigger's subject, or the code does not compile.
 
+#[cfg(test)]
+mod tests;
+
 use crate::domain::moderator::ports::Err;
 use serde::{Deserialize, Serialize};
 

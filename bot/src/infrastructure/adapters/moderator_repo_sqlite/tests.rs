@@ -962,3 +962,185 @@ async fn test_openrouter_instruction_rows_go_with_replaced_rules_and_with_the_gr
         0
     );
 }
+
+// ---------------------------------------------------------------------------
+// Triggers, names and switches; the conditions on a member's name
+// ---------------------------------------------------------------------------
+
+use crate::domain::moderator::ports::Trigger;
+use crate::domain::moderator::ports::conditions::{
+    MemberNameContainsLinksOutsideList, MemberNameContainsWords,
+};
+use crate::domain::moderator::rules::test_support::{join_rule, named};
+
+fn kick() -> ModerationAction {
+    ModerationAction::KickAuthor(KickAuthor {
+        delete_all_messages: false,
+    })
+}
+
+fn casino() -> ModerationCondition {
+    ModerationCondition::MemberNameContainsWords(MemberNameContainsWords {
+        keywords: vec!["casino".to_string(), "bonus".to_string()],
+    })
+}
+
+// US-E31
+#[tokio::test]
+async fn test_round_trips_the_condition_on_words_in_a_name() {
+    assert_round_trips(3001, casino()).await;
+}
+
+// US-E32
+#[tokio::test]
+async fn test_round_trips_the_condition_on_links_in_a_name() {
+    assert_round_trips(
+        3002,
+        ModerationCondition::MemberNameContainsLinksOutsideList(
+            MemberNameContainsLinksOutsideList {
+                domains: vec!["simplex.chat".to_string(), "example.org".to_string()],
+            },
+        ),
+    )
+    .await;
+    // An empty list is a rule too: any link matches.
+    assert_round_trips(
+        3003,
+        ModerationCondition::MemberNameContainsLinksOutsideList(
+            MemberNameContainsLinksOutsideList { domains: vec![] },
+        ),
+    )
+    .await;
+}
+
+// US-C1, US-G13: a rule's name, its trigger and its switch are stored with it.
+#[tokio::test]
+async fn test_round_trips_a_rules_name_trigger_and_switch() {
+    let (repo, group_id) = repo_with_group(3004).await;
+    let rules = vec![
+        named(
+            message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::ContainsWords(ContainsWords {
+                    keywords: vec!["spam".to_string()],
+                }),
+            ),
+            "Banned words",
+            true,
+        ),
+        named(join_rule(vec![kick()], Some(casino())), "Spam names", false),
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::IsBlank(IsBlank {}),
+        ),
+    ];
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+
+    let loaded = repo.get_group_rules(&group_id).await.unwrap();
+    assert_eq!(loaded, rules);
+    assert_eq!(loaded[0].name.as_deref(), Some("Banned words"));
+    assert_eq!(loaded[1].trigger(), Trigger::MemberJoined);
+    assert!(!loaded[1].enabled);
+    assert_eq!(loaded[2].name, None);
+    assert!(loaded[2].enabled);
+}
+
+// US-D6: a rule for joins may have no condition, which stores no condition row.
+#[tokio::test]
+async fn test_round_trips_a_join_rule_with_no_condition() {
+    let (repo, group_id) = repo_with_group(3005).await;
+    let rules = vec![named(
+        join_rule(
+            vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
+                duration_minutes: 60,
+            })],
+            None,
+        ),
+        "Quarantine newcomers",
+        true,
+    )];
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+    assert_eq!(repo.get_group_rules(&group_id).await.unwrap(), rules);
+    let conn = repo.conn.lock().unwrap();
+    let conditions: i64 = conn
+        .query_row("SELECT COUNT(*) FROM moderation_conditions", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(conditions, 0);
+}
+
+// US-D1, US-D6: one order across both triggers, each trigger's rules keeping theirs.
+#[tokio::test]
+async fn test_preserves_the_order_of_rules_of_both_triggers() {
+    let (repo, group_id) = repo_with_group(3006).await;
+    let message = |keyword: &str| {
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
+                keywords: vec![keyword.to_string()],
+            }),
+        )
+    };
+    let rules = vec![
+        message("a"),
+        join_rule(vec![kick()], None),
+        message("b"),
+        named(join_rule(vec![kick()], Some(casino())), "Names", true),
+    ];
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+    assert_eq!(repo.get_group_rules(&group_id).await.unwrap(), rules);
+}
+
+// US-B4, US-G13: the rules a group has are all handed back, those turned off
+// included — the bot skips them when it checks, it does not forget them.
+#[tokio::test]
+async fn test_a_rule_that_is_off_is_still_in_the_configuration_and_in_the_rules() {
+    let (repo, group_id) = repo_with_group(3007).await;
+    let off = named(join_rule(vec![kick()], None), "Everyone out", false);
+    repo.set_group_rules(&group_id, &[off.clone()])
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.get_group_config(&group_id).await.unwrap().rules,
+        vec![off.clone()]
+    );
+    let owned = repo.get_group_rules_by_messenger_id(&3007).await.unwrap();
+    assert_eq!(owned.len(), 1);
+    assert_eq!(owned[0].rule, off);
+}
+
+// US-C1: replacing the configuration replaces the name-condition rows too.
+#[tokio::test]
+async fn test_replacing_rules_leaves_no_orphan_name_conditions() {
+    let (repo, group_id) = repo_with_group(3008).await;
+    repo.set_group_rules(
+        &group_id,
+        &[
+            join_rule(vec![kick()], Some(casino())),
+            join_rule(
+                vec![kick()],
+                Some(ModerationCondition::MemberNameContainsLinksOutsideList(
+                    MemberNameContainsLinksOutsideList {
+                        domains: vec!["a.com".to_string()],
+                    },
+                )),
+            ),
+        ],
+    )
+    .await
+    .unwrap();
+    repo.set_group_rules(&group_id, &[]).await.unwrap();
+    for table in [
+        "moderation_condition__member_name_contains_words__keywords",
+        "moderation_condition__member_name_contains_links_outside_list__domains",
+    ] {
+        let conn = repo.conn.lock().unwrap();
+        let rows: i64 = conn
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(rows, 0, "{table}");
+    }
+}

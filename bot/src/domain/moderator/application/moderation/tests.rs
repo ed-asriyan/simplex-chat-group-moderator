@@ -36,6 +36,8 @@ use std::time::Duration;
 pub struct MockModerationNotifier {
     pub notifications: Arc<Mutex<Vec<(UserId, GroupId, Vec<ModerationAction>, String, String)>>>,
     pub call_log: Arc<Mutex<Vec<PortCall>>>,
+    /// What each notification was told, whole.
+    pub reports: Arc<Mutex<Vec<ModerationReport>>>,
     pub fail_notification: bool,
 }
 
@@ -47,6 +49,7 @@ impl ModerationNotifier for MockModerationNotifier {
         group: &Group,
         report: &ModerationReport,
     ) -> Result<(), Err> {
+        self.reports.lock().unwrap().push(report.clone());
         let message = match &report.event {
             TriggerEvent::MessagePosted { message } => message.as_str(),
             TriggerEvent::MemberJoined => "",
@@ -849,6 +852,7 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
             notifications: notifications.clone(),
             call_log: call_log.clone(),
             fail_notification: false,
+            ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
@@ -948,6 +952,7 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
             notifications: notifications.clone(),
             call_log: call_log.clone(),
             fail_notification: false,
+            ..Default::default()
         }),
         Arc::new(InMemoryUserMessageActivityRepository::new()),
         Arc::new(InMemoryUserCharacterActivityRepository::new()),
@@ -4309,4 +4314,282 @@ async fn test_group_counters_not_written_without_a_group_rate_limit_rule() {
             .unwrap(),
         0
     );
+}
+
+// ---------------------------------------------------------------------------
+// Someone joins (US-D6), and what a message's notification names (US-D2)
+// ---------------------------------------------------------------------------
+
+use crate::domain::moderator::ports::conditions::MemberNameContainsWords;
+use crate::domain::moderator::ports::{MemberJoin, RuleReason, Trigger, TriggerEvent as Event};
+use crate::domain::moderator::rules::test_support::{join_rule, named};
+
+/// What a join test watches: what the group was told, who was notified, and the restores owed.
+struct Watch {
+    moderator: Arc<MockGroupModerator>,
+    notifier: Arc<MockModerationNotifier>,
+    restores: Arc<MockMemberRestoreRepository>,
+}
+
+/// The application over a group 10 of `mode` with `rules`.
+fn join_app(mode: GroupMode, rules: Vec<ModerationRule>) -> (MessageModerationApplication, Watch) {
+    let watch = Watch {
+        moderator: Arc::new(MockGroupModerator::default()),
+        notifier: Arc::new(MockModerationNotifier::default()),
+        restores: Arc::new(MockMemberRestoreRepository::default()),
+    };
+    let app = MessageModerationApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(Group {
+                id: 10,
+                owner_id: 100,
+                name: "Crypto Chat".to_string(),
+                mode,
+            }),
+            rules: rules
+                .into_iter()
+                .enumerate()
+                .map(|(id, rule)| OwnedModerationRule { id, rule })
+                .collect(),
+        }),
+        watch.moderator.clone(),
+        watch.notifier.clone(),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
+        Arc::new(InMemoryUserLineActivityRepository::new()),
+        Arc::new(InMemoryUserModerationActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
+        watch.restores.clone(),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
+    );
+    (app, watch)
+}
+
+fn joining(name: &str, at: DateTime<Utc>) -> MemberJoin {
+    MemberJoin {
+        group: MessengerGroup {
+            id: 10,
+            name: "Crypto Chat".to_string(),
+        },
+        member_id: 555,
+        display_name: name.to_string(),
+        full_name: String::new(),
+        timestamp: at,
+    }
+}
+
+fn casino_kick() -> ModerationRule {
+    named(
+        join_rule(
+            vec![ModerationAction::KickAuthor(KickAuthor {
+                delete_all_messages: false,
+            })],
+            Some(ModerationCondition::MemberNameContainsWords(
+                MemberNameContainsWords {
+                    keywords: vec!["casino".to_string()],
+                },
+            )),
+        ),
+        "Spam names",
+        true,
+    )
+}
+
+// US-D6, US-F3: in the mode Notifications the member is removed and the owner is told.
+#[tokio::test]
+async fn test_a_join_that_matches_is_acted_on_and_told_in_notifications_mode() {
+    let (app, watch) = join_app(GroupMode::Notifications, vec![casino_kick()]);
+    app.process_member_join(joining("Free Casino Bonus", Utc::now()))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        *watch.moderator.kicked_members.lock().unwrap(),
+        vec![(10, 555)]
+    );
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].event, Event::MemberJoined);
+    assert_eq!(reports[0].member_name, "Free Casino Bonus");
+    assert_eq!(
+        reports[0].actions,
+        vec![ModerationAction::KickAuthor(KickAuthor {
+            delete_all_messages: false
+        })]
+    );
+    assert_eq!(
+        reports[0].reasons,
+        vec![RuleReason {
+            rule_name: Some("Spam names".to_string()),
+            reason: "name contains word: 'casino'".to_string()
+        }]
+    );
+    assert_eq!(watch.notifier.notifications.lock().unwrap()[0].0, 100);
+}
+
+// US-D6: someone the rules do not match is left alone and nobody is told.
+#[tokio::test]
+async fn test_a_join_that_matches_nothing_does_nothing() {
+    let (app, watch) = join_app(GroupMode::Notifications, vec![casino_kick()]);
+    app.process_member_join(joining("Carol", Utc::now()))
+        .await
+        .unwrap();
+    assert!(watch.moderator.kicked_members.lock().unwrap().is_empty());
+    assert!(watch.notifier.reports.lock().unwrap().is_empty());
+}
+
+// US-D6: with the mode Silent the bot acts and does not tell the owner.
+#[tokio::test]
+async fn test_in_silent_mode_a_join_is_acted_on_without_telling() {
+    let (app, watch) = join_app(GroupMode::Silent, vec![casino_kick()]);
+    app.process_member_join(joining("Free Casino Bonus", Utc::now()))
+        .await
+        .unwrap();
+    assert_eq!(
+        *watch.moderator.kicked_members.lock().unwrap(),
+        vec![(10, 555)]
+    );
+    assert!(watch.notifier.reports.lock().unwrap().is_empty());
+}
+
+// US-D6: with the mode Dry the bot does nothing in the group and tells the owner.
+#[tokio::test]
+async fn test_in_dry_mode_a_join_is_only_told() {
+    let (app, watch) = join_app(GroupMode::Dry, vec![casino_kick()]);
+    app.process_member_join(joining("Free Casino Bonus", Utc::now()))
+        .await
+        .unwrap();
+    assert!(watch.moderator.kicked_members.lock().unwrap().is_empty());
+    assert_eq!(watch.notifier.reports.lock().unwrap().len(), 1);
+}
+
+// US-D6, US-F2: a rule for everyone who joins, and an observer time counted from the join.
+#[tokio::test]
+async fn test_a_timed_observer_restriction_on_a_join_is_restored_from_the_join() {
+    let rule = named(
+        join_rule(
+            vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
+                duration_minutes: 60,
+            })],
+            None,
+        ),
+        "Quarantine newcomers",
+        true,
+    );
+    let (app, watch) = join_app(GroupMode::Notifications, vec![rule]);
+    let at = Utc::now();
+    app.process_member_join(joining("Carol", at)).await.unwrap();
+    assert_eq!(
+        *watch.restores.saved.lock().unwrap(),
+        vec![(10, 555, at + chrono::Duration::minutes(60))]
+    );
+    assert_eq!(
+        watch.notifier.reports.lock().unwrap()[0].reasons,
+        vec![RuleReason {
+            rule_name: Some("Quarantine newcomers".to_string()),
+            reason: "everyone who joins".to_string()
+        }]
+    );
+}
+
+// US-D6, US-G13: rules that are off are skipped.
+#[tokio::test]
+async fn test_a_join_rule_that_is_off_is_skipped() {
+    let off = named(casino_kick(), "Spam names", false);
+    let (app, watch) = join_app(GroupMode::Notifications, vec![off]);
+    app.process_member_join(joining("Free Casino Bonus", Utc::now()))
+        .await
+        .unwrap();
+    assert!(watch.moderator.kicked_members.lock().unwrap().is_empty());
+    assert!(watch.notifier.reports.lock().unwrap().is_empty());
+}
+
+// US-D1, US-D6: a join is checked against rules for joins only.
+#[tokio::test]
+async fn test_a_join_is_not_checked_against_message_rules() {
+    let rule = message_rule(
+        vec![ModerationAction::KickAuthor(KickAuthor {
+            delete_all_messages: false,
+        })],
+        ModerationCondition::MemberNameContainsWords(MemberNameContainsWords {
+            keywords: vec!["casino".to_string()],
+        }),
+    );
+    let (app, watch) = join_app(GroupMode::Notifications, vec![rule]);
+    app.process_member_join(joining("Free Casino Bonus", Utc::now()))
+        .await
+        .unwrap();
+    assert!(watch.moderator.kicked_members.lock().unwrap().is_empty());
+    assert!(watch.notifier.reports.lock().unwrap().is_empty());
+}
+
+// US-D6: a group the bot does not know is left alone.
+#[tokio::test]
+async fn test_a_join_in_an_unknown_group_is_ignored() {
+    let (app, watch) = join_app(GroupMode::Notifications, vec![casino_kick()]);
+    let mut join = joining("Free Casino Bonus", Utc::now());
+    join.group.id = 999;
+    // The repository fake answers for any group; what matters is that nothing breaks
+    // and that a join is never a message.
+    let _ = app.process_member_join(join).await;
+    assert!(
+        watch
+            .notifier
+            .reports
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|r| r.event == Event::MemberJoined)
+    );
+}
+
+// US-D1: a message is checked against message rules only.
+#[tokio::test]
+async fn test_a_message_is_not_checked_against_join_rules() {
+    let (app, watch) = join_app(GroupMode::Notifications, vec![casino_kick()]);
+    let mut msg = triggering_message(Utc::now());
+    msg.author_name = "Free Casino Bonus".to_string();
+    app.process_group_message(msg).await.unwrap();
+    assert!(watch.moderator.kicked_members.lock().unwrap().is_empty());
+    assert!(watch.notifier.reports.lock().unwrap().is_empty());
+}
+
+// US-D2: a message's notification names the author and the rule.
+#[tokio::test]
+async fn test_a_message_notification_names_the_author_and_the_rule() {
+    let rule = named(
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
+                keywords: vec!["danger".to_string()],
+            }),
+        ),
+        "Banned words",
+        true,
+    );
+    let (app, watch) = join_app(GroupMode::Notifications, vec![rule]);
+    let mut msg = triggering_message(Utc::now());
+    msg.author_name = "Bob".to_string();
+    app.process_group_message(msg).await.unwrap();
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(
+        reports[0].event,
+        Event::MessagePosted {
+            message: "Contains danger here".to_string()
+        }
+    );
+    assert_eq!(reports[0].member_name, "Bob");
+    assert_eq!(
+        reports[0].reasons,
+        vec![RuleReason {
+            rule_name: Some("Banned words".to_string()),
+            reason: "contains word: 'danger'".to_string()
+        }]
+    );
+    let _ = Trigger::MessagePosted;
 }

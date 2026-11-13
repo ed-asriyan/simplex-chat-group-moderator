@@ -748,3 +748,112 @@ async fn test_a_joined_group_starts_out_notifying_its_owner() {
     assert_eq!(group.name, "New Group");
     assert_eq!(group.mode, GroupMode::Notifications);
 }
+
+// ---- rules with a trigger, a name and a switch (US-C1, US-C2, US-G13) ----
+
+use crate::domain::moderator::ports::conditions::MemberNameContainsWords;
+use crate::domain::moderator::rules::test_support::{join_rule, named};
+
+fn kicking() -> Vec<ModerationAction> {
+    vec![ModerationAction::KickAuthor(KickAuthor {
+        delete_all_messages: false,
+    })]
+}
+
+fn casino() -> ModerationCondition {
+    ModerationCondition::MemberNameContainsWords(MemberNameContainsWords {
+        keywords: vec!["casino".to_string()],
+    })
+}
+
+// US-C1, US-G13: the configuration is saved whole: rules of both triggers, their
+// names and those turned off.
+#[tokio::test]
+async fn test_rules_of_both_triggers_are_saved_with_their_names_and_switches() {
+    let repository = Arc::new(SavingRepository::default());
+    let app = app_with(&repository, &FakeKeyVerifier::answering(&[]));
+    let rules = vec![
+        named(
+            moderate_when(ModerationCondition::ContainsWords(ContainsWords {
+                keywords: vec!["spam".to_string()],
+            })),
+            "Banned words",
+            true,
+        ),
+        named(join_rule(kicking(), Some(casino())), "Spam names", false),
+        join_rule(kicking(), None),
+    ];
+    app.set_group_config(
+        100,
+        10,
+        GroupConfig {
+            mode: GroupMode::Notifications,
+            rules: rules.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(repository.saved_config().unwrap().rules, rules);
+}
+
+// US-C2: a name longer than 60 characters keeps the whole configuration from being saved.
+#[tokio::test]
+async fn test_a_name_that_is_too_long_keeps_everything_from_being_saved() {
+    let repository = Arc::new(SavingRepository::default());
+    let app = app_with(&repository, &FakeKeyVerifier::answering(&[]));
+    let err = app
+        .set_group_config(
+            100,
+            10,
+            GroupConfig {
+                mode: GroupMode::Silent,
+                rules: vec![named(join_rule(kicking(), None), &"a".repeat(61), true)],
+            },
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert_eq!(err, "A rule's name is longer than 60 characters.");
+    assert!(repository.saved_config().is_none());
+}
+
+// US-C1: what is saved is the canonical form: a blank name is no name.
+#[tokio::test]
+async fn test_a_blank_name_is_saved_as_no_name() {
+    let repository = Arc::new(SavingRepository::default());
+    let app = app_with(&repository, &FakeKeyVerifier::answering(&[]));
+    let mut rule = join_rule(kicking(), None);
+    rule.name = Some("  ".to_string());
+    app.set_group_config(
+        100,
+        10,
+        GroupConfig {
+            mode: GroupMode::Notifications,
+            rules: vec![rule],
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(repository.saved_config().unwrap().rules[0].name, None);
+}
+
+// US-C2: a rule that is off is refused when it is not valid, like any other.
+#[tokio::test]
+async fn test_a_rule_that_is_off_and_invalid_is_refused() {
+    let repository = Arc::new(SavingRepository::default());
+    let app = app_with(&repository, &FakeKeyVerifier::answering(&[]));
+    let err = app
+        .set_group_config(
+            100,
+            10,
+            GroupConfig {
+                mode: GroupMode::Notifications,
+                rules: vec![named(join_rule(vec![], None), "Nothing", false)],
+            },
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("A rule has no actions"), "{err}");
+    assert!(repository.saved_config().is_none());
+}

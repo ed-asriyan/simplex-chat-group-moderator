@@ -138,6 +138,21 @@ pub struct ModerationMatch<A> {
     pub reasons: Vec<RuleReason>,
 }
 
+impl<A: Copy> ModerationMatch<A>
+where
+    ModerationAction: From<A>,
+{
+    /// The planned actions as an owner writes them, which is how the notification
+    /// names them.
+    pub fn actions_as_written(&self) -> Vec<ModerationAction> {
+        self.actions
+            .iter()
+            .copied()
+            .map(ModerationAction::from)
+            .collect()
+    }
+}
+
 /// Checks one message against the group's rules for `Trigger::MessagePosted`
 /// that are on, in order, and merges what the matching ones call for (US-D1).
 /// Rules for other triggers and rules that are off are skipped and cover

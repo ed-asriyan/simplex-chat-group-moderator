@@ -3,8 +3,7 @@ use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetA
 use crate::domain::moderator::ports::conditions::{
     AuthorHitsCharacterRateLimit, AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit,
     AuthorHitsModerationRateLimit, AuthorJoinedRecently, ContainsImage, ContainsWords,
-    FlaggedByOmniModeration, FlaggedByOpenRouterInstruction, IsBlank, MatchesExactMessage,
-    MatchesRegex,
+    FlaggedByOmniModeration, FlaggedByOpenRouterInstruction, IsBlank, MatchesRegex,
 };
 use crate::domain::moderator::ports::{
     CategoryTrigger, GroupMessage, KeyCheck, MessageAttachment, MessengerGroup, MessengerGroupId,
@@ -2906,4 +2905,423 @@ async fn test_length_conditions_see_the_untrimmed_message() {
         }),
     )];
     assert!(!matches("   ", &length_only).await);
+}
+
+// ---------------------------------------------------------------------------
+// Triggers: a join, the member's name, a rule that is off
+// ---------------------------------------------------------------------------
+
+use crate::domain::moderator::ports::conditions::{
+    MemberNameContainsLinksOutsideList, MemberNameContainsWords,
+};
+use crate::domain::moderator::ports::{JoinAction, MemberJoin, RuleReason};
+use crate::domain::moderator::rules::test_support::{join_rule, named};
+
+/// The ports of a group nobody has written in yet.
+struct Quiet {
+    repo: InMemoryUserMessageActivityRepository,
+    mod_repo: InMemoryUserModerationActivityRepository,
+    characters: InMemoryUserCharacterActivityRepository,
+    lines: InMemoryUserLineActivityRepository,
+    group: InMemoryGroupMessageActivityRepository,
+    group_characters: InMemoryGroupCharacterActivityRepository,
+    group_lines: InMemoryGroupLineActivityRepository,
+    history: InMemoryGroupMessageHistoryRepository,
+}
+
+impl Quiet {
+    fn new() -> Self {
+        Self {
+            repo: InMemoryUserMessageActivityRepository::new(),
+            mod_repo: InMemoryUserModerationActivityRepository::new(),
+            characters: no_character_activity(),
+            lines: no_line_activity(),
+            group: no_group_activity(),
+            group_characters: no_group_character_activity(),
+            group_lines: no_group_line_activity(),
+            history: no_message_history(),
+        }
+    }
+
+    fn ports(&self) -> ConditionPorts<'_> {
+        ConditionPorts {
+            activity_repo: &self.repo,
+            character_activity_repo: &self.characters,
+            line_activity_repo: &self.lines,
+            moderation_activity_repo: &self.mod_repo,
+            group_activity_repo: &self.group,
+            group_character_activity_repo: &self.group_characters,
+            group_line_activity_repo: &self.group_lines,
+            message_history: &self.history,
+            openai: &UnusedAi,
+            openrouter: &UnusedAi,
+        }
+    }
+}
+
+/// Someone joining under `name`.
+fn joining(name: &str) -> MemberJoin {
+    MemberJoin {
+        display_name: name.to_string(),
+        ..Default::default()
+    }
+}
+
+async fn on_join(
+    rules: &[ModerationRule],
+    join: &MemberJoin,
+) -> Option<ModerationMatch<JoinAction>> {
+    should_moderate_join(join, rules, &Quiet::new().ports())
+        .await
+        .unwrap()
+}
+
+fn name_words(keyword: &str) -> ModerationCondition {
+    ModerationCondition::MemberNameContainsWords(MemberNameContainsWords {
+        keywords: vec![keyword.to_string()],
+    })
+}
+
+fn name_links_outside(domains: &[&str]) -> ModerationCondition {
+    ModerationCondition::MemberNameContainsLinksOutsideList(MemberNameContainsLinksOutsideList {
+        domains: domains.iter().map(|d| d.to_string()).collect(),
+    })
+}
+
+fn kick() -> ModerationAction {
+    ModerationAction::KickAuthor(KickAuthor {
+        delete_all_messages: false,
+    })
+}
+
+fn observer(minutes: u32) -> ModerationAction {
+    ModerationAction::SetAuthorObserver(SetAuthorObserver {
+        duration_minutes: minutes,
+    })
+}
+
+fn kicking() -> Vec<JoinAction> {
+    vec![JoinAction::try_from(kick()).unwrap()]
+}
+
+// US-D6, US-E31
+#[tokio::test]
+async fn test_a_join_is_checked_against_the_rules_for_joins() {
+    let rules = vec![join_rule(vec![kick()], Some(name_words("casino")))];
+    let hit = on_join(&rules, &joining("Free Casino Bonus"))
+        .await
+        .unwrap();
+    assert_eq!(hit.actions, kicking());
+    assert_eq!(
+        hit.reasons,
+        vec![RuleReason {
+            rule_name: None,
+            reason: "name contains word: 'casino'".to_string()
+        }]
+    );
+    assert!(on_join(&rules, &joining("Carol")).await.is_none());
+}
+
+// US-D6: a rule with no condition matches everyone who joins.
+#[tokio::test]
+async fn test_a_join_rule_with_no_condition_matches_everyone() {
+    let rules = vec![named(
+        join_rule(vec![observer(60)], None),
+        "Quarantine newcomers",
+        true,
+    )];
+    let hit = on_join(&rules, &joining("Carol")).await.unwrap();
+    assert_eq!(
+        hit.reasons,
+        vec![RuleReason {
+            rule_name: Some("Quarantine newcomers".to_string()),
+            reason: "everyone who joins".to_string()
+        }]
+    );
+}
+
+// US-D6, US-F4: every matching rule contributes, the actions are merged, and each
+// matched rule gives one reason, in the order of the rules.
+#[tokio::test]
+async fn test_every_matching_join_rule_contributes_and_the_actions_are_merged() {
+    let rules = vec![
+        join_rule(vec![observer(60)], Some(name_words("casino"))),
+        named(
+            join_rule(vec![observer(10)], None),
+            "Quarantine newcomers",
+            true,
+        ),
+    ];
+    let hit = on_join(&rules, &joining("Free Casino Bonus"))
+        .await
+        .unwrap();
+    // A longer observer time covers a shorter one.
+    assert_eq!(hit.actions_as_written(), vec![observer(60)]);
+    assert_eq!(
+        hit.reasons
+            .iter()
+            .map(|r| (r.rule_name.as_deref(), r.reason.as_str()))
+            .collect::<Vec<_>>(),
+        vec![
+            (None, "name contains word: 'casino'"),
+            (Some("Quarantine newcomers"), "everyone who joins"),
+        ]
+    );
+}
+
+// US-D6: a rule whose every action the rules before it already cover is not
+// checked, so it gives no reason.
+#[tokio::test]
+async fn test_a_join_rule_the_earlier_ones_cover_gives_no_reason() {
+    let rules = vec![
+        named(
+            join_rule(vec![kick()], Some(name_words("casino"))),
+            "First",
+            true,
+        ),
+        named(
+            join_rule(vec![kick()], Some(name_words("casino"))),
+            "Second",
+            true,
+        ),
+    ];
+    let hit = on_join(&rules, &joining("Free Casino Bonus"))
+        .await
+        .unwrap();
+    assert_eq!(
+        hit.reasons,
+        vec![RuleReason {
+            rule_name: Some("First".to_string()),
+            reason: "name contains word: 'casino'".to_string()
+        }]
+    );
+}
+
+// US-D1, US-D6, US-G13: a rule that is off is not checked, and its actions cover
+// nothing.
+#[tokio::test]
+async fn test_a_rule_that_is_off_is_skipped_and_covers_nothing() {
+    let rules = vec![
+        named(join_rule(vec![kick()], None), "Off", false),
+        named(
+            join_rule(vec![kick()], Some(name_words("casino"))),
+            "On",
+            true,
+        ),
+    ];
+    let hit = on_join(&rules, &joining("Free Casino Bonus"))
+        .await
+        .unwrap();
+    assert_eq!(
+        hit.reasons,
+        vec![RuleReason {
+            rule_name: Some("On".to_string()),
+            reason: "name contains word: 'casino'".to_string()
+        }]
+    );
+    // Off, it matches nobody.
+    let only_off = vec![named(join_rule(vec![kick()], None), "Off", false)];
+    assert!(on_join(&only_off, &joining("Carol")).await.is_none());
+
+    let message_rules = vec![
+        named(
+            message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                words("spam"),
+            ),
+            "Banned words",
+            false,
+        ),
+        named(
+            message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                words("spam"),
+            ),
+            "Second",
+            true,
+        ),
+    ];
+    let msg = GroupMessage {
+        text: "spam".to_string(),
+        ..Default::default()
+    };
+    let hit = super::should_moderate_message(&msg, &message_rules, &Quiet::new().ports())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        hit.reasons,
+        vec![RuleReason {
+            rule_name: Some("Second".to_string()),
+            reason: "contains word: 'spam'".to_string()
+        }]
+    );
+}
+
+// US-D1, US-D6: each trigger checks its own rules and nobody else's.
+#[tokio::test]
+async fn test_a_message_checks_only_message_rules_and_a_join_only_join_rules() {
+    let rules = vec![
+        join_rule(vec![kick()], Some(name_words("bob"))),
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            words("spam"),
+        ),
+    ];
+    let quiet = Quiet::new();
+    // The join rule's condition would match this message's author.
+    let msg = GroupMessage {
+        text: "hello".to_string(),
+        author_name: "Bob".to_string(),
+        ..Default::default()
+    };
+    assert!(
+        super::should_moderate_message(&msg, &rules, &quiet.ports())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    // A name that contains `spam` is not a message.
+    assert!(on_join(&rules, &joining("spam")).await.is_none());
+    assert!(on_join(&rules, &joining("Bob")).await.is_some());
+}
+
+// US-E31: a name is the display name and the full name.
+#[tokio::test]
+async fn test_a_name_is_the_display_name_and_the_full_name() {
+    let rules = vec![join_rule(vec![kick()], Some(name_words("casino")))];
+    let join = MemberJoin {
+        display_name: "Bob".to_string(),
+        full_name: "Free Casino Bonus".to_string(),
+        ..Default::default()
+    };
+    assert!(on_join(&rules, &join).await.is_some());
+    assert!(
+        on_join(&rules, &joining("Free Casino Bonus"))
+            .await
+            .is_some()
+    );
+    assert!(on_join(&rules, &joining("Bob")).await.is_none());
+}
+
+// US-E31: a word is found as a whole word, however it is disguised, as in a message.
+#[tokio::test]
+async fn test_a_word_in_a_name_is_found_as_in_a_message() {
+    let rules = vec![join_rule(vec![kick()], Some(name_words("ass")))];
+    assert!(on_join(&rules, &joining("Classic Bob")).await.is_none());
+    assert!(on_join(&rules, &joining("A.S.S Bob")).await.is_some());
+    let caps = vec![join_rule(vec![kick()], Some(name_words("casino")))];
+    assert!(on_join(&caps, &joining("FREE CASINO")).await.is_some());
+}
+
+// US-E31: in a rule for messages the condition reads the author's name.
+#[tokio::test]
+async fn test_a_message_rule_reads_the_authors_name() {
+    let rules = vec![message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        name_words("casino"),
+    )];
+    let msg = GroupMessage {
+        text: "hello".to_string(),
+        author_name: "Free".to_string(),
+        author_full_name: "Casino Bonus".to_string(),
+        ..Default::default()
+    };
+    let hit = super::should_moderate_message(&msg, &rules, &Quiet::new().ports())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(hit.reasons[0].reason, "name contains word: 'casino'");
+}
+
+// US-E32
+#[tokio::test]
+async fn test_a_link_in_a_name_outside_the_list_matches() {
+    let rules = vec![join_rule(
+        vec![kick()],
+        Some(name_links_outside(&["simplex.chat"])),
+    )];
+    let hit = on_join(&rules, &joining("Bob | spam [dot] example"))
+        .await
+        .unwrap();
+    assert_eq!(hit.reasons[0].reason, "name links to spam.example");
+    assert!(
+        on_join(&rules, &joining("Bob (simplex.chat)"))
+            .await
+            .is_none()
+    );
+    assert!(on_join(&rules, &joining("Bob")).await.is_none());
+}
+
+// US-E32: with an empty list, any link matches.
+#[tokio::test]
+async fn test_with_an_empty_list_any_link_in_a_name_matches() {
+    let rules = vec![join_rule(vec![kick()], Some(name_links_outside(&[])))];
+    assert!(
+        on_join(&rules, &joining("Bob simplex.chat"))
+            .await
+            .is_some()
+    );
+    assert!(on_join(&rules, &joining("Bob")).await.is_none());
+}
+
+// US-E31, US-E32: in a message rule the link condition reads the author's name,
+// and the message's own text is not read.
+#[tokio::test]
+async fn test_a_message_rule_reads_links_in_the_authors_name_not_in_the_message() {
+    let rules = vec![message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+        name_links_outside(&[]),
+    )];
+    let linked_name = GroupMessage {
+        text: "hello".to_string(),
+        author_name: "Bob spam.example".to_string(),
+        ..Default::default()
+    };
+    let linked_text = GroupMessage {
+        text: "see spam.example".to_string(),
+        author_name: "Bob".to_string(),
+        ..Default::default()
+    };
+    let quiet = Quiet::new();
+    assert!(
+        super::should_moderate_message(&linked_name, &rules, &quiet.ports())
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        super::should_moderate_message(&linked_text, &rules, &quiet.ports())
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+// US-D2: a rule's name is carried with its reason.
+#[tokio::test]
+async fn test_a_message_reason_carries_the_rules_name() {
+    let rules = vec![named(
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            words("spam"),
+        ),
+        "Banned words",
+        true,
+    )];
+    let msg = GroupMessage {
+        text: "spam".to_string(),
+        ..Default::default()
+    };
+    let hit = super::should_moderate_message(&msg, &rules, &Quiet::new().ports())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        hit.reasons,
+        vec![RuleReason {
+            rule_name: Some("Banned words".to_string()),
+            reason: "contains word: 'spam'".to_string()
+        }]
+    );
 }

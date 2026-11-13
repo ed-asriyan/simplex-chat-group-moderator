@@ -20,7 +20,106 @@ async fn test_migrations_apply_successfully() {
     let version: i64 = guard
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 36);
+    assert_eq!(version, 37);
+}
+
+/// 0037 gives every rule a trigger, an optional name and a switch. A rule stored
+/// before it was checked on every message, was on and had no name: that is what
+/// it keeps being (US-D1, US-G13).
+#[tokio::test]
+async fn test_0037_keeps_existing_rules_as_message_rules_that_are_on() {
+    let mut conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+    apply_through(&mut conn, 36).unwrap();
+    conn.execute_batch(
+        "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name)
+         VALUES (1, 100, 10, 'Old');
+         INSERT INTO moderation_rules (id, group_id, rank) VALUES (1, 1, 0), (2, 1, 1);",
+    )
+    .unwrap();
+    apply(&mut conn).unwrap();
+
+    let rows: Vec<(i64, Option<String>, String, bool)> = conn
+        .prepare("SELECT id, name, trigger, enabled FROM moderation_rules ORDER BY id")
+        .unwrap()
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            (1, None, "message_posted".to_string(), true),
+            (2, None, "message_posted".to_string(), true),
+        ]
+    );
+}
+
+/// A rule's trigger is one of the two the bot knows, and its name, if it has
+/// one, is 1 to 60 characters: the schema holds this even if a writer does not
+/// (US-C2; a rule the bot checks must have a trigger it can check).
+#[tokio::test]
+async fn test_0037_constrains_the_trigger_and_the_name() {
+    let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+    run(conn.clone()).await.unwrap();
+    let guard = conn.lock().unwrap();
+    guard
+        .execute_batch(
+            "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name)
+             VALUES (1, 100, 10, 'G');",
+        )
+        .unwrap();
+    let insert = |name: Option<&str>, trigger: &str, enabled: i64| {
+        guard.execute(
+            "INSERT INTO moderation_rules (group_id, rank, name, trigger, enabled)
+             VALUES (1, (SELECT COALESCE(MAX(rank) + 1, 0) FROM moderation_rules), ?1, ?2, ?3)",
+            rusqlite::params![name, trigger, enabled],
+        )
+    };
+    assert!(insert(Some("Banned words"), "message_posted", 1).is_ok());
+    assert!(insert(None, "member_joined", 0).is_ok());
+    assert!(insert(Some(&"a".repeat(60)), "member_joined", 1).is_ok());
+    assert!(insert(Some(&"a".repeat(61)), "member_joined", 1).is_err());
+    assert!(insert(Some(""), "member_joined", 1).is_err());
+    assert!(insert(None, "someone_leaves", 1).is_err());
+    assert!(insert(None, "member_joined", 2).is_err());
+}
+
+/// The two conditions on a member's name keep their lists in tables of their
+/// own, which go with the condition (US-E31, US-E32).
+#[tokio::test]
+async fn test_0037_adds_the_lists_of_the_name_conditions_under_their_conditions() {
+    let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+    run(conn.clone()).await.unwrap();
+    let guard = conn.lock().unwrap();
+    guard
+        .execute_batch(
+            "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name)
+             VALUES (1, 100, 10, 'G');
+             INSERT INTO moderation_rules (id, group_id, rank, trigger) VALUES (1, 1, 0, 'member_joined');
+             INSERT INTO moderation_conditions (id, rule_id, parent_id, rank, type)
+             VALUES (1, 1, NULL, 0, 'MemberNameContainsWords'),
+                    (2, 1, NULL, 1, 'MemberNameContainsLinksOutsideList');
+             INSERT INTO moderation_condition__member_name_contains_words__keywords
+             VALUES (1, 'casino');
+             INSERT INTO moderation_condition__member_name_contains_links_outside_list__domains
+             VALUES (2, 'simplex.chat');
+             DELETE FROM moderation_rules WHERE id = 1;",
+        )
+        .unwrap();
+    for table in [
+        "moderation_condition__member_name_contains_words__keywords",
+        "moderation_condition__member_name_contains_links_outside_list__domains",
+    ] {
+        let rows: i64 = guard
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(rows, 0, "{table}");
+    }
 }
 
 /// 0036 folds the two toggles into one mode. Dry mode used to switch
@@ -128,7 +227,7 @@ async fn test_0022_migrates_existing_rules_into_condition_trees() {
         );
     let loaded = repo.get_group_rules(&7).await.unwrap();
 
-    use crate::domain::moderator::ports::{ModerationAction, ModerationCondition, ModerationRule};
+    use crate::domain::moderator::ports::{ModerationAction, ModerationCondition};
     assert_eq!(
         loaded,
         vec![
@@ -535,7 +634,7 @@ async fn test_deleting_a_group_row_cascades_through_the_whole_schema() {
             conn.clone(),
         );
     use crate::domain::moderator::ports::{
-        GroupMode, ModerationAction, ModerationCondition, ModerationRepository, ModerationRule,
+        GroupMode, ModerationAction, ModerationCondition, ModerationRepository,
     };
     let group_id = repo
         .save_owner(&800, "Cascade Group", &80, GroupMode::default())
