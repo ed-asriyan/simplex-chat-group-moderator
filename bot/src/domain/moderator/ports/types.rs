@@ -140,6 +140,38 @@ pub struct MemberJoin {
     pub timestamp: DateTime<Utc>,
 }
 
+/// What made the bot check a group's rules, with what the owner is shown of
+/// it: the message, or nothing more than that someone joined.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TriggerEvent {
+    /// A member's message, quoted from `message` (US-D2).
+    MessagePosted { message: String },
+    /// Someone joined (US-D6).
+    MemberJoined,
+}
+
+impl TriggerEvent {
+    /// The trigger whose rules this event is checked against.
+    pub fn trigger(&self) -> Trigger {
+        match self {
+            Self::MessagePosted { .. } => Trigger::MessagePosted,
+            Self::MemberJoined => Trigger::MemberJoined,
+        }
+    }
+}
+
+/// What the rules called for about one message or one join, for the owner
+/// (US-D2, US-D4, US-D6). `actions` are in the order they were carried out,
+/// `reasons` in the order of the rules, one per matched rule.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModerationReport {
+    pub event: TriggerEvent,
+    /// The display name of the message's author, or of the person who joined.
+    pub member_name: String,
+    pub actions: Vec<ModerationAction>,
+    pub reasons: Vec<RuleReason>,
+}
+
 /// Why one rule matched, as the owner is told (US-D2, US-D6): the rule's name,
 /// if it has one, and what matched — the condition's reason, or, for a join
 /// rule with no condition, that it matches everyone who joins.

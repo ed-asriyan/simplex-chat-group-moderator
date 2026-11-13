@@ -8,9 +8,9 @@ use std::time::Duration;
 
 use super::types::{
     ApiRetry, Err, Group, GroupConfig, GroupId, GroupMemberRole, GroupMode,
-    InstructionContextMessage, KeyCheck, MessageId, MessengerGroupId, ModerationAction,
+    InstructionContextMessage, KeyCheck, MessageId, MessengerGroupId, ModerationReport,
     OpenAiModerationResult, OpenRouterInstructionVerdict, OwnedModerationRule, RecentGroupMessage,
-    RuleReason, ScheduledMemberRestore, UserId,
+    ScheduledMemberRestore, UserId,
 };
 
 /// Outbound port: notify a group owner of the actions the rules called for —
@@ -18,27 +18,13 @@ use super::types::{
 /// Never called for a group in the mode `Silent`.
 #[async_trait]
 pub trait ModerationNotifier: Send + Sync {
-    /// A member's message matched (US-D2, US-D4). `message` is its text;
-    /// `reasons` has one entry per matched rule, in the order of the rules.
-    async fn notify_message_moderated(
+    /// A member's message matched (US-D2, US-D4), or someone who joined did
+    /// (US-D6), as `report.event` says.
+    async fn notify_moderation(
         &self,
         user_id: UserId,
         group: &Group,
-        actions: &[ModerationAction],
-        message: &str,
-        reasons: &[RuleReason],
-    ) -> Result<(), Err>;
-
-    /// Someone who joined matched (US-D6). `member_name` is their display
-    /// name; `reasons` has one entry per matched rule, in the order of the
-    /// rules.
-    async fn notify_join_moderated(
-        &self,
-        user_id: UserId,
-        group: &Group,
-        actions: &[ModerationAction],
-        member_name: &str,
-        reasons: &[RuleReason],
+        report: &ModerationReport,
     ) -> Result<(), Err>;
 }
 

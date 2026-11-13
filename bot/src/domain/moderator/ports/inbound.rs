@@ -11,25 +11,24 @@ use super::types::{
     UserId,
 };
 
-/// Inbound port: moderate a message posted in a group the bot has joined.
+/// Inbound port: moderate what happens in a group the bot has joined — a
+/// message posted, someone joining — against the group's rules for that
+/// trigger. Both are one use case: the rules, the merging of their actions,
+/// the mode and the owner's notification are the same.
 #[async_trait]
 pub trait ModerationEngine: Send + Sync {
     /// Checks the message against the group's rules for
     /// `Trigger::MessagePosted` that are on, carries out what they call for as
     /// the group's mode says, and tells the owner through
-    /// `ModerationNotifier::notify_message_moderated` (US-D1–US-D4). The
-    /// caller hands in only a member's messages: a moderator's, an admin's or
-    /// an owner's is never checked (US-D5).
+    /// `ModerationNotifier::notify_moderation` (US-D1–US-D4). The caller hands
+    /// in only a member's messages: a moderator's, an admin's or an owner's is
+    /// never checked (US-D5).
     async fn process_group_message(&self, group_message: GroupMessage) -> Result<(), Err>;
-}
 
-/// Inbound port: check someone who joined a group the bot has joined.
-#[async_trait]
-pub trait MemberJoinModeration: Send + Sync {
     /// Checks the member against the group's rules for
     /// `Trigger::MemberJoined` that are on — a rule with no condition matches
     /// everyone —, carries out what they call for as the group's mode says,
-    /// and tells the owner through `ModerationNotifier::notify_join_moderated`
+    /// and tells the owner through `ModerationNotifier::notify_moderation`
     /// (US-D6). A group the bot does not know, or one with no such rule, is
     /// left alone. The caller hands in only someone joining as a member or an
     /// observer: a moderator, an admin or an owner joining is never checked

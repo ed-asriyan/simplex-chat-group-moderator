@@ -27,6 +27,32 @@ pub struct RuleReason {
     pub reason: String,
 }
 
+/// What made the bot check the rules, with what the owner is shown of it. This
+/// context's own copy of the moderator's type; the notification router
+/// translates between them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TriggerEvent {
+    /// A member's message, quoted from `message` (US-D2).
+    MessagePosted { message: String },
+    /// Someone joined (US-D6).
+    MemberJoined,
+}
+
+/// One moderation notification for an owner (US-D2, US-D4, US-D6).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModerationNotification {
+    pub event: TriggerEvent,
+    /// Whether the actions were carried out, or only would have been (the
+    /// mode *Dry*).
+    pub performed: bool,
+    /// The display name of the message's author, or of the person who joined.
+    pub member_name: String,
+    /// In the order they were carried out.
+    pub actions: Vec<ModerationAction>,
+    /// One per matched rule, in the order of the rules.
+    pub reasons: Vec<RuleReason>,
+}
+
 #[derive(Debug)]
 pub struct Message {
     pub text: String,
@@ -69,31 +95,14 @@ pub trait BotMessenger: Send + Sync {
 
 /// Inbound port: deliver a notification to a group owner that the bot performed
 /// moderation actions in their group — or, when `performed` is false, would
-/// have. `actions` are in the order they were carried out, `reasons` in the
-/// order of the rules, one per matched rule.
+/// have (US-D2, US-D4, US-D6).
 #[async_trait]
 pub trait ModerationNotificationReceiver: Send + Sync {
-    /// About a member's message, quoted from `message` (US-D2, US-D4).
     async fn send_moderation_notification(
         &self,
         user_id: UserId,
         group: &Group,
-        actions: &[ModerationAction],
-        performed: bool,
-        message: &str,
-        reasons: &[RuleReason],
-    ) -> Result<(), Err>;
-
-    /// About someone who joined, named by their display name `member_name`
-    /// (US-D6).
-    async fn send_join_moderation_notification(
-        &self,
-        user_id: UserId,
-        group: &Group,
-        actions: &[ModerationAction],
-        performed: bool,
-        member_name: &str,
-        reasons: &[RuleReason],
+        notification: &ModerationNotification,
     ) -> Result<(), Err>;
 }
 

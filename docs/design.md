@@ -75,7 +75,7 @@ Moderation **actions** live in their own tables and are children of the rule:
 **Not responsible for:** group messages, rules and their matching, what a mode does — a group's configuration is **opaque JSON** to it in both directions; it knows groups only by id and name.
 
 **Interacts with:**
-- driven by the SimpleX event loop through `BotDmReceiver` (a direct message, a group invitation), and by `moderator` through `ModerationNotificationReceiver` (via `moderation_notification_router.rs`), about a message or about a join;
+- driven by the SimpleX event loop through `BotDmReceiver` (a direct message, a group invitation), and by `moderator` through `ModerationNotificationReceiver` (via `moderation_notification_router.rs`), about a message or about a join alike;
 - drives `moderator` through `GroupOperations` (`cross_domain_router.rs`, over `GroupAdministration`);
 - needs `BotMessenger` (the SimpleX adapter).
 
@@ -91,12 +91,12 @@ Moderation **actions** live in their own tables and are children of the rule:
 **Not responsible for:** direct messages, wording, the editor link.
 
 **Interacts with:**
-- driven by the SimpleX event loop through `ModerationEngine` (a group message), `MemberJoinModeration` (someone joined) and `GroupAdministration::remove_group` (the bot removed from a group), by `bot_dm` through `GroupAdministration` (via the router), and by the tick through `MemberRestoreRunner`;
+- driven by the SimpleX event loop through `ModerationEngine` (a group message, someone joined) and `GroupAdministration::remove_group` (the bot removed from a group), by `bot_dm` through `GroupAdministration` (via the router), and by the tick through `MemberRestoreRunner`;
 - needs `ModerationRepository` and `MemberRestoreRepository` (SQLite), `GroupModerator` (the SimpleX adapter), `ModerationNotifier` (the router into `bot_dm`), the activity and history repositories (memory), and `OpenAi` and `OpenRouter` (the AI gateway).
 
 **Owns the tables:** all of them, the tree rooted at `moderation_groups` (*Persistence*).
 
-It splits its applications per use case: `application/moderation.rs` (`MessageModerationApplication`, `ModerationEngine`), `application/member_join.rs` (`MemberJoinApplication`, `MemberJoinModeration`), `application/groups.rs` (`GroupAdministrationApplication`, `GroupAdministration`), `application/member_restore.rs` (`MemberRestoreApplication`, `MemberRestoreRunner`); `application.rs` only declares and re-exports them, and its `application/tests.rs` holds the port fakes the use-case tests share (a fake one of them alone uses lives in its own `tests.rs`).
+It splits its applications per use case: `application/moderation.rs` (`MessageModerationApplication`, `ModerationEngine`: messages and joins), `application/groups.rs` (`GroupAdministrationApplication`, `GroupAdministration`), `application/member_restore.rs` (`MemberRestoreApplication`, `MemberRestoreRunner`); `application.rs` only declares and re-exports them, and its `application/tests.rs` holds the port fakes the use-case tests share (a fake one of them alone uses lives in its own `tests.rs`).
 
 #### Inside `moderator/rules/`: an engine that knows no condition or action
 `rules/` is an engine and its leaves. The leaves are the conditions (`rules/moderation_condition/<name>.rs`) and the actions (`rules/moderation_action/<name>.rs`), each a module of its own: the type with its settings, its `Condition` or `Action` impl, its tests, and any algorithm only it uses. The registries (`conditions!`, `actions!`) list them one line each and build the two serde enums from them. The engine is everything else, and it asks a leaf through its trait instead of naming it:
