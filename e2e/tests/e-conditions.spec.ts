@@ -37,7 +37,7 @@ async function noField(page: Page) {
 /** Adds a rule with the condition `title`; its page looks as approved. */
 async function adding(page: Page, title: string, trigger: 'messages' | 'joins' = 'messages'): Promise<Page> {
   await conditionEditor(page, title, trigger);
-  await looks(page, `condition-${slug(title)}`);
+  await looks(page, `condition-${slug(title)}${trigger === 'joins' ? '-for-joins' : ''}`);
   return page;
 }
 
