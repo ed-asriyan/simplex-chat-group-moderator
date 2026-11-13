@@ -9,10 +9,10 @@
 
 use std::time::Duration;
 
-use super::ModerationRule;
 use super::common::rate_limit::MAX_RATE_LIMIT_WINDOW_MINUTES;
 use super::common::screen_lines::count_effective_lines;
 use super::moderation_condition::{ConditionPorts, Needs};
+use super::{ModerationCondition, ModerationRule, TriggeredRule};
 use crate::domain::moderator::ports::{Err, GroupMessage, RecentGroupMessage};
 
 #[cfg(test)]
@@ -20,9 +20,15 @@ mod tests;
 
 /// What every condition of every rule needs recorded, together.
 fn needs_of(rules: &[ModerationRule]) -> Needs {
-    rules.iter().fold(Needs::default(), |needs, rule| {
-        needs.merge(rule.condition.needs())
-    })
+    rules
+        .iter()
+        .fold(Needs::default(), |needs, rule| match &rule.body {
+            TriggeredRule::MessagePosted { condition, .. } => {
+                needs.merge(ModerationCondition::from(condition.clone()).needs())
+            }
+            // A join has no message to count.
+            TriggeredRule::MemberJoined { .. } => needs,
+        })
 }
 
 /// How long a counter keeps what it is given. The counters keep nothing past

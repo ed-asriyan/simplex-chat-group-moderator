@@ -23,7 +23,7 @@ mod fakes;
 #[cfg(test)]
 mod tests;
 
-use crate::domain::moderator::ports::{Err, GroupMessage};
+use crate::domain::moderator::ports::{Err, GroupMessage, JoinAction, MemberJoin, MessageAction};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -37,7 +37,9 @@ mod effect;
 /// What every action is, whatever it is carried out on: its settings, what it
 /// achieves and where it goes in the order. This is all `action_planner` asks
 /// of one. Nothing outside an action's own module knows what one does or how.
-pub(in crate::domain::moderator::rules) trait Action: Send + Sync {
+pub(in crate::domain::moderator::rules) trait Action:
+    Send + Sync
+{
     /// Checks and canonicalizes the action's own parameters when an owner
     /// saves the rule. What a *list* of actions means (duplicates, one action
     /// covering another, execution order) belongs to `action_planner`.
@@ -62,7 +64,9 @@ pub(in crate::domain::moderator::rules) trait Action: Send + Sync {
 /// trigger lists only actions that implement this for its subject, so an
 /// action in the wrong trigger does not compile.
 #[async_trait]
-pub(in crate::domain::moderator::rules) trait ActionOn<S: ?Sized + Sync>: Action {
+pub(in crate::domain::moderator::rules) trait ActionOn<S: ?Sized + Sync>:
+    Action
+{
     /// Carries the action out on the subject that matched. An error here
     /// stops what is left of the moderation; a failure of the bot's own
     /// records goes into the report instead, so that it does not.
@@ -206,24 +210,48 @@ pub struct ActionOutcome {
     pub bookkeeping_error: Option<Err>,
 }
 
-/// Carries out the planned `actions`, in the order given, on the message that
-/// matched. The first action that fails stops the rest.
-pub async fn execute_actions(
-    group_message: &GroupMessage,
-    actions: &[ModerationAction],
+/// Carries out the planned `actions`, in the order given, on the subject that
+/// matched — a message, or someone who joined. The first action that fails
+/// stops the rest.
+async fn execute<A: TriggerAction>(
+    subject: &A::Subject,
+    actions: &[A],
     ports: &ActionPorts<'_>,
-) -> Result<ActionOutcome, Err> {
-    let ctx = ActionContext {
-        group_message,
-        ports,
-    };
+) -> Result<ActionOutcome, Err>
+where
+    ModerationAction: From<A>,
+{
+    let ctx = ActionContext { subject, ports };
     let mut bookkeeping_error = None;
     for action in actions {
-        let report = action.as_leaf().execute(&ctx).await?;
+        let report = action.leaf().execute(&ctx).await?;
         bookkeeping_error = bookkeeping_error.or(report.bookkeeping_error);
     }
     Ok(ActionOutcome {
-        message_deleted: actions.iter().any(|action| action.effect().message_deleted),
+        message_deleted: actions
+            .iter()
+            .any(|action| ModerationAction::from(*action).effect().message_deleted),
         bookkeeping_error,
     })
+}
+
+/// Carries out the planned actions of a message rule, in the order given, on
+/// the message that matched (US-D1). The first action that fails stops the
+/// rest.
+pub async fn execute_message_actions(
+    message: &GroupMessage,
+    actions: &[MessageAction],
+    ports: &ActionPorts<'_>,
+) -> Result<ActionOutcome, Err> {
+    execute(message, actions, ports).await
+}
+
+/// Carries out the planned actions of a join rule, in the order given, on the
+/// person who joined (US-D6). The first action that fails stops the rest.
+pub async fn execute_join_actions(
+    join: &MemberJoin,
+    actions: &[JoinAction],
+    ports: &ActionPorts<'_>,
+) -> Result<ActionOutcome, Err> {
+    execute(join, actions, ports).await
 }

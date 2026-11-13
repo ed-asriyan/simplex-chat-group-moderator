@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use crate::domain::moderator::ports::{
     CategoryTrigger, Err, Group, GroupConfig, GroupId, GroupMode, MessengerGroupId,
     ModerationAction, ModerationCondition, ModerationRepository, OpenAiCategory,
-    OwnedModerationRule, UserId,
+    OwnedModerationRule, RuleDraft, UserId,
 };
 const GROUP_ID_MIN: i64 = 1;
 const GROUP_ID_MAX: i64 = 1_000_000;
@@ -139,6 +139,10 @@ fn insert_condition(
         }) => "GroupHitsCharacterRateLimit",
         ModerationCondition::GroupHitsLineRateLimit(_) => "GroupHitsLineRateLimit",
         ModerationCondition::AuthorJoinedRecently(_) => "AuthorJoinedRecently",
+        ModerationCondition::MemberNameContainsWords(_) => "MemberNameContainsWords",
+        ModerationCondition::MemberNameContainsLinksOutsideList(_) => {
+            "MemberNameContainsLinksOutsideList"
+        }
         ModerationCondition::FlaggedByOmniModeration(_) => "FlaggedByOmniModeration",
         ModerationCondition::FlaggedByOpenRouterInstruction(FlaggedByOpenRouterInstruction {
             ..
@@ -160,6 +164,8 @@ fn insert_condition(
         ModerationCondition::Not { condition } => {
             insert_condition(tx, rule_id, Some(condition_id), 0, condition)?;
         }
+        ModerationCondition::MemberNameContainsWords(_)
+        | ModerationCondition::MemberNameContainsLinksOutsideList(_) => todo!(),
         ModerationCondition::ContainsWords(ContainsWords { keywords }) => insert_condition_list(
             tx,
             "moderation_condition__contains_words__keywords",
@@ -631,8 +637,11 @@ impl ModerationRepository for SqliteModerationRepository {
                 )
                 .map_err(|e| -> Err { e.to_string().into() })?;
                 let rule_id = tx.last_insert_rowid();
-                insert_actions(&tx, rule_id, &rule.actions)?;
-                insert_condition(&tx, rule_id, None, 0, &rule.condition)?;
+                let draft = RuleDraft::from(rule.clone());
+                insert_actions(&tx, rule_id, &draft.actions)?;
+                if let Some(condition) = &draft.condition {
+                    insert_condition(&tx, rule_id, None, 0, condition)?;
+                }
             }
 
             tx.commit().map_err(|e| -> Err { e.to_string().into() })?;

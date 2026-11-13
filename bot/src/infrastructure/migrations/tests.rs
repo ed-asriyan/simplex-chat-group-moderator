@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::moderator::ports::RuleDraft;
 use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
 use crate::domain::moderator::ports::conditions::{
     AuthorHitsMessageRateLimit, AuthorHitsModerationRateLimit, AuthorJoinedRecently,
@@ -8,6 +9,7 @@ use crate::domain::moderator::ports::conditions::{
     GroupHitsCharacterRateLimit, GroupHitsLineRateLimit, GroupHitsMessageRateLimit, IsBlank,
     MatchesExactMessage, MatchesRegex,
 };
+use crate::domain::moderator::rules::test_support::message_rule;
 
 #[tokio::test]
 async fn test_migrations_apply_successfully() {
@@ -130,30 +132,28 @@ async fn test_0022_migrates_existing_rules_into_condition_trees() {
     assert_eq!(
         loaded,
         vec![
-            ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                condition: ModerationCondition::ContainsWords(ContainsWords {
+            message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["alpha".to_string(), "beta".to_string()],
-                }),
-            },
-            ModerationRule {
-                actions: vec![ModerationAction::KickAuthor(KickAuthor {
+                })
+            ),
+            message_rule(
+                vec![ModerationAction::KickAuthor(KickAuthor {
                     delete_all_messages: true,
                 })],
-                condition: ModerationCondition::MatchesExactMessage(MatchesExactMessage {
+                ModerationCondition::MatchesExactMessage(MatchesExactMessage {
                     messages: vec!["spam".to_string()],
                     case_sensitive: true,
-                }),
-            },
-            ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                condition: ModerationCondition::AuthorHitsMessageRateLimit(
-                    AuthorHitsMessageRateLimit {
-                        message_count: 5,
-                        time_window_minutes: 3,
-                    }
-                ),
-            },
+                })
+            ),
+            message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::AuthorHitsMessageRateLimit(AuthorHitsMessageRateLimit {
+                    message_count: 5,
+                    time_window_minutes: 3,
+                })
+            ),
         ]
     );
 
@@ -278,7 +278,7 @@ async fn test_0025_renames_conditions_and_splits_floods() {
         .await
         .unwrap()
         .into_iter()
-        .map(|rule| rule.condition)
+        .map(|rule| RuleDraft::from(rule).condition.unwrap())
         .collect();
 
     let strings = |values: &[&str]| values.iter().map(|v| v.to_string()).collect();
@@ -441,7 +441,10 @@ async fn test_0026_splits_tri_state_actions_into_action_lists() {
         );
     use crate::domain::moderator::ports::ModerationAction;
     let loaded = repo.get_group_rules(&11).await.unwrap();
-    let actions: Vec<Vec<ModerationAction>> = loaded.into_iter().map(|rule| rule.actions).collect();
+    let actions: Vec<Vec<ModerationAction>> = loaded
+        .into_iter()
+        .map(|rule| RuleDraft::from(rule).actions)
+        .collect();
 
     assert_eq!(
         actions,
@@ -540,9 +543,9 @@ async fn test_deleting_a_group_row_cascades_through_the_whole_schema() {
         .unwrap();
     repo.set_group_rules(
         &group_id,
-        &[ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::All {
+        &[message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::All {
                 conditions: vec![
                     ModerationCondition::ContainsWords(ContainsWords {
                         keywords: vec!["alpha".to_string()],
@@ -574,7 +577,7 @@ async fn test_deleting_a_group_row_cascades_through_the_whole_schema() {
                     }),
                 ],
             },
-        }],
+        )],
     )
     .await
     .unwrap();
@@ -657,7 +660,7 @@ async fn test_0031_renames_the_openai_moderation_condition_to_omni() {
     };
     let rules = repo.get_group_rules(&7).await.unwrap();
     assert_eq!(
-        rules[0].condition,
+        RuleDraft::from(rules[0].clone()).condition.unwrap(),
         ModerationCondition::FlaggedByOmniModeration(FlaggedByOmniModeration {
             retry: Default::default(),
             api_key: "sk-proj-abc".to_string(),
@@ -718,7 +721,7 @@ async fn test_0033_moves_the_openai_instruction_condition_to_openrouter() {
     use crate::domain::moderator::ports::{ApiRetry, ModerationCondition};
     let rules = repo.get_group_rules(&8).await.unwrap();
     assert_eq!(
-        rules[0].condition,
+        RuleDraft::from(rules[0].clone()).condition.unwrap(),
         ModerationCondition::FlaggedByOpenRouterInstruction(FlaggedByOpenRouterInstruction {
             api_key: "sk-proj-abc".to_string(),
             model: "openai/gpt-4.1-mini".to_string(),
@@ -777,7 +780,7 @@ async fn test_0027_keeps_existing_observer_restrictions_indefinite() {
     use crate::domain::moderator::ports::ModerationAction;
     let loaded = repo.get_group_rules(&12).await.unwrap();
     assert_eq!(
-        loaded[0].actions,
+        RuleDraft::from(loaded[0].clone()).actions,
         vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
             duration_minutes: 0
         })]

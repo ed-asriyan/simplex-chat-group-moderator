@@ -31,7 +31,6 @@ mod tests;
 
 use crate::domain::moderator::ports::Err;
 use async_trait::async_trait;
-use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
 pub(in crate::domain::moderator::rules) use context::ConditionContext;
@@ -46,7 +45,9 @@ mod tree;
 /// they are normalized and checked when an owner saves them, and what it asks
 /// of the bot. Nothing outside a condition's own module knows what one checks
 /// or how.
-pub(in crate::domain::moderator::rules) trait Condition: Send + Sync {
+pub(in crate::domain::moderator::rules) trait Condition:
+    Send + Sync
+{
     /// Brings the condition's parameters into canonical form and checks them,
     /// when an owner saves the rule. One step on purpose: validating without
     /// normalizing would count blank and duplicate entries towards the
@@ -386,86 +387,5 @@ impl ModerationCondition {
                 None => unreachable!("composites are matched above"),
             },
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Evaluation
-// ---------------------------------------------------------------------------
-
-/// Evaluate one condition, reusing the per-message memo.
-///
-/// Returns the reason the message matched, or `None` when it did not.
-///
-/// Boxed because the composites make this mutually recursive with `evaluate`,
-/// and an `async fn` that (indirectly) awaits itself has no finite size.
-pub(super) fn check_condition<'a>(
-    ctx: &'a mut ConditionContext<'_>,
-    condition: &'a ModerationCondition,
-) -> BoxFuture<'a, Result<Option<String>, Err>> {
-    Box::pin(async move {
-        if let Some(cached) = ctx.memo.get(condition) {
-            return Ok(cached.clone());
-        }
-        // A subtree that depends on the other rules evaluates differently
-        // in the pre-pass, so its result is not safe to carry between the two
-        // passes. Everything else is pure with respect to the pass and is
-        // memoized once.
-        let memoizable = !condition.depends_on_other_rules();
-        let result = evaluate(ctx, condition).await?;
-        if memoizable {
-            ctx.memo.insert(condition.clone(), result.clone());
-        }
-        Ok(result)
-    })
-}
-async fn evaluate(
-    ctx: &mut ConditionContext<'_>,
-    condition: &ModerationCondition,
-) -> Result<Option<String>, Err> {
-    match condition {
-        ModerationCondition::All { conditions } => {
-            // Normalization removes empty composites; treat one as "no match"
-            // anyway rather than letting vacuous truth moderate every message.
-            if conditions.is_empty() {
-                return Ok(None);
-            }
-            let mut reasons = Vec::with_capacity(conditions.len());
-            for child in conditions {
-                // Short-circuit: condition evaluation has no side effects
-                // (activity is recorded before the rules run), so skipping the
-                // remaining children is unobservable apart from the saved work.
-                let Some(reason) = check_condition(ctx, child).await? else {
-                    return Ok(None);
-                };
-                reasons.push(reason);
-            }
-            Ok(Some(reasons.join(" and ")))
-        }
-        ModerationCondition::Any { conditions } => {
-            for child in conditions {
-                if let Some(reason) = check_condition(ctx, child).await? {
-                    return Ok(Some(reason));
-                }
-            }
-            Ok(None)
-        }
-        ModerationCondition::Not { condition: inner } => {
-            if check_condition(ctx, inner).await?.is_some() {
-                Ok(None)
-            } else {
-                // The child did not match, so it produced no reason of its own;
-                // describe what was expected instead.
-                Ok(Some(format!("does not match: {}", inner.describe())))
-            }
-        }
-        leaf => match leaf.as_leaf() {
-            // The pre-pass asks what the other rules do with the message, so
-            // a condition that depends on them answers "no match" there
-            // rather than about itself.
-            Some(condition) if ctx.pre_pass && condition.depends_on_other_rules() => Ok(None),
-            Some(condition) => condition.should_moderate(ctx).await,
-            None => unreachable!("composites are matched above"),
-        },
     }
 }

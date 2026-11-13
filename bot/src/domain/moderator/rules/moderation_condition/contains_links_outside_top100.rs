@@ -4,8 +4,8 @@
 mod tests;
 mod top100;
 
-use super::{Condition, ConditionContext};
-use crate::domain::moderator::ports::Err;
+use super::{Condition, ConditionContext, ConditionOn};
+use crate::domain::moderator::ports::{Err, GroupMessage};
 use crate::domain::moderator::rules::common::domains::{domain_matches, find_domains};
 use crate::domain::moderator::rules::common::{checks, domains};
 use async_trait::async_trait;
@@ -18,7 +18,6 @@ pub struct ContainsLinksOutsideTop100 {
     pub domains: Vec<String>,
 }
 
-#[async_trait]
 impl Condition for ContainsLinksOutsideTop100 {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
         checks::normalize_list(&mut self.domains);
@@ -33,10 +32,13 @@ impl Condition for ContainsLinksOutsideTop100 {
     fn describe(&self) -> String {
         "contains a link outside the top 100 websites".into()
     }
+}
 
-    async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
+#[async_trait]
+impl ConditionOn<GroupMessage> for ContainsLinksOutsideTop100 {
+    async fn should_moderate(&self, ctx: &ConditionContext<'_, GroupMessage>) -> Result<Option<String>, Err> {
         Ok(should_moderate_outside_top100(
-            ctx.group_message.text.trim(),
+            ctx.subject.text.trim(),
             &self.domains,
         ))
     }

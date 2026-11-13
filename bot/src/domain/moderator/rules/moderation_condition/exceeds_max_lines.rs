@@ -4,8 +4,8 @@
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext};
-use crate::domain::moderator::ports::Err;
+use super::{Condition, ConditionContext, ConditionOn};
+use crate::domain::moderator::ports::{Err, GroupMessage};
 use crate::domain::moderator::rules::common::checks;
 use crate::domain::moderator::rules::common::screen_lines::count_effective_lines;
 use async_trait::async_trait;
@@ -19,7 +19,6 @@ pub struct ExceedsMaxLines {
     pub chars_per_line: u32,
 }
 
-#[async_trait]
 impl Condition for ExceedsMaxLines {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
         checks::check_nonzero(
@@ -31,10 +30,13 @@ impl Condition for ExceedsMaxLines {
     fn describe(&self) -> String {
         format!("has more than {} lines", self.max_lines)
     }
+}
 
-    async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
+#[async_trait]
+impl ConditionOn<GroupMessage> for ExceedsMaxLines {
+    async fn should_moderate(&self, ctx: &ConditionContext<'_, GroupMessage>) -> Result<Option<String>, Err> {
         Ok(should_moderate_lines(
-            &ctx.group_message.text,
+            &ctx.subject.text,
             self.max_lines,
             self.chars_per_line,
         ))

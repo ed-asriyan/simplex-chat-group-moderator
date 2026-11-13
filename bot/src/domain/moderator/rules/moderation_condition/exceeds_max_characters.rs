@@ -3,8 +3,8 @@
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext};
-use crate::domain::moderator::ports::Err;
+use super::{Condition, ConditionContext, ConditionOn};
+use crate::domain::moderator::ports::{Err, GroupMessage};
 use crate::domain::moderator::rules::common::checks;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,6 @@ pub struct ExceedsMaxCharacters {
     pub max_characters: u32,
 }
 
-#[async_trait]
 impl Condition for ExceedsMaxCharacters {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
         // Unlike `AuthorHitsMessageRateLimit`, where 0 means "disabled", a zero
@@ -30,10 +29,13 @@ impl Condition for ExceedsMaxCharacters {
     fn describe(&self) -> String {
         format!("has more than {} characters", self.max_characters)
     }
+}
 
-    async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
+#[async_trait]
+impl ConditionOn<GroupMessage> for ExceedsMaxCharacters {
+    async fn should_moderate(&self, ctx: &ConditionContext<'_, GroupMessage>) -> Result<Option<String>, Err> {
         Ok(should_moderate_characters(
-            &ctx.group_message.text,
+            &ctx.subject.text,
             self.max_characters,
         ))
     }

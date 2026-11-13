@@ -110,10 +110,13 @@ mod tests;
 mod architecture_tests;
 #[cfg(test)]
 mod format_tests;
+#[cfg(test)]
+pub mod test_support;
 
 pub use bookkeeping::{record_activity, record_moderated, record_outcome};
 pub use moderation_action::{
-    ActionOutcome, ActionPorts, ModerationAction, actions, execute_actions,
+    ActionOutcome, ActionPorts, ModerationAction, actions, execute_join_actions,
+    execute_message_actions,
 };
 pub use moderation_condition::{ConditionPorts, KeyUse, ModerationCondition, conditions};
 pub use moderation_rule::{MAX_RULE_NAME_CHARS, ModerationRule, RuleDraft, TriggeredRule};
@@ -121,8 +124,7 @@ pub use trigger::Trigger;
 pub use trigger::member_joined::{JoinAction, JoinCondition};
 pub use trigger::message_posted::{MessageAction, MessageCondition};
 
-use super::ports::{Err, GroupMessage, RuleReason};
-use moderation_condition::{ConditionContext, check_condition};
+use super::ports::{Err, GroupMessage, MemberJoin, RuleReason};
 
 /// What the rules of one trigger call for about one message or one join.
 ///
@@ -136,67 +138,27 @@ pub struct ModerationMatch<A> {
     pub reasons: Vec<RuleReason>,
 }
 
-pub async fn should_moderate(
+/// Checks one message against the group's rules for `Trigger::MessagePosted`
+/// that are on, in order, and merges what the matching ones call for (US-D1).
+/// Rules for other triggers and rules that are off are skipped and cover
+/// nothing; `now` is the message's own time.
+pub async fn should_moderate_message(
     group_message: &GroupMessage,
     rules: &[ModerationRule],
     ports: &ConditionPorts<'_>,
-) -> Result<Option<ModerationMatch>, Err> {
-    let mut ctx = ConditionContext::new(group_message, ports);
+) -> Result<Option<ModerationMatch<MessageAction>>, Err> {
+    let _ = (group_message, rules, ports);
+    todo!()
+}
 
-    // Only pay for the pre-pass when some rule actually depends on what the
-    // others do with this message.
-    let mut moderated_by: Option<String> = None;
-    if rules
-        .iter()
-        .any(|rule| rule.condition.depends_on_other_rules())
-    {
-        ctx.pre_pass = true;
-        for rule in rules {
-            if let Some(reason) = check_condition(&mut ctx, &rule.condition).await? {
-                moderated_by = Some(reason);
-                break;
-            }
-        }
-        ctx.pre_pass = false;
-        ctx.moderated_by_other_rules = moderated_by.is_some();
-    }
-
-    let mut current_actions: Vec<ModerationAction> = Vec::new();
-    let mut reasons: Vec<String> = Vec::new();
-
-    for rule in rules {
-        let candidate_actions =
-            match action_planner::plan_next_actions(&current_actions, &rule.actions) {
-                Some(actions) => actions,
-                None => {
-                    // Rule actions are a subset of already planned actions; skip condition check.
-                    continue;
-                }
-            };
-
-        if let Some(reason) = check_condition(&mut ctx, &rule.condition).await? {
-            current_actions = candidate_actions;
-            reasons.push(reason);
-        }
-    }
-
-    // The rule that moderated this message may have been skipped above because
-    // a stronger plan already covered its actions — typically the very kick the
-    // moderation rate limit asked for. Without its reason the owner would read
-    // "N messages moderated" with nothing saying why this one was.
-    if let Some(reason) = moderated_by
-        && !current_actions.is_empty()
-        && !reasons.contains(&reason)
-    {
-        reasons.push(reason);
-    }
-
-    if current_actions.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(ModerationMatch {
-            actions: current_actions,
-            reasons,
-        }))
-    }
+/// Checks someone who joined against the group's rules for
+/// `Trigger::MemberJoined` that are on, in order, and merges what the matching
+/// ones call for; a rule with no condition matches everyone (US-D6).
+pub async fn should_moderate_join(
+    join: &MemberJoin,
+    rules: &[ModerationRule],
+    ports: &ConditionPorts<'_>,
+) -> Result<Option<ModerationMatch<JoinAction>>, Err> {
+    let _ = (join, rules, ports);
+    todo!()
 }

@@ -6,10 +6,9 @@ mod filter;
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext, KeyUse};
+use super::{Condition, ConditionContext, KeyUse, ConditionOn};
 use crate::domain::moderator::ports::{
-    ApiRetry, CategoryTrigger, Err, OpenAiCategory, OpenAiCategoryTriggers,
-};
+    ApiRetry, CategoryTrigger, Err, OpenAiCategory, OpenAiCategoryTriggers, GroupMessage};
 use crate::domain::moderator::rules::common::api_key::normalize as normalize_api_key;
 use crate::domain::moderator::rules::common::api_retry;
 use async_trait::async_trait;
@@ -29,7 +28,6 @@ pub struct FlaggedByOmniModeration {
     pub retry: ApiRetry,
 }
 
-#[async_trait]
 impl Condition for FlaggedByOmniModeration {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
         normalize_api_key(&mut self.api_key, "OpenAI", TITLE)?;
@@ -60,9 +58,17 @@ impl Condition for FlaggedByOmniModeration {
     fn describe(&self) -> String {
         "flagged by OpenAI Omni".into()
     }
+    fn key_uses(&self) -> Vec<KeyUse> {
+        vec![KeyUse::OpenAiModeration {
+            api_key: self.api_key.clone(),
+        }]
+    }
+}
 
-    async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
-        let text = &ctx.group_message.text;
+#[async_trait]
+impl ConditionOn<GroupMessage> for FlaggedByOmniModeration {
+    async fn should_moderate(&self, ctx: &ConditionContext<'_, GroupMessage>) -> Result<Option<String>, Err> {
+        let text = &ctx.subject.text;
         // Nothing to show OpenAI: a caption-less attachment or blank text.
         if text.trim().is_empty() {
             return Ok(None);
@@ -79,11 +85,5 @@ impl Condition for FlaggedByOmniModeration {
             // has logged why.
             Err(_) => Ok(None),
         }
-    }
-
-    fn key_uses(&self) -> Vec<KeyUse> {
-        vec![KeyUse::OpenAiModeration {
-            api_key: self.api_key.clone(),
-        }]
     }
 }

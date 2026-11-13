@@ -14,6 +14,7 @@ use crate::domain::moderator::ports::{
     OpenRouterInstructionVerdict, OwnedModerationRule, UserId,
 };
 use crate::domain::moderator::rules::ModerationCondition;
+use crate::domain::moderator::rules::test_support::message_rule;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -110,12 +111,12 @@ async fn test_save_rules_rejects_invalid_condition() {
         .save_rules(
             100,
             10,
-            vec![ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                condition: ModerationCondition::ContainsWords(ContainsWords {
+            vec![message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["a".repeat(101)],
                 }),
-            }],
+            )],
         )
         .await
         .expect_err("an over-long keyword should be rejected");
@@ -133,12 +134,12 @@ async fn test_save_rules_accepts_valid_conditions() {
     app.save_rules(
         100,
         10,
-        vec![ModerationRule {
-            actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-            condition: ModerationCondition::ContainsWords(ContainsWords {
+        vec![message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["badword".to_string()],
             }),
-        }],
+        )],
     )
     .await
     .unwrap();
@@ -154,12 +155,12 @@ async fn test_save_rules_checks_ownership_before_validating() {
         .save_rules(
             999,
             10,
-            vec![ModerationRule {
-                actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-                condition: ModerationCondition::ContainsWords(ContainsWords {
+            vec![message_rule(
+                vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+                ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["a".repeat(101)],
                 }),
-            }],
+            )],
         )
         .await
         .expect_err("a non-owner should be rejected");
@@ -178,14 +179,14 @@ async fn test_save_rules_rejects_too_long_observer_duration() {
         .save_rules(
             100,
             10,
-            vec![ModerationRule {
-                actions: vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
+            vec![message_rule(
+                vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                     duration_minutes: 43_201,
                 })],
-                condition: ModerationCondition::ContainsWords(ContainsWords {
+                ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["badword".to_string()],
                 }),
-            }],
+            )],
         )
         .await
         .expect_err("an observer restriction longer than a month should be rejected");
@@ -204,14 +205,14 @@ async fn test_save_rules_accepts_observer_durations_up_to_a_month() {
         app.save_rules(
             100,
             10,
-            vec![ModerationRule {
-                actions: vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
+            vec![message_rule(
+                vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                     duration_minutes,
                 })],
-                condition: ModerationCondition::ContainsWords(ContainsWords {
+                ModerationCondition::ContainsWords(ContainsWords {
                     keywords: vec!["badword".to_string()],
                 }),
-            }],
+            )],
         )
         .await
         .unwrap();
@@ -377,10 +378,10 @@ fn openai_condition(api_key: &str) -> ModerationCondition {
 }
 
 fn moderate_when(condition: ModerationCondition) -> ModerationRule {
-    ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+    message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
         condition,
-    }
+    )
 }
 
 #[tokio::test]
@@ -499,12 +500,12 @@ async fn test_every_distinct_key_is_asked_about_once_wherever_it_sits() {
                 },
             ],
         }),
-        ModerationRule {
-            actions: vec![ModerationAction::KickAuthor(KickAuthor {
+        message_rule(
+            vec![ModerationAction::KickAuthor(KickAuthor {
                 delete_all_messages: false,
             })],
-            condition: openai_condition("sk-one"),
-        },
+            openai_condition("sk-one"),
+        ),
     ];
 
     app_with(&repository, &verifier)

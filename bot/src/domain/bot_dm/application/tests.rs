@@ -1,7 +1,8 @@
 use super::{BotDmApplication, describe_actions, lz_compress, quote};
 use crate::domain::bot_dm::ports::{
     BotDmReceiver, BotMessenger, Err, Group, GroupId, GroupInvitation, GroupOperations, JoinError,
-    Message, ModerationAction, ModerationNotificationReceiver, UserId,
+    Message, ModerationAction, ModerationNotification, ModerationNotificationReceiver, RuleReason,
+    TriggerEvent, UserId,
 };
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
@@ -231,7 +232,11 @@ async fn test_groups_names_the_group_in_bold() {
     let (sent, _) = send("/groups").await;
 
     assert_eq!(sent.len(), 1);
-    assert!(sent[0].starts_with("**Test Group**\n[View and Edit Settings]("), "{}", sent[0]);
+    assert!(
+        sent[0].starts_with("**Test Group**\n[View and Edit Settings]("),
+        "{}",
+        sent[0]
+    );
 }
 
 /// Counts join attempts; every attempt fails.
@@ -294,6 +299,30 @@ async fn test_an_invitation_as_moderator_is_joined() {
     assert_eq!(attempts, 1);
 }
 
+/// A notification about a member's message the bot moderated, with unnamed
+/// rules' reasons.
+fn message_notification(
+    performed: bool,
+    message: &str,
+    reasons: &[&str],
+) -> ModerationNotification {
+    ModerationNotification {
+        event: TriggerEvent::MessagePosted {
+            message: message.to_string(),
+        },
+        performed,
+        member_name: "Bob".to_string(),
+        actions: vec![ModerationAction::ModerateMessage],
+        reasons: reasons
+            .iter()
+            .map(|reason| RuleReason {
+                rule_name: None,
+                reason: reason.to_string(),
+            })
+            .collect(),
+    }
+}
+
 #[tokio::test]
 async fn test_a_notification_quotes_the_message_and_lists_the_reasons() {
     let messenger = Arc::new(RecordingMessenger::default());
@@ -310,13 +339,11 @@ async fn test_a_notification_quotes_the_message_and_lists_the_reasons() {
     app.send_moderation_notification(
         1,
         &group,
-        &[ModerationAction::ModerateMessage],
-        true,
-        "buy now\n- cheap",
-        &[
-            "contains word: 'buy'".to_string(),
-            "has more than 1 lines".to_string(),
-        ],
+        &message_notification(
+            true,
+            "buy now\n- cheap",
+            &["contains word: 'buy'", "has more than 1 lines"],
+        ),
     )
     .await
     .unwrap();
@@ -356,10 +383,7 @@ async fn test_a_notification_about_a_message_without_text_says_so() {
     app.send_moderation_notification(
         1,
         &group,
-        &[ModerationAction::ModerateMessage],
-        false,
-        "",
-        &["contains an image".to_string()],
+        &message_notification(false, "", &["contains an image"]),
     )
     .await
     .unwrap();

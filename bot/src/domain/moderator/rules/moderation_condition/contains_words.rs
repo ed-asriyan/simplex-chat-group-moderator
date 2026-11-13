@@ -7,8 +7,8 @@ mod upside_down;
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext};
-use crate::domain::moderator::ports::Err;
+use super::{Condition, ConditionContext, ConditionOn};
+use crate::domain::moderator::ports::{Err, GroupMessage};
 use crate::domain::moderator::rules::common::checks;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -22,7 +22,6 @@ pub struct ContainsWords {
     pub keywords: Vec<String>,
 }
 
-#[async_trait]
 impl Condition for ContainsWords {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
         checks::normalize_list(&mut self.keywords);
@@ -32,10 +31,13 @@ impl Condition for ContainsWords {
     fn describe(&self) -> String {
         "contains one of the listed words".into()
     }
+}
 
-    async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
+#[async_trait]
+impl ConditionOn<GroupMessage> for ContainsWords {
+    async fn should_moderate(&self, ctx: &ConditionContext<'_, GroupMessage>) -> Result<Option<String>, Err> {
         Ok(
-            filter::should_moderate(ctx.group_message.text.trim(), &self.keywords)
+            filter::should_moderate(ctx.subject.text.trim(), &self.keywords)
                 .map(|keyword| format!("contains word: '{keyword}'")),
         )
     }

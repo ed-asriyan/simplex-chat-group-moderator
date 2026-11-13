@@ -94,6 +94,7 @@ async fn handle_event(
                 message_id,
                 author_id,
                 author_name,
+                author_full_name: String::new(),
                 text,
                 attachment: attachment.map(|attachment| match attachment {
                     DriverAttachment::Image => MessageAttachment::Image,

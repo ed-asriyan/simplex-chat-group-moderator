@@ -14,7 +14,7 @@
 use super::trigger::Trigger;
 use super::trigger::member_joined::{JoinAction, JoinCondition};
 use super::trigger::message_posted::{MessageAction, MessageCondition};
-use super::{ModerationAction, ModerationCondition};
+use super::{KeyUse, ModerationAction, ModerationCondition};
 use crate::domain::moderator::ports::Err;
 use serde::{Deserialize, Serialize};
 
@@ -58,6 +58,12 @@ impl ModerationRule {
             TriggeredRule::MessagePosted { .. } => Trigger::MessagePosted,
             TriggeredRule::MemberJoined { .. } => Trigger::MemberJoined,
         }
+    }
+
+    /// The API keys the rule's conditions carry, and what each is for, so they
+    /// can be checked when an owner saves the rule (US-C4).
+    pub fn key_uses(&self) -> Vec<KeyUse> {
+        todo!()
     }
 
     /// Checks what an owner saved and rewrites it into the canonical form that

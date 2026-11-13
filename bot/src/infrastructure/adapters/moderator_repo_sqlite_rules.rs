@@ -21,7 +21,7 @@ use std::collections::HashMap;
 
 use crate::domain::moderator::ports::{
     ApiRetry, CategoryTrigger, Err, ModerationAction, ModerationCondition, ModerationRule,
-    OpenAiCategory, OpenAiCategoryTriggers, OwnedModerationRule,
+    OpenAiCategory, OpenAiCategoryTriggers, OwnedModerationRule, RuleDraft, Trigger,
 };
 use rusqlite::params;
 use std::sync::{Arc, Mutex};
@@ -689,10 +689,13 @@ pub(crate) fn load_rules_for_group(
             .unwrap_or_else(|| vec![ModerationAction::ModerateMessage(ModerateMessage {})]);
         rules.push(OwnedModerationRule {
             id: rule_id as usize,
-            rule: ModerationRule {
+            rule: ModerationRule::try_from(RuleDraft {
+                name: None,
+                trigger: Trigger::MessagePosted,
+                enabled: true,
+                condition: Some(build_condition(*root, &nodes, &children, &data)?),
                 actions,
-                condition: build_condition(*root, &nodes, &children, &data)?,
-            },
+            })?,
         });
     }
     Ok(rules)

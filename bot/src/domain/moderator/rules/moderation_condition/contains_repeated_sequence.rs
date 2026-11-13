@@ -5,8 +5,8 @@ mod filter;
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext};
-use crate::domain::moderator::ports::Err;
+use super::{Condition, ConditionContext, ConditionOn};
+use crate::domain::moderator::ports::{Err, GroupMessage};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -18,7 +18,6 @@ pub struct ContainsRepeatedSequence {
     pub min_length: u32,
 }
 
-#[async_trait]
 impl Condition for ContainsRepeatedSequence {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
         // A single occurrence is not a repetition: 1 (or 0) would match
@@ -44,10 +43,13 @@ impl Condition for ContainsRepeatedSequence {
     fn describe(&self) -> String {
         "contains a repeated sequence".into()
     }
+}
 
-    async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
+#[async_trait]
+impl ConditionOn<GroupMessage> for ContainsRepeatedSequence {
+    async fn should_moderate(&self, ctx: &ConditionContext<'_, GroupMessage>) -> Result<Option<String>, Err> {
         Ok(filter::should_moderate(
-            &ctx.group_message.text,
+            &ctx.subject.text,
             self.min_repeats,
             self.min_length,
         ))

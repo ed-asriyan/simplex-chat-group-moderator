@@ -4,12 +4,13 @@ use crate::domain::moderator::ports::conditions::{
     AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit, ContainsWords,
 };
 use crate::domain::moderator::ports::{ModerationAction, ModerationCondition};
+use crate::domain::moderator::rules::test_support::message_rule;
 
 fn rule(condition: ModerationCondition) -> ModerationRule {
-    ModerationRule {
-        actions: vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+    message_rule(
+        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
         condition,
-    }
+    )
 }
 
 #[test]

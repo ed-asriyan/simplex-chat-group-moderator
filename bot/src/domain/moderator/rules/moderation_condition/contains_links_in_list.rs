@@ -3,8 +3,8 @@
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext};
-use crate::domain::moderator::ports::Err;
+use super::{Condition, ConditionContext, ConditionOn};
+use crate::domain::moderator::ports::{Err, GroupMessage};
 use crate::domain::moderator::rules::common::domains::{find_domains, find_in_list};
 use crate::domain::moderator::rules::common::{checks, domains};
 use async_trait::async_trait;
@@ -16,7 +16,6 @@ pub struct ContainsLinksInList {
     pub domains: Vec<String>,
 }
 
-#[async_trait]
 impl Condition for ContainsLinksInList {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
         checks::normalize_list(&mut self.domains);
@@ -31,10 +30,13 @@ impl Condition for ContainsLinksInList {
     fn describe(&self) -> String {
         "contains a link to a listed website".into()
     }
+}
 
-    async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
+#[async_trait]
+impl ConditionOn<GroupMessage> for ContainsLinksInList {
+    async fn should_moderate(&self, ctx: &ConditionContext<'_, GroupMessage>) -> Result<Option<String>, Err> {
         Ok(should_moderate_in_list(
-            ctx.group_message.text.trim(),
+            ctx.subject.text.trim(),
             &self.domains,
         ))
     }

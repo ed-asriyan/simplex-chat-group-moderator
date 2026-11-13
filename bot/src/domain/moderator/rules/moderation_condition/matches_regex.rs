@@ -5,8 +5,8 @@ mod filter;
 #[cfg(test)]
 mod tests;
 
-use super::{Condition, ConditionContext};
-use crate::domain::moderator::ports::Err;
+use super::{Condition, ConditionContext, ConditionOn};
+use crate::domain::moderator::ports::{Err, GroupMessage};
 use crate::domain::moderator::rules::common::checks;
 use async_trait::async_trait;
 use regex::Regex;
@@ -27,7 +27,6 @@ pub struct MatchesRegex {
     pub patterns: Vec<String>,
 }
 
-#[async_trait]
 impl Condition for MatchesRegex {
     fn normalize_and_validate(&mut self) -> Result<(), Err> {
         let patterns = &mut self.patterns;
@@ -60,10 +59,13 @@ impl Condition for MatchesRegex {
     fn describe(&self) -> String {
         "matches a regex pattern".into()
     }
+}
 
-    async fn should_moderate(&self, ctx: &mut ConditionContext<'_>) -> Result<Option<String>, Err> {
+#[async_trait]
+impl ConditionOn<GroupMessage> for MatchesRegex {
+    async fn should_moderate(&self, ctx: &ConditionContext<'_, GroupMessage>) -> Result<Option<String>, Err> {
         Ok(
-            filter::should_moderate(&ctx.group_message.text, &self.patterns)
+            filter::should_moderate(&ctx.subject.text, &self.patterns)
                 .map(|pattern| format!("matches regex pattern: '{pattern}'")),
         )
     }

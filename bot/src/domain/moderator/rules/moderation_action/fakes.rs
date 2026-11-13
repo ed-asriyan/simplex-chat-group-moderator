@@ -21,6 +21,7 @@ pub fn message() -> GroupMessage {
         message_id: 7,
         author_id: 42,
         author_name: "author".into(),
+        author_full_name: String::new(),
         text: "text".into(),
         attachment: None,
         timestamp: at(0),
@@ -65,14 +66,17 @@ impl Recorder {
     }
 
     /// Carries out `action` on [`message`] with this recorder as every port.
-    pub async fn execute(&self, action: &dyn super::Action) -> Result<ActionReport, Err> {
+    pub async fn execute(
+        &self,
+        action: &dyn super::ActionOn<GroupMessage>,
+    ) -> Result<ActionReport, Err> {
         let message = message();
         let ports = ActionPorts {
             group_moderator: self,
             restores: self,
         };
         let ctx = ActionContext {
-            group_message: &message,
+            subject: &message,
             ports: &ports,
         };
         action.execute(&ctx).await

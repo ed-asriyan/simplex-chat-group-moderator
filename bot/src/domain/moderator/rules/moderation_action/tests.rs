@@ -21,7 +21,11 @@ async fn execute(ports: &Recorder, actions: &[ModerationAction]) -> ActionOutcom
         group_moderator: ports,
         restores: ports,
     };
-    execute_actions(&message(), actions, &action_ports)
+    let actions: Vec<MessageAction> = actions
+        .iter()
+        .map(|action| MessageAction::try_from(*action).unwrap())
+        .collect();
+    execute_message_actions(&message(), &actions, &action_ports)
         .await
         .unwrap()
 }

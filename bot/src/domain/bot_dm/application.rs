@@ -1,6 +1,6 @@
 use super::ports::{
     BotDmReceiver, BotMessenger, Err, GroupId, GroupInvitation, GroupOperations, ModerationAction,
-    ModerationNotificationReceiver, UserId,
+    ModerationNotification, ModerationNotificationReceiver, TriggerEvent, UserId,
 };
 use crate::domain::bot_dm::ports::{Group, Message};
 use async_trait::async_trait;
@@ -171,7 +171,10 @@ fn parse(message: &Message, base_url: &str) -> ParsedDm {
 }
 
 fn render_group(group: &Group, editor_url: &str) -> String {
-    format!("**{}**\n[View and Edit Settings]({})", group.name, editor_url)
+    format!(
+        "**{}**\n[View and Edit Settings]({})",
+        group.name, editor_url
+    )
 }
 
 /// `text` as a Markdown block quote, its line breaks kept: inside a quote a
@@ -425,11 +428,20 @@ impl ModerationNotificationReceiver for BotDmApplication {
         &self,
         user_id: UserId,
         group: &Group,
-        actions: &[ModerationAction],
-        performed: bool,
-        message: &str,
-        reasons: &[String],
+        notification: &ModerationNotification,
     ) -> Result<(), Err> {
+        let ModerationNotification {
+            event,
+            performed,
+            actions,
+            reasons,
+            ..
+        } = notification;
+        let performed = *performed;
+        let TriggerEvent::MessagePosted { message } = event else {
+            todo!()
+        };
+        let reasons: Vec<&str> = reasons.iter().map(|r| r.reason.as_str()).collect();
         let message = if message.chars().count() > MAX_MESSAGE_LENGTH {
             format!(
                 "{}...",
