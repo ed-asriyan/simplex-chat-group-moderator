@@ -30,11 +30,9 @@ A group owner adds the bot to their [SimpleX Chat](https://simplex.chat) group w
   Then I 🗑 delete the message, 👁 make the member an observer, or 🚪 kick them.
 
   ### 🚀 Get started
-
   Invite me to your group as **Moderator** to delete messages, **Admin** to also make members observers, or **Owner** to also kick them. Then send /groups to set up the rules.
 
   ### 👀 Not ready to invite me?
-
   [Try the editor on a demo group](https://ed-asriyan.github.io/simplex-chat-group-moderator): see exactly what you would set up, without inviting me or giving me any role.
 
   Send /help for the commands and modes. My code is open [on GitHub](https://github.com/ed-asriyan/simplex-chat-group-moderator).
