@@ -67,7 +67,7 @@ const SOURCE_URL: &str = "https://github.com/ed-asriyan/simplex-chat-group-moder
 fn welcome(editor_base_url: &str) -> String {
     format!(
         "\
-Hi! I'm a **moderation bot** for SimpleX groups. You set the rules, and I catch:
+Hi! 👋 I'm a **moderation bot** for SimpleX groups. You set the rules, and I catch:
 
 - 🚫 **Banned words**, even disguised like b@d_w0rd
 - 🔗 **Links** to websites you don't allow
@@ -77,12 +77,10 @@ Hi! I'm a **moderation bot** for SimpleX groups. You set the rules, and I catch:
 
 Then I 🗑 delete the message, 👁 make the member an observer, or 🚪 kick them.
 
-### Get started
-
+### 🚀 Get started
 Invite me to your group as **Moderator** to delete messages, **Admin** to also make members observers, or **Owner** to also kick them. Then send /groups to set up the rules.
 
-### Not ready to invite me?
-
+### 👀 Not ready to invite me?
 {demo}: see exactly what you would set up, without inviting me or giving me any role.
 
 Send /help for the commands and modes. My code is open [on GitHub]({SOURCE_URL}).
