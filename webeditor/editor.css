@@ -423,12 +423,6 @@ svg {
     color: var(--accent-ink);
 }
 
-.alert.off {
-    background: var(--card);
-    border: 1px dashed var(--line-2);
-    color: var(--ink-2);
-}
-
 .help {
     margin: 8px 0 12px;
     padding: 12px 14px;
@@ -463,6 +457,11 @@ svg {
     font-weight: 600;
     line-height: 1.6;
     white-space: nowrap;
+}
+
+.tag.notify {
+    background: var(--accent-soft);
+    color: var(--accent-ink);
 }
 
 .tag.warn {
@@ -917,6 +916,33 @@ textarea::placeholder {
     border: 1px solid var(--line-2);
     border-radius: var(--r-sm);
     background: var(--card);
+}
+
+/* The rule's two switches, side by side, each with the line of what it does. */
+.switches {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px 20px;
+    margin-bottom: 20px;
+    padding: 14px 16px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    background: var(--card);
+}
+
+.switch-name {
+    margin-bottom: 8px;
+    font-size: 15px;
+    font-weight: 650;
+}
+
+.switches .segment {
+    align-items: center;
+    padding: 8px 12px;
+}
+
+.switches .hint {
+    margin-top: 8px;
 }
 
 /* The flow: a dot and a line for each step. */
@@ -1538,7 +1564,8 @@ dialog::backdrop {
 }
 
 .mark.added,
-.mark.turned-on {
+.mark.turned-on,
+.mark.notifications-turned-on {
     background: var(--if-soft);
     color: #075347;
 }
@@ -1548,7 +1575,8 @@ dialog::backdrop {
     color: var(--danger);
 }
 
-.mark.turned-off {
+.mark.turned-off,
+.mark.notifications-turned-off {
     background: var(--warn-soft);
     color: var(--warn);
 }
@@ -1798,6 +1826,19 @@ dialog::backdrop {
 
     .rule-tools {
         padding-top: 0;
+    }
+
+    .switches {
+        grid-template-columns: 1fr;
+        padding: 12px;
+    }
+
+    .switches .segments.two {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .switches .segment {
+        justify-content: center;
     }
 
     .name {

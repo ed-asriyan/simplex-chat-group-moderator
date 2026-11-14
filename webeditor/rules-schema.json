@@ -1764,7 +1764,6 @@
     },
     "type": "object",
     "required": [
-        "mode",
         "rules"
     ],
     "additionalProperties": false,
@@ -2322,26 +2321,6 @@
         ]
     },
     "properties": {
-        "mode": {
-            "type": "string",
-            "title": "🛡 Mode",
-            "description": "What the bot does when a rule matches. **Notifications** — carries out the rule's actions and DMs you about each one. **Silent** — carries out the actions without telling you. **Dry** — does nothing in the group and DMs you what it would have done, which is how to try out new rules safely.",
-            "default": "notifications",
-            "oneOf": [
-                {
-                    "const": "notifications",
-                    "title": "Notifications — act and tell me"
-                },
-                {
-                    "const": "silent",
-                    "title": "Silent — act without telling me"
-                },
-                {
-                    "const": "dry",
-                    "title": "Dry — only tell me what it would do"
-                }
-            ]
-        },
         "rules": {
             "type": "array",
             "title": "Rules",
@@ -2398,9 +2377,33 @@
                     },
                     "enabled": {
                         "type": "boolean",
-                        "title": "On",
+                        "title": "Rule",
                         "default": true,
-                        "description": "A rule that is off stays in the list with its settings, and the bot skips it."
+                        "description": "Whether the bot carries out the rule's actions when it matches. A rule that is off stays in the list with its settings and is still checked, so with *Notify me* on it tells you what it would have done — a way to try a rule out before it acts.",
+                        "options": {
+                            "lines": {
+                                "on": "When it matches, I carry out its actions.",
+                                "off": "I still check it, but carry out none of its actions."
+                            }
+                        }
+                    },
+                    "notify": {
+                        "type": "boolean",
+                        "title": "Notify me",
+                        "default": true,
+                        "description": "Whether the bot messages you every time the rule matches: with what it did when the rule is on, with what it would have done when the rule is off. Off, it never tells you about this rule. With both this and *Rule* off, the rule is fully off.",
+                        "options": {
+                            "lines": {
+                                "on": {
+                                    "on": "I message you every time it matches, with what I did.",
+                                    "off": "I message you every time it matches, with what I would have done."
+                                },
+                                "off": {
+                                    "on": "I never message you about it, and carry out its actions silently.",
+                                    "off": "I never message you about it, and do nothing — the rule is fully off."
+                                }
+                            }
+                        }
                     },
                     "condition": {
                         "$ref": "#/definitions/condition"

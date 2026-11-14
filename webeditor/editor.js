@@ -44,7 +44,7 @@ let C = {}; // conditions, by type
 let A = {}; // actions, by type
 let S = []; // the group's settings: the schema root's fields but `rules`
 let T = []; // the triggers, one section of the group page each
-let R = {}; // the rule's own fields: name, trigger, enabled
+let R = {}; // the rule's own fields: name, trigger, enabled, notify
 
 const st = {
     rules: [],
@@ -259,6 +259,7 @@ const phraseOf = (n) => cond(n.type).phrase(n);
 
 const triggerOf = (r) => T.find((t) => t.v === (r.trigger || T[0].v)) || T[0];
 const isOn = (r) => r.enabled !== false;
+const notifies = (r) => r.notify !== false;
 const fits = (spec, r) => spec.unknown || spec.triggers.includes(triggerOf(r).v);
 
 /* What keeps the bot from taking a rule (US-G14). */
@@ -504,7 +505,7 @@ function settingsHtml() {
         const pr = SCHEMA.properties[f.key];
         const id = `set-${f.key}`;
         /* A few named values whose titles read "Name — what it does" are a row
-           of choices, each with its line (US-G2). */
+           of choices, each with its line. */
         const segmented = f.kind === "choice" && !f.num && f.choices.every((c) => c.t.includes(" — "));
         const body = segmented
             ? `<div class="segments" role="radiogroup" aria-labelledby="${id}-h">${f.choices
@@ -522,17 +523,24 @@ function settingsHtml() {
     }).join("");
 }
 
+/* What the rule's two switches make of it, beside its name (US-G1): nothing
+   when it acts and tells. */
+function stateTag(r) {
+    if (!isOn(r)) return notifies(r) ? "Notify only" : "Off";
+    return notifies(r) ? "" : "Silent";
+}
+
 function rowHtml(r, i, pos, total) {
-    const title = titleOf(r), gap = missing(r), on = isOn(r);
+    const title = titleOf(r), gap = missing(r), on = isOn(r), state = stateTag(r);
     /* A rule with a name says what it does under it; one without says it as
        its name (US-G1). */
     const words = r.name ? actionWords(r) : "";
-    const sub = words || gap || !on;
+    const sub = words || gap || state;
     return `<li class="item${on ? "" : " off"}" data-i="${i}">
       <button class="grip" type="button" id="grip-${i}" data-drag="${i}" aria-label="Move “${esc(title)}”" aria-describedby="move-hint">${ICON.grip}</button>
       <button class="item-main" type="button" id="open-${i}" data-op="open" data-i="${i}" aria-labelledby="t-${i}"${sub ? ` aria-describedby="d-${i}"` : ""}>
         <span class="item-title${r.name ? "" : " plain"}" id="t-${i}">${esc(title)}</span>
-        ${sub ? `<span class="item-sub" id="d-${i}">${words ? `<span>${esc(words)}</span>` : ""}${gap ? `<span class="tag warn">Incomplete</span>` : ""}${on ? "" : `<span class="tag">Off</span>`}</span>` : ""}
+        ${sub ? `<span class="item-sub" id="d-${i}">${words ? `<span>${esc(words)}</span>` : ""}${gap ? `<span class="tag warn">Incomplete</span>` : ""}${state ? `<span class="tag${state === "Notify only" ? " notify" : ""}">${state}</span>` : ""}</span>` : ""}
       </button>
       <button class="switch" type="button" role="switch" id="sw-${i}" aria-checked="${on}" data-op="toggle" data-i="${i}" aria-label="${esc(title)}"><span></span></button>
       ${menu(`r${i}`, `More for “${title}”`, [
@@ -652,6 +660,30 @@ function fieldsHtml(fields, value, path) {
 
 /* ------------------------------ one rule --------------------------------- */
 
+/* The rule's two switches, each On or Off with a line under it that says what
+   the rule does as both stand (US-G13, US-G19). */
+function switchesHtml(r) {
+    const w = (b) => (b ? "on" : "off");
+    const value = { enabled: isOn(r), notify: notifies(r) };
+    const line = {
+        enabled: R.enabled.options.lines[w(value.enabled)],
+        notify: R.notify.options.lines[w(value.notify)][w(value.enabled)],
+    };
+    return `<div class="switches">${["enabled", "notify"]
+        .map((key) => {
+            const id = `rule-${key}`;
+            return `<div class="switch-row">
+          <h2 class="switch-name" id="${id}-h">${esc(R[key].title)}</h2>
+          <div class="segments two" role="radiogroup" aria-labelledby="${id}-h" aria-describedby="${id}-line">
+            ${[true, false].map((x) => `<label class="segment${x === value[key] ? " on" : ""}"><input type="radio" name="${id}" id="${id}-${w(x)}"
+              value="${w(x)}" ${x === value[key] ? "checked" : ""} data-op="switch" data-key="${key}"><b>${x ? "On" : "Off"}</b></label>`).join("")}
+          </div>
+          <p class="hint" id="${id}-line">${esc(line[key])}</p>
+        </div>`;
+        })
+        .join("")}</div>`;
+}
+
 const wrongPlace = (spec, r) => (fits(spec, r) ? "" : `<span class="tag bad">${esc(triggerOf(r).incompatible)}</span>`);
 
 function conditionHtml(n, path, d, r) {
@@ -753,8 +785,7 @@ function rulePage() {
         ${menu("rule", "More for this rule", [["Duplicate", 'data-op="duplicate"'], ["Delete", 'data-op="remove"', true]])}
       </div>
     </div>
-    ${isOn(r) ? "" : `<p class="alert off" role="status"><span>⏸ This rule is off — the bot skips it.</span>
-      <button class="btn" type="button" id="enable" data-op="toggle" data-i="${i}">Enable</button></p>`}
+    ${switchesHtml(r)}
     ${gap ? `<p class="alert warn" role="status">${esc(t.incomplete)}</p>` : ""}
 
     <ol class="flow">
@@ -1039,8 +1070,7 @@ document.addEventListener("click", (e) => {
                 if (isOn(x)) x.enabled = false;
                 else delete x.enabled;
             });
-            if (b.id === "enable") after = "r-name";
-            else if (b.getAttribute("role") === "menuitem") after = `m-r${i}`;
+            if (b.getAttribute("role") === "menuitem") after = `m-r${i}`;
             break;
         case "drop": {
             const section = triggerOf(st.rules[i]).v;
@@ -1129,6 +1159,8 @@ document.addEventListener("change", (e) => {
 
     if (op === "setting") edit(() => (st.settings[key] = S.find((f) => f.key === key).choices[+b.value].v));
     else if (op === "name") edit(() => (b.value.trim() ? (r.name = b.value.trim()) : delete r.name));
+    /* A switch that is on is left out, as the bot's default. */
+    else if (op === "switch") edit(() => (b.value === "on" ? delete r[key] : (r[key] = false)));
     else if (op === "when") {
         /* The rule moves to the end of its new section (US-G3). */
         edit(() => {
@@ -1349,10 +1381,11 @@ function pairUp(was, now, section) {
     const rows = pairs.map(([a, b], k) => {
         const notes = [], marks = [];
         if (a.key !== b.key) {
-            const { name: n1, enabled: e1, ...rest1 } = a.r, { name: n2, enabled: e2, ...rest2 } = b.r;
+            const { name: n1, enabled: e1, notify: t1, ...rest1 } = a.r, { name: n2, enabled: e2, notify: t2, ...rest2 } = b.r;
             if (canon(rest1) !== canon(rest2)) marks.push("changed");
             if ((n1 || "") !== (n2 || "")) { marks.push("renamed"); notes.push(`was “${n1 || ""}”`); }
             if (isOn(a.r) !== isOn(b.r)) marks.push(isOn(b.r) ? "turned on" : "turned off");
+            if (notifies(a.r) !== notifies(b.r)) marks.push(notifies(b.r) ? "notifications turned on" : "notifications turned off");
         }
         if (!stayed.has(k)) { marks.push("moved"); notes.push(`was ${ordinal(a.i + 1)}`); }
         return { status: marks[0] || "same", marks, index: b.i, rule: b.r, was: a.r, section, notes, details: marks.includes("changed") ? details(a.r, b.r) : [] };
@@ -1488,7 +1521,7 @@ function openApply() {
     const sections = T.map((t) => {
         const rows = shown.filter((x) => x.section === t.v).sort((a, b) => a.index - b.index);
         return rows.length ? `<h3>${esc(t.section)}</h3>` + rows.map((x) => `<div class="change">
-          <span class="marks">${x.marks.map((m) => `<span class="mark ${m.replace(" ", "-")}">${m}</span>`).join("")}</span>
+          <span class="marks">${x.marks.map((m) => `<span class="mark ${m.replace(/ /g, "-")}">${m}</span>`).join("")}</span>
           <span class="what">${ruleLine(x.rule)}${x.notes.map((n) => `<span class="d">${esc(n)}</span>`).join("")}${(x.details || []).map(detailHtml).join("")}</span></div>`).join("") : "";
     }).join("");
 
