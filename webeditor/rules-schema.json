@@ -2387,15 +2387,15 @@
                     },
                     "enabled": {
                         "type": "boolean",
-                        "title": "Rule",
+                        "title": "Actions",
                         "default": true,
-                        "description": "Whether the bot carries out the rule's actions when it matches. A rule that is off stays in the list with its settings and is still checked, so with *Notify me* on it tells you what it would have done — a way to try a rule out before it acts."
+                        "description": "Whether the bot carries out the rule's actions when it matches. With actions off, the rule stays in the list with its settings and is still checked, so with *Notifications* on it tells you what it would have done — a way to try a rule out before it acts."
                     },
                     "notify": {
                         "type": "boolean",
-                        "title": "Notify me",
+                        "title": "Notifications",
                         "default": true,
-                        "description": "Whether the bot messages you every time the rule matches: with what it did when the rule is on, with what it would have done when the rule is off. Off, it never tells you about this rule. With both this and *Rule* off, the rule is fully off."
+                        "description": "Whether the bot messages you every time the rule matches: with what it did when its actions are on, with what it would have done when they are off. Off, it never tells you about this rule. With both this and *Actions* off, the rule is fully off."
                     },
                     "condition": {
                         "$ref": "#/definitions/condition"

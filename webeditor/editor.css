@@ -1580,7 +1580,7 @@ dialog::backdrop {
 }
 
 .mark.added,
-.mark.turned-on,
+.mark.actions-turned-on,
 .mark.notifications-turned-on {
     background: var(--if-soft);
     color: #075347;
@@ -1591,7 +1591,7 @@ dialog::backdrop {
     color: var(--danger);
 }
 
-.mark.turned-off,
+.mark.actions-turned-off,
 .mark.notifications-turned-off {
     background: var(--warn-soft);
     color: var(--warn);

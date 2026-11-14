@@ -1381,7 +1381,7 @@ function pairUp(was, now, section) {
             const { name: n1, enabled: e1, notify: t1, ...rest1 } = a.r, { name: n2, enabled: e2, notify: t2, ...rest2 } = b.r;
             if (canon(rest1) !== canon(rest2)) marks.push("changed");
             if ((n1 || "") !== (n2 || "")) { marks.push("renamed"); notes.push(`was “${n1 || ""}”`); }
-            if (isOn(a.r) !== isOn(b.r)) marks.push(isOn(b.r) ? "turned on" : "turned off");
+            if (isOn(a.r) !== isOn(b.r)) marks.push(isOn(b.r) ? "actions turned on" : "actions turned off");
             if (notifies(a.r) !== notifies(b.r)) marks.push(notifies(b.r) ? "notifications turned on" : "notifications turned off");
         }
         if (!stayed.has(k)) { marks.push("moved"); notes.push(`was ${ordinal(a.i + 1)}`); }
