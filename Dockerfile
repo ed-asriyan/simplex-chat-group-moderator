@@ -17,10 +17,13 @@ CMD simplex-chat --yes-migrate --create-bot-display-name bot -p $PORT -d $DB
 
 # The bot dates a message by the time its CLI received it, so the CLI reads the
 # tests' clock too: libfaketime in front of it, reading /clock/now, an offset in
-# seconds from the real time ("+3600") that the tests rewrite as they go.
+# seconds from the real time ("+3600") that the tests rewrite as they go. The
+# library sits under the image's own architecture's directory, so it is linked to
+# one path that LD_PRELOAD names on every machine.
 FROM smp-client AS smp-client-e2e
-RUN apt-get update && apt-get install -y --no-install-recommends faketime && rm -rf /var/lib/apt/lists/*
-ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/faketime/libfaketimeMT.so.1 \
+RUN apt-get update && apt-get install -y --no-install-recommends faketime && rm -rf /var/lib/apt/lists/* \
+ && ln -s "$(find /usr/lib -name libfaketimeMT.so.1 | head -n1)" /usr/lib/libfaketimeMT.so.1
+ENV LD_PRELOAD=/usr/lib/libfaketimeMT.so.1 \
     FAKETIME_TIMESTAMP_FILE=/clock/now \
     FAKETIME_NO_CACHE=1 \
     FAKETIME_DONT_FAKE_MONOTONIC=1
@@ -61,8 +64,9 @@ CMD /bot \
 
 # The production bot, unchanged, with the tests' clock (see smp-client-e2e).
 FROM bot AS bot-e2e
-RUN apt-get update && apt-get install -y --no-install-recommends faketime && rm -rf /var/lib/apt/lists/*
-ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/faketime/libfaketimeMT.so.1 \
+RUN apt-get update && apt-get install -y --no-install-recommends faketime && rm -rf /var/lib/apt/lists/* \
+ && ln -s "$(find /usr/lib -name libfaketimeMT.so.1 | head -n1)" /usr/lib/libfaketimeMT.so.1
+ENV LD_PRELOAD=/usr/lib/libfaketimeMT.so.1 \
     FAKETIME_TIMESTAMP_FILE=/clock/now \
     FAKETIME_NO_CACHE=1 \
     FAKETIME_DONT_FAKE_MONOTONIC=1
