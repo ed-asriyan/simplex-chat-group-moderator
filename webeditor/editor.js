@@ -1596,6 +1596,11 @@ async function start() {
             st.unreadable = true;
         }
     }
+    /* The demo with no settings of its own shows one rule of each template, so
+       a person sees what a group's rules look like (US-G18). */
+    if (st.demo && !hash.config) {
+        st.rules = ((SCHEMA.options && SCHEMA.options.templates) || []).map((x) => ({ ...clone(x.rule), trigger: triggerOf(x.rule).v }));
+    }
     st.baseline = snapshot();
 
     $("demo").hidden = !st.demo;
