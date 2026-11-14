@@ -746,8 +746,7 @@ function rulePage() {
       <div class="name">
         <label class="label" for="r-name">${esc(R.name.title)}</label>
         <input type="text" id="r-name" class="title-input" maxlength="${R.name.maxLength || 60}" value="${esc(r.name)}"
-          placeholder="${esc(gap ? "New rule" : sentence(r))}" aria-describedby="r-name-h" data-op="name">
-        <p class="hint" id="r-name-h">${md(R.name.description || "")}</p>
+          placeholder="${esc(gap ? "New rule" : sentence(r))}" data-op="name">
       </div>
       <div class="rule-tools">
         <button class="btn" type="button" id="rule-ai" data-op="ai-rule">✨ Edit with AI</button>
