@@ -2335,12 +2335,12 @@
                     "disable_collapse": true,
                     "states": {
                         "on": {
-                            "on": "I carry out its actions and message you every time it matches, with what I did.",
-                            "off": "I carry out its actions silently and never message you about it."
+                            "on": "When the rule triggers, I notify you and carry out its actions.",
+                            "off": "When the rule triggers, I don't notify you and carry out its actions."
                         },
                         "off": {
-                            "on": "I carry out none of its actions, but message you every time it matches, with what I would have done.",
-                            "off": "I do nothing and never message you about it — the rule is fully off."
+                            "on": "When the rule triggers, I notify you and do nothing.",
+                            "off": "When the rule triggers, I don't notify you and do nothing."
                         }
                     }
                 },
