@@ -2335,12 +2335,12 @@
                     "disable_collapse": true,
                     "states": {
                         "on": {
-                            "on": "When the rule triggers, I notify you and carry out its actions.",
-                            "off": "When the rule triggers, I don't notify you and carry out its actions."
+                            "on": "When the rule triggers, I notify you and execute actions",
+                            "off": "When the rule triggers, I execute actions but do not notify you"
                         },
                         "off": {
-                            "on": "When the rule triggers, I notify you and do nothing.",
-                            "off": "When the rule triggers, I don't notify you and do nothing."
+                            "on": "When the rule triggers, I notify you but do not execute actions",
+                            "off": "When the rule triggers, I do nothing"
                         }
                     }
                 },
