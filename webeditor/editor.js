@@ -810,10 +810,11 @@ function rulePage() {
           ${!r.condition || !many ? `<button class="btn add" type="button" id="add-cond" data-op="pick" data-mode="condition">${ICON.plus}<span>Add condition</span></button>` : ""}
         </div>
       </li>
-      <li class="step then">
+      <li class="step then${isOn(r) ? "" : " idle"}">
         <div class="step-head">
           <h2 class="step-name" id="s-then">${esc(actDef.title.replace(/^\S+\s/, ""))}</h2>
           <button class="icon" type="button" id="help-then" data-op="help" data-key="then" aria-expanded="${st.help.has("then")}" aria-label="About actions">${ICON.info}</button>
+          ${isOn(r) ? "" : `<span class="tag warn">⚠ Not carried out: ${esc(R.enabled.title)} is Off</span>`}
         </div>
         <div class="step-body">
           ${st.help.has("then") ? `<div class="help">${md(actDef.description)}</div>` : ""}

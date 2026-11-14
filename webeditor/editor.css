@@ -961,6 +961,12 @@ textarea::placeholder {
     margin-top: 2px;
 }
 
+/* Actions that are off: the bot will not carry them out (US-G13). */
+.step.idle .step-body>.node,
+.step.idle .step-body>.sub {
+    opacity: .55;
+}
+
 /* The flow: a dot and a line for each step. */
 .flow {
     list-style: none;
