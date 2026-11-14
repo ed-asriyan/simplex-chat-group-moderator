@@ -660,28 +660,25 @@ function fieldsHtml(fields, value, path) {
 
 /* ------------------------------ one rule --------------------------------- */
 
-/* The rule's two switches, each On or Off with a line under it that says what
-   the rule does as both stand (US-G13, US-G19). */
+/* The rule's two switches, each On or Off, and under both one line that says
+   what the rule does as they stand (US-G13, US-G19). */
 function switchesHtml(r) {
     const w = (b) => (b ? "on" : "off");
     const value = { enabled: isOn(r), notify: notifies(r) };
-    const line = {
-        enabled: R.enabled.options.lines[w(value.enabled)],
-        notify: R.notify.options.lines[w(value.notify)][w(value.enabled)],
-    };
+    const line = SCHEMA.properties.rules.items.options.states[w(value.enabled)][w(value.notify)];
     return `<div class="switches">${["enabled", "notify"]
         .map((key) => {
             const id = `rule-${key}`;
             return `<div class="switch-row">
           <h2 class="switch-name" id="${id}-h">${esc(R[key].title)}</h2>
-          <div class="segments two" role="radiogroup" aria-labelledby="${id}-h" aria-describedby="${id}-line">
+          <div class="segments two" role="radiogroup" aria-labelledby="${id}-h" aria-describedby="rule-state">
             ${[true, false].map((x) => `<label class="segment${x === value[key] ? " on" : ""}"><input type="radio" name="${id}" id="${id}-${w(x)}"
               value="${w(x)}" ${x === value[key] ? "checked" : ""} data-op="switch" data-key="${key}"><b>${x ? "On" : "Off"}</b></label>`).join("")}
           </div>
-          <p class="hint" id="${id}-line">${esc(line[key])}</p>
         </div>`;
         })
-        .join("")}</div>`;
+        .join("")}
+      <p class="hint" id="rule-state">${esc(line)}</p></div>`;
 }
 
 const wrongPlace = (spec, r) => (fits(spec, r) ? "" : `<span class="tag bad">${esc(triggerOf(r).incompatible)}</span>`);
@@ -1260,7 +1257,7 @@ document.addEventListener("keydown", (e) => {
     }
 
     /* Undo and Redo, outside a text field, where the browser's own wins. */
-    if ((e.ctrlKey || e.metaKey) && !t.closest("input, textarea")) {
+    if ((e.ctrlKey || e.metaKey) && !t.closest("textarea, input:not([type=radio]):not([type=checkbox])")) {
         const k = e.key.toLowerCase();
         if (k === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
         else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); redo(); }

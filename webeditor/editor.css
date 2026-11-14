@@ -918,31 +918,47 @@ textarea::placeholder {
     background: var(--card);
 }
 
-/* The rule's two switches, side by side, each with the line of what it does. */
+/* The rule's two switches, one under the other, each a small On/Off beside its
+   name, and one line under both of what the rule does. */
 .switches {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     margin-bottom: 20px;
-    padding: 14px 16px 16px;
+    padding: 12px 16px 14px;
     border: 1px solid var(--line);
     border-radius: var(--r);
     background: var(--card);
 }
 
+.switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
 .switch-name {
-    margin-bottom: 8px;
     font-size: 15px;
     font-weight: 650;
 }
 
+.switches .segments.two {
+    grid-template-columns: repeat(2, 60px);
+    gap: 2px;
+    padding: 3px;
+    border-radius: 10px;
+}
+
 .switches .segment {
     align-items: center;
-    padding: 8px 12px;
+    padding: 4px 8px;
+    border-radius: 7px;
+    font-size: 14px;
 }
 
 .switches .hint {
-    margin-top: 8px;
+    margin-top: 2px;
 }
 
 /* The flow: a dot and a line for each step. */
@@ -1829,16 +1845,16 @@ dialog::backdrop {
     }
 
     .switches {
-        grid-template-columns: 1fr;
         padding: 12px;
     }
 
     .switches .segments.two {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, 60px);
     }
 
     .switches .segment {
         justify-content: center;
+        min-height: 36px;
     }
 
     .name {
