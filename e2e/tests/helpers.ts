@@ -124,8 +124,11 @@ export async function emptyEditor(page: Page) {
  * The page as the person sees it now matches its approved screenshot,
  * `tests/__screenshots__/<project>/<spec>/<name>.png` (AGENTS.md, *Workflow*).
  */
-export async function looks(page: Page, name: string) {
-  await expect(page).toHaveScreenshot(`${name}.png`, { fullPage: true });
+export async function looks(page: Page, name: string, maxDiffPixels?: number) {
+  await expect(page).toHaveScreenshot(`${name}.png`, {
+    fullPage: true,
+    ...(maxDiffPixels === undefined ? {} : { maxDiffPixels }),
+  });
 }
 
 /** Opens `url` afresh: going to another link that differs only by its hash would not reload the editor. */

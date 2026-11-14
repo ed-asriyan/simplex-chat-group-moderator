@@ -1122,7 +1122,7 @@ test('Edit with AI on a rule: its prompt holds this rule alone, and the answer r
   await box.fill(reply(changed));
   await load.click();
   await expect(dialog).toContainText('Updated “Banned words”. Press Apply changes when you are ready.');
-  await looks(page, 'ai-rule-loaded');
+  await looks(page, 'ai-rule-loaded', 33);
   await dialog.getByRole('button', { name: 'Undo the load' }).click();
   await expect(dialog).toContainText('Reverted to the rule you had before pasting.');
   await box.fill(reply(changed));
