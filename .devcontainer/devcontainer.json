@@ -13,7 +13,12 @@
       "configureZshAsDefaultShell": true,
       "installOhMyZsh": true,
       "installOhMyZshConfig": true
-    }
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    },
+    "ghcr.io/devcontainers/features/git-lfs:1": {}
   },
   "customizations": {
     "vscode": {
