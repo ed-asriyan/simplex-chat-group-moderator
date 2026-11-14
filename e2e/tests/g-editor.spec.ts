@@ -464,7 +464,7 @@ test('Apply shows every change before it is sent, each marked, under its section
   await toGroup(page);
   await newRule(page);
   await page.getByRole('button', { name: /^Start from a template/ }).click();
-  await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: /^🌊 Flood/ }).click();
+  await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: titled(FLOOD_TEMPLATE) }).click();
   await toGroup(page);
   // The button counts the changes: the mode, the switch, the name, the new rule.
   await expect(page.getByRole('button', { name: 'Apply 4 changes', exact: true })).toBeVisible();
@@ -931,21 +931,40 @@ test('a rule for when someone joins needs only an action', async ({ page }) => {
   await expect(page.getByText('Pick at least one action — the bot takes no rule without one.')).toHaveCount(0);
 });
 
+// The templates of US-G15, in the order the sheet lists them: their title and what they do.
+const MESSAGE_TEMPLATES: [string, string][] = [
+  ["👻 Delete blank and invisible messages", "THEN 🗑 moderate"],
+  ["🔁 Delete messages with repeated text", "THEN 🗑 moderate"],
+  ["🤬 Delete messages with bad words", "THEN 🗑 moderate"],
+  ["🔗 Delete links to unknown websites", "THEN 🗑 moderate"],
+  ["🔗 Delete links from newcomers", "THEN 🗑 moderate"],
+  ["📏 Delete walls of text", "THEN 🗑 moderate"],
+  ["🌊 Kick members who flood", "THEN 🚪 kick"],
+  ["🚨 Kick newcomers who spam", "THEN 🚪 kick"],
+  ["🌪 Silence senders while the group floods", "THEN 👁 observer"],
+];
+const JOIN_TEMPLATES: [string, string][] = [
+  ["👁 Quarantine newcomers", "THEN 👁 observer"],
+];
+/** The name a rule gets from its template: the title without its emoji. */
+const templateName = (title: string) => title.replace(/^\S+\s/, '');
+const titled = (title: string) => new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}`);
+const FLOOD_TEMPLATE = "🌊 Kick members who flood";
+const BAD_WORDS_TEMPLATE = "🤬 Delete messages with bad words";
+const NAMES_OF = (list: [string, string][]) => list.map(([title]) => templateName(title));
+
 // US-G15
 test('Start from a template opens a sheet with the templates of the trigger', async ({ page }) => {
   await emptyEditor(page);
   await newRule(page);
   await page.getByRole('button', { name: /^Start from a template/ }).click();
   const sheet = page.getByRole('dialog', { name: 'Start from a template' });
-  for (const [title, then] of [
-    ['🚫 Banned words', 'THEN 🗑 moderate'],
-    ['🔗 Links from newcomers', 'THEN 🗑 moderate'],
-    ['🌊 Flood', 'THEN 👁 observer'],
-    ['📏 Walls of text', 'THEN 🗑 moderate'],
-  ]) {
-    const item = sheet.getByRole('button', { name: new RegExp(`^${title}`) });
-    await expect(item).toContainText('IF ');
-    await expect(item).toContainText(then);
+  const items = sheet.getByRole('button').filter({ hasText: 'IF ' });
+  await expect(items).toHaveCount(MESSAGE_TEMPLATES.length);
+  for (const [i, [title, then]] of MESSAGE_TEMPLATES.entries()) {
+    await expect(items.nth(i)).toContainText(title);
+    await expect(items.nth(i)).toContainText('IF ');
+    await expect(items.nth(i)).toContainText(then);
   }
   await expect(sheet.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
   await looks(page, 'templates-sheet-messages');
@@ -954,57 +973,83 @@ test('Start from a template opens a sheet with the templates of the trigger', as
   await newRule(page, 'joins');
   await page.getByRole('button', { name: /^Start from a template/ }).click();
   const joins = page.getByRole('dialog', { name: 'Start from a template' });
-  await expect(joins.getByRole('button', { name: /^👁 Quarantine newcomers/ })).toContainText('THEN 👁 observer');
-  await expect(joins.getByRole('button', { name: /^🚫 Spam names/ })).toBeVisible();
-  await expect(joins.getByRole('button', { name: /^🔗 Links in names/ })).toBeVisible();
-  await expect(joins.getByRole('button', { name: /^🚫 Banned words/ })).toHaveCount(0);
+  const joinItems = joins.getByRole('button').filter({ hasText: 'IF ' });
+  await expect(joinItems).toHaveCount(JOIN_TEMPLATES.length);
+  for (const [i, [title, then]] of JOIN_TEMPLATES.entries()) {
+    await expect(joinItems.nth(i)).toContainText(title);
+    await expect(joinItems.nth(i)).toContainText(then);
+  }
+  await expect(joins.getByRole('button', { name: titled(MESSAGE_TEMPLATES[0][0]) })).toHaveCount(0);
   await looks(page, 'templates-sheet-joins');
 });
 
 // US-G15
 test('a template is added at the end of its section, named after itself, and opens its page', async ({ page }) => {
   await emptyEditor(page);
-  const take = async (trigger: 'messages' | 'joins', title: RegExp) => {
+  const take = async (trigger: 'messages' | 'joins', title: string, name = templateName(title)) => {
     await newRule(page, trigger);
     await page.getByRole('button', { name: /^Start from a template/ }).click();
-    await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: title }).click();
+    await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: titled(title) }).click();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(name);
   };
-  await take('messages', /^🚫 Banned words/);
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Banned words');
-  // Its list is empty, to fill in.
+  const [blank, repeated, badWords, unknownLinks, newcomerLinks, walls, flood, spam, silence] = MESSAGE_TEMPLATES.map(([title]) => title);
+  await take('messages', blank);
+  await toGroup(page);
+  await take('messages', repeated);
+  await toGroup(page);
+  // The list of bad words is filled in, and its page opens on it.
+  await take('messages', badWords);
   await expect(page.getByRole('textbox', { name: 'Add to Words / Phrases', exact: true })).toBeFocused();
   await toGroup(page);
-  await take('messages', /^🔗 Links from newcomers/);
+  // The list of websites of its own is empty, to fill in.
+  await take('messages', unknownLinks);
+  await expect(page.getByRole('textbox', { name: 'Add to Extra Websites Added to Top 100', exact: true })).toBeFocused();
   await toGroup(page);
-  await take('messages', /^🌊 Flood/);
-  await toGroup(page);
-  await take('messages', /^📏 Walls of text/);
-  await toGroup(page);
+  for (const title of [newcomerLinks, walls, flood, spam, silence]) {
+    await take('messages', title);
+    await toGroup(page);
+  }
   // The same template twice: the second has a number.
-  await take('messages', /^🚫 Banned words/);
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Banned words 2');
+  await take('messages', walls, 'Delete walls of text 2');
   await toGroup(page);
-  await take('joins', /^👁 Quarantine newcomers/);
+  await take('joins', JOIN_TEMPLATES[0][0]);
   await toGroup(page);
-  await take('joins', /^🚫 Spam names/);
-  await toGroup(page);
-  await take('joins', /^🔗 Links in names/);
-  await toGroup(page);
-  expect(await order(page, MESSAGES)).toEqual(['Banned words', 'Links from newcomers', 'Flood', 'Walls of text', 'Banned words 2']);
-  expect(await order(page, JOINS)).toEqual(['Quarantine newcomers', 'Spam names', 'Links in names']);
+  expect(await order(page, MESSAGES)).toEqual([...NAMES_OF(MESSAGE_TEMPLATES), 'Delete walls of text 2']);
+  expect(await order(page, JOINS)).toEqual(NAMES_OF(JOIN_TEMPLATES));
   const saved = (await savedConfig(page)).rules;
-  const by = (name: string) => saved.find((r: any) => r.name === name);
-  expect(by('Banned words')).toMatchObject({ trigger: 'message_posted', condition: { type: 'ContainsWords', keywords: [] }, actions: [{ type: 'ModerateMessage' }] });
-  expect(by('Links from newcomers').condition).toMatchObject({ type: 'All', conditions: [{ type: 'AuthorJoinedRecently', time_window_minutes: 60 }, { type: 'ContainsLinksOutsideTop100' }] });
-  expect(by('Flood')).toMatchObject({ condition: { type: 'AuthorHitsMessageRateLimit', message_count: 5, time_window_minutes: 1 }, actions: [{ type: 'SetAuthorObserver', duration_minutes: 10 }] });
-  expect(by('Walls of text')).toMatchObject({ condition: { type: 'ExceedsMaxLines', max_lines: 10, chars_per_line: 40 }, actions: [{ type: 'ModerateMessage' }] });
-  expect(by('Quarantine newcomers')).toMatchObject({ trigger: 'member_joined', actions: [{ type: 'SetAuthorObserver', duration_minutes: 60 }] });
-  expect(by('Quarantine newcomers').condition).toBeUndefined();
-  expect(by('Spam names')).toMatchObject({ trigger: 'member_joined', condition: { type: 'MemberNameContainsWords', keywords: [] }, actions: [{ type: 'KickAuthor', delete_all_messages: false }] });
-  expect(by('Links in names')).toMatchObject({ trigger: 'member_joined', condition: { type: 'MemberNameContainsLinksOutsideList', domains: [] }, actions: [{ type: 'KickAuthor' }] });
+  const by = (title: string) => saved.find((r: any) => r.name === templateName(title));
+  const KICK_ALL = [{ type: 'KickAuthor', delete_all_messages: true }];
+  expect(by(blank)).toMatchObject({ trigger: 'message_posted', condition: { type: 'Any', conditions: [{ type: 'IsBlank' }, { type: 'ContainsInvisibleCharacters' }] }, actions: [{ type: 'ModerateMessage' }] });
+  expect(by(repeated)).toMatchObject({ condition: { type: 'ContainsRepeatedSequence', min_repeats: 4, min_length: 5 }, actions: [{ type: 'ModerateMessage' }] });
+  const bad = by(badWords);
+  expect(bad).toMatchObject({ trigger: 'message_posted', condition: { type: 'ContainsWords' }, actions: [{ type: 'ModerateMessage' }] });
+  expect(bad.condition.keywords.length).toBeGreaterThan(100);
+  expect(bad.condition.keywords).toEqual(expect.arrayContaining(['fuck', 'porn', 'bdsm']));
+  expect(by(unknownLinks)).toMatchObject({ condition: { type: 'ContainsLinksOutsideTop100', domains: [] }, actions: [{ type: 'ModerateMessage' }] });
+  expect(by(newcomerLinks).condition).toMatchObject({ type: 'All', conditions: [{ type: 'AuthorJoinedRecently', time_window_minutes: 60 }, { type: 'ContainsLinksOutsideTop100', domains: [] }] });
+  expect(by(newcomerLinks).actions).toEqual([{ type: 'ModerateMessage' }]);
+  expect(by(walls)).toMatchObject({ condition: { type: 'ExceedsMaxLines', max_lines: 10, chars_per_line: 40 }, actions: [{ type: 'ModerateMessage' }] });
+  expect(by(flood)).toMatchObject({ condition: { type: 'AuthorHitsMessageRateLimit', message_count: 12, time_window_minutes: 1 }, actions: KICK_ALL });
+  expect(by(spam)).toMatchObject({
+    condition: {
+      type: 'All',
+      conditions: [
+        { type: 'AuthorJoinedRecently', time_window_minutes: 2880 },
+        { type: 'Any', conditions: [
+          { type: 'AuthorHitsModerationRateLimit', message_count: 4, time_window_minutes: 60 },
+          { type: 'AuthorHitsMessageRateLimit', message_count: 6, time_window_minutes: 1 },
+        ] },
+      ],
+    },
+    actions: KICK_ALL,
+  });
+  expect(by(silence)).toMatchObject({ condition: { type: 'GroupHitsMessageRateLimit', message_count: 12, time_window_minutes: 1 }, actions: [{ type: 'SetAuthorObserver', duration_minutes: 30 }] });
+  const quarantine = by(JOIN_TEMPLATES[0][0]);
+  expect(quarantine).toMatchObject({ trigger: 'member_joined', actions: [{ type: 'SetAuthorObserver', duration_minutes: 60 }] });
+  expect(quarantine.condition).toBeUndefined();
   // Taking one is a change that can be undone.
   await undo(page).click();
-  expect(await order(page, JOINS)).toEqual(['Quarantine newcomers', 'Spam names']);
+  expect(await order(page, JOINS)).toEqual([]);
 });
 
 // US-G16
@@ -1149,14 +1194,19 @@ const DEMO_NOTE = "This is a demo, so there is nothing to send. Invite the bot t
 const banner = (page: Page) => page.getByRole('note');
 
 // US-G18
-test('the link of the welcome opens a demo group with no rules, in the mode Notifications, under a banner', async ({ page }) => {
+test('the link of the welcome opens a demo group with one rule of each template, in the mode Notifications, under a banner', async ({ page }) => {
   await open(page, EDITOR);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Demo group');
   await expect(page.getByText('Moderation settings · Moderator Bot', { exact: true })).toBeVisible();
   await expect(banner(page)).toHaveText(DEMO_BANNER);
   await expect(mode(page, 'Notifications')).toBeChecked();
-  await expect(section(page, MESSAGES)).toContainText('No rules yet. Nothing is moderated until you add one.');
-  await expect(section(page, JOINS)).toContainText('No rules yet. Nobody is checked when they join.');
+  // One rule of each template, in the order of US-G15, each under its section, all on.
+  expect(await order(page, MESSAGES)).toEqual(NAMES_OF(MESSAGE_TEMPLATES));
+  expect(await order(page, JOINS)).toEqual(NAMES_OF(JOIN_TEMPLATES));
+  for (const name of [...NAMES_OF(MESSAGE_TEMPLATES), ...NAMES_OF(JOIN_TEMPLATES)]) {
+    await expect(row(page, name).getByRole('switch', { name })).toBeChecked();
+  }
+  await expect(page.getByText('No rules yet.')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Apply changes', exact: true })).toBeVisible();
   await expect(page.getByText('No bot ID found in the URL.')).toHaveCount(0);
   await looks(page, 'demo');
@@ -1169,8 +1219,8 @@ test('the demo banner is above the New rule page and a rule\'s page too', async 
   await expect(banner(page)).toHaveText(DEMO_BANNER);
   await looks(page, 'demo-new-rule');
   await page.getByRole('button', { name: /^Start from a template/ }).click();
-  await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: /^🚫 Banned words/ }).click();
-  await expect(page.getByRole('heading', { name: 'Banned words', level: 1 })).toBeVisible();
+  await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: titled(BAD_WORDS_TEMPLATE) }).click();
+  await expect(page.getByRole('heading', { name: 'Delete messages with bad words 2', level: 1 })).toBeVisible();
   await expect(banner(page)).toHaveText(DEMO_BANNER);
 });
 
@@ -1179,9 +1229,9 @@ test('the demo works as the editor of a group: a rule can be added, and Apply co
   await open(page, EDITOR);
   await newRule(page);
   await page.getByRole('button', { name: /^Start from a template/ }).click();
-  await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: /^🌊 Flood/ }).click();
+  await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: titled(FLOOD_TEMPLATE) }).click();
   await toGroup(page);
-  await expect(row(page, 'Flood')).toBeVisible();
+  await expect(row(page, 'Kick members who flood 2')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Apply 1 change', exact: true })).toBeVisible();
   await expect(undo(page)).toBeVisible();
 });
@@ -1205,10 +1255,10 @@ test('Apply with changes in the demo lists them as for a group, and has no Copy 
   await mode(page, 'Dry').check();
   await newRule(page);
   await page.getByRole('button', { name: /^Start from a template/ }).click();
-  await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: /^🌊 Flood/ }).click();
+  await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: titled(FLOOD_TEMPLATE) }).click();
   await toGroup(page);
   const dialog = await applyDialog(page);
-  await expect(dialog).toContainText('0 → 1 rules');
+  await expect(dialog).toContainText('10 → 11 rules');
   await expect(dialog).toContainText('🛡 Mode: Notifications — act and tell me → Dry — only tell me what it would do');
   await expect(dialog.getByRole('heading', { name: MESSAGES })).toBeVisible();
   await expect(dialog).toContainText('added');
@@ -1238,6 +1288,8 @@ test('a link with settings but no bot id opens the demo on those settings', asyn
   await expect(banner(page)).toHaveText(DEMO_BANNER);
   await expect(row(page, 'Banned words')).toBeVisible();
   await expect(row(page, 'Spam names')).toBeVisible();
+  // Not the rules of the templates.
+  await expect(row(page, templateName(MESSAGE_TEMPLATES[0][0]))).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Apply changes', exact: true })).toBeVisible();
 });
 
@@ -1247,6 +1299,8 @@ test('a link without a bot id whose settings cannot be read opens the demo, with
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Demo group');
   await expect(banner(page)).toHaveText(DEMO_BANNER);
   await expect(page.getByText('The settings in this link could not be read. Starting from scratch.')).toBeVisible();
+  await expect(section(page, MESSAGES)).toContainText('No rules yet. Nothing is moderated until you add one.');
+  await expect(section(page, JOINS)).toContainText('No rules yet. Nobody is checked when they join.');
 });
 
 // US-G18
