@@ -256,8 +256,6 @@ The editor has three kinds of page: the group's overview, a rule's page and the 
 
   For *🚪 When someone joins*:
   - *👁 Quarantine newcomers*: no condition, then *👁 Set the member as observer* for 60 minutes.
-  - *🚫 Kick members with spam names*: *👤 Member's Name Contains Any of These Words* with an empty list, then *🚪 Kick the member*; its page opens on the list, to fill in.
-  - *🔗 Kick members with links in their names*: *👤 Member's Name Contains a Link Outside This List* with an empty list, then *🚪 Kick the member*.
 - **US-G16.** As an owner, when I press *Create with AI* on the *New rule* page, I see *Create a rule with AI* with three steps and, in its footer, *Cancel* and *Add the rule*.
   1. *What should the rule do?*: I write it, e.g. `Kick anyone whose name advertises a casino`.
   2. *Copy the question*: *Copy the prompt* copies a request with what I wrote and the conditions and actions the section's trigger takes, asking for one rule with a name, and I see `Prompt copied. Paste it into your AI chat.` With nothing written, I get `Describe the rule first.`

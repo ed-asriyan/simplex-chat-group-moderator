@@ -2318,41 +2318,6 @@
                         }
                     ]
                 }
-            },
-            {
-                "title": "🚫 Kick members with spam names",
-                "rule": {
-                    "name": "Kick members with spam names",
-                    "trigger": "member_joined",
-                    "actions": [
-                        {
-                            "type": "KickAuthor",
-                            "delete_all_messages": false
-                        }
-                    ],
-                    "condition": {
-                        "type": "MemberNameContainsWords",
-                        "keywords": []
-                    }
-                },
-                "focus": "keywords"
-            },
-            {
-                "title": "🔗 Kick members with links in their names",
-                "rule": {
-                    "name": "Kick members with links in their names",
-                    "trigger": "member_joined",
-                    "actions": [
-                        {
-                            "type": "KickAuthor",
-                            "delete_all_messages": false
-                        }
-                    ],
-                    "condition": {
-                        "type": "MemberNameContainsLinksOutsideList",
-                        "domains": []
-                    }
-                }
             }
         ]
     },
