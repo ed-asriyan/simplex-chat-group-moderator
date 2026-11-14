@@ -572,7 +572,7 @@ async fn test_preserves_sibling_order_within_a_composite() {
     .await;
 }
 
-// US-C1, US-B4, US-G13, US-G19: a rule is stored with its two switches, every
+// US-B1, US-C1, US-B4, US-G13, US-G19: a new group has no rules, a rule is stored with its two switches, every
 // combination of them comes back as it went in, and a rule with none turned off
 // is stored as one that is on and tells.
 #[tokio::test]

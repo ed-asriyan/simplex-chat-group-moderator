@@ -722,10 +722,9 @@ async fn test_an_unlisted_model_is_rejected_before_openrouter_is_asked() {
     assert!(verifier.asked().is_empty());
 }
 
-// US-B1: the owner of the invitation is the group's owner, and the new group has no
-// rules, so the configuration its owner is sent is an empty list of them.
+// US-B1: the one who invited the bot is the group's owner.
 #[tokio::test]
-async fn test_a_joined_group_is_the_inviters_and_has_no_rules() {
+async fn test_a_joined_group_is_the_inviters() {
     let app = GroupAdministrationApplication::new(
         Arc::new(MockModerationRepository {
             group: None,
@@ -744,13 +743,6 @@ async fn test_a_joined_group_is_the_inviters_and_has_no_rules() {
 
     assert_eq!(group.owner_id, 100);
     assert_eq!(group.name, "New Group");
-    assert!(
-        app.get_group_config(100, group.id)
-            .await
-            .unwrap()
-            .rules
-            .is_empty()
-    );
 }
 
 // ---- rules with a trigger, a name and a switch (US-C1, US-C2, US-G13) ----
