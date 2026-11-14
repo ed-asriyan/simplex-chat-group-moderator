@@ -225,6 +225,8 @@ test('Add condition lists the types the trigger takes, in tabs and with a search
   await expect(tabs).toHaveText(['All', 'Message text', 'Links', 'Shape and size', 'Attachments', 'Member', 'Group', 'Combine']);
   await expect(list.getByRole('tab', { name: 'All', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(list.getByRole('button', { name: /^Message Contains Any of These Words\s/ })).toBeVisible();
+  // The pointer is where Add condition was, which may now be over a row of the list: no row is hovered in the screenshot.
+  await page.mouse.move(0, 0);
   await looks(page, 'condition-picker');
   await list.getByRole('tab', { name: 'Links', exact: true }).click();
   await expect(list.getByRole('button', { name: /^Message Contains a Link/ })).toHaveCount(3);
