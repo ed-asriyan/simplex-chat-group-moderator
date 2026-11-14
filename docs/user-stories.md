@@ -35,7 +35,7 @@ A group owner adds the bot to their [SimpleX Chat](https://simplex.chat) group w
   ### 👀 Not ready to invite me?
   [Try the editor on a demo group](https://ed-asriyan.github.io/simplex-chat-group-moderator): see exactly what you would set up, without inviting me or giving me any role.
 
-  Send /help for the commands and how to try a rule out. My code is open [on GitHub](https://github.com/ed-asriyan/simplex-chat-group-moderator).
+  Send /help for the commands. My code is open [on GitHub](https://github.com/ed-asriyan/simplex-chat-group-moderator).
   ```
 - **US-A2.** As a person, when I send `/start`, I get the welcome of US-A1.
 - **US-A3.** As a person, when I send `/help`, I get:
