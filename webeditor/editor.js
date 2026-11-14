@@ -819,7 +819,6 @@ function newPage() {
 /* The templates of the trigger, in a sheet over the page (US-G15). */
 function openTemplates() {
     const t = T.find((x) => x.v === st.trigger) || T[0];
-    $("tpl-sub").textContent = t.newRule;
     $("tpl-body").innerHTML = `<ul class="templates">${templatesOf(t.v)
         .map((x, j) => `<li><button type="button" id="tpl-${j}" data-j="${j}"><span class="ttitle">${esc(x.title)}</span><span class="tline">${esc(sentence(x.rule))}</span></button></li>`)
         .join("")}</ul>`;
