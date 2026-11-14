@@ -130,12 +130,19 @@ use moderation_condition::{Evaluation, TriggerCondition, check_condition, depend
 /// What the rules of one trigger call for about one message or one join.
 ///
 /// `actions` — the trigger's own action type `A` — is the merged,
-/// non-redundant plan in execution order: it is what the application performs
-/// and what the owner is told about. `reasons` has one entry per matched
-/// rule, in the order of the rules (US-D2, US-D6).
+/// non-redundant plan in execution order of the matched rules with *Actions*
+/// on, whether or not they tell the owner: it is what the application carries
+/// out (US-D1, US-D3). What the owner is told is only about the matched rules
+/// with *Notifications* on (US-D2, US-D4): `reasons` has one entry per such
+/// rule, in the order of the rules; `performed` is the merged plan of those of
+/// them with *Actions* on; `would_perform` what the ones with *Actions* off
+/// would add to what was carried out. The owner is told when `reasons` is not
+/// empty.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModerationMatch<A> {
     pub actions: Vec<A>,
+    pub performed: Vec<A>,
+    pub would_perform: Vec<A>,
     pub reasons: Vec<RuleReason>,
 }
 
@@ -143,10 +150,29 @@ impl<A: Copy> ModerationMatch<A>
 where
     ModerationAction: From<A>,
 {
-    /// The planned actions as an owner writes them, which is how the notification
-    /// names them.
+    /// The actions carried out, as an owner writes them.
     pub fn actions_as_written(&self) -> Vec<ModerationAction> {
         self.actions
+            .iter()
+            .copied()
+            .map(ModerationAction::from)
+            .collect()
+    }
+
+    /// The actions told as performed, as an owner writes them, which is how the
+    /// notification names them.
+    pub fn performed_as_written(&self) -> Vec<ModerationAction> {
+        self.performed
+            .iter()
+            .copied()
+            .map(ModerationAction::from)
+            .collect()
+    }
+
+    /// The actions told as what would have been carried out, as an owner writes
+    /// them.
+    pub fn would_perform_as_written(&self) -> Vec<ModerationAction> {
+        self.would_perform
             .iter()
             .copied()
             .map(ModerationAction::from)
@@ -157,6 +183,10 @@ where
 /// One rule as the engine checks it: what its trigger's types make of it.
 struct Candidate<'r, T, A> {
     name: Option<&'r str>,
+    /// *Actions*: whether the rule's actions are carried out.
+    enabled: bool,
+    /// *Notifications*: whether the owner is told when it matches.
+    notify: bool,
     /// `None` matches everyone (a rule for joins with no condition).
     condition: Option<&'r T>,
     actions: &'r [A],
@@ -166,9 +196,9 @@ struct Candidate<'r, T, A> {
 const EVERYONE_WHO_JOINS: &str = "everyone who joins";
 
 /// Checks one message against the group's rules for `Trigger::MessagePosted`
-/// that are on, in order, and merges what the matching ones call for (US-D1).
-/// Rules for other triggers and rules that are off are skipped and cover
-/// nothing.
+/// that have a switch on, in order, and merges what the matching ones call for
+/// (US-D1). Rules for other triggers and rules with both switches off are
+/// skipped and cover nothing.
 pub async fn should_moderate_message(
     group_message: &GroupMessage,
     rules: &[ModerationRule],
@@ -176,10 +206,12 @@ pub async fn should_moderate_message(
 ) -> Result<Option<ModerationMatch<MessageAction>>, Err> {
     let candidates: Vec<Candidate<'_, MessageCondition, MessageAction>> = rules
         .iter()
-        .filter(|rule| rule.enabled)
+        .filter(|rule| rule.enabled || rule.notify)
         .filter_map(|rule| match &rule.body {
             TriggeredRule::MessagePosted { condition, actions } => Some(Candidate {
                 name: rule.name.as_deref(),
+                enabled: rule.enabled,
+                notify: rule.notify,
                 condition: Some(condition),
                 actions,
             }),
@@ -190,8 +222,8 @@ pub async fn should_moderate_message(
 }
 
 /// Checks someone who joined against the group's rules for
-/// `Trigger::MemberJoined` that are on, in order, and merges what the matching
-/// ones call for; a rule with no condition matches everyone (US-D6).
+/// `Trigger::MemberJoined` that have a switch on, in order, and merges what the
+/// matching ones call for; a rule with no condition matches everyone (US-D6).
 pub async fn should_moderate_join(
     join: &MemberJoin,
     rules: &[ModerationRule],
@@ -199,10 +231,12 @@ pub async fn should_moderate_join(
 ) -> Result<Option<ModerationMatch<JoinAction>>, Err> {
     let candidates: Vec<Candidate<'_, JoinCondition, JoinAction>> = rules
         .iter()
-        .filter(|rule| rule.enabled)
+        .filter(|rule| rule.enabled || rule.notify)
         .filter_map(|rule| match &rule.body {
             TriggeredRule::MemberJoined { condition, actions } => Some(Candidate {
                 name: rule.name.as_deref(),
+                enabled: rule.enabled,
+                notify: rule.notify,
                 condition: condition.as_ref(),
                 actions,
             }),
@@ -228,25 +262,25 @@ where
     let reason_of = |rule: &Candidate<'_, T, A>, reason: String| RuleReason {
         rule_name: rule.name.map(str::to_string),
         reason,
-        // Stage 5 stub: only rules with *Actions* on are checked yet (US-D4).
-        actions_on: true,
+        actions_on: rule.enabled,
     };
 
     // Only pay for the pre-pass when some rule actually depends on what the
-    // others do with this subject.
-    let mut moderated_by: Option<RuleReason> = None;
+    // others do with this subject. Only rules with *Actions* on moderate
+    // anything, so only they are asked (US-E20).
+    let mut moderated_by: Option<(RuleReason, bool)> = None;
     if rules
         .iter()
         .any(|rule| rule.condition.is_some_and(depends_on_other_rules))
     {
         evaluation.pre_pass = true;
-        for rule in rules {
+        for rule in rules.iter().filter(|rule| rule.enabled) {
             let reason = match rule.condition {
                 Some(condition) => check_condition(&mut evaluation, condition).await?,
                 None => Some(EVERYONE_WHO_JOINS.to_string()),
             };
             if let Some(reason) = reason {
-                moderated_by = Some(reason_of(rule, reason));
+                moderated_by = Some((reason_of(rule, reason), rule.notify));
                 break;
             }
         }
@@ -254,46 +288,88 @@ where
         evaluation.ctx.moderated_by_other_rules = moderated_by.is_some();
     }
 
-    let mut current_actions: Vec<ModerationAction> = Vec::new();
+    // What the matched rules with *Actions* on call for (carried out), and what
+    // every matched rule calls for: a rule with *Actions* off is covered by
+    // all of them, one with them on by those that are on alone (US-D1).
+    let mut carried_out: Vec<ModerationAction> = Vec::new();
+    let mut everything: Vec<ModerationAction> = Vec::new();
+    // Each matched rule: its written actions and whether they are on and told.
+    let mut matched: Vec<(Vec<ModerationAction>, &Candidate<'_, T, A>)> = Vec::new();
     let mut reasons: Vec<RuleReason> = Vec::new();
 
     for rule in rules {
         let written: Vec<ModerationAction> = rule.actions.iter().copied().map(Into::into).collect();
-        let Some(candidate_actions) = action_planner::plan_next_actions(&current_actions, &written)
-        else {
-            // Rule actions are a subset of already planned actions; skip the
+        let covering = if rule.enabled {
+            &carried_out
+        } else {
+            &everything
+        };
+        if action_planner::plan_next_actions(covering, &written).is_none() {
+            // Every action of the rule is already covered; skip the
             // condition check.
             continue;
-        };
+        }
         let reason = match rule.condition {
             Some(condition) => check_condition(&mut evaluation, condition).await?,
             None => Some(EVERYONE_WHO_JOINS.to_string()),
         };
-        if let Some(reason) = reason {
-            current_actions = candidate_actions;
+        let Some(reason) = reason else { continue };
+        if rule.enabled {
+            carried_out =
+                action_planner::plan_next_actions(&carried_out, &written).unwrap_or(carried_out);
+        }
+        everything = action_planner::plan_next_actions(&everything, &written).unwrap_or(everything);
+        if rule.notify {
             reasons.push(reason_of(rule, reason));
         }
+        matched.push((written, rule));
     }
 
     // The rule that moderated this message may have been skipped above because
     // a stronger plan already covered its actions — typically the very kick the
     // moderation rate limit asked for. Without its reason the owner would read
     // "N messages moderated" with nothing saying why this one was.
-    if let Some(reason) = moderated_by
-        && !current_actions.is_empty()
+    if let Some((reason, notify)) = moderated_by
+        && notify
+        && !reasons.is_empty()
         && !reasons.contains(&reason)
     {
         reasons.push(reason);
     }
 
-    if current_actions.is_empty() {
+    if matched.is_empty() {
         return Ok(None);
     }
+
+    // What the owner is told: what the matched rules that tell and act merged
+    // to, and what the ones that tell and do not act would add to what was
+    // carried out.
+    let merged = |from: &mut Vec<ModerationAction>, written: &[ModerationAction]| {
+        if let Some(next) = action_planner::plan_next_actions(from, written) {
+            *from = next;
+        }
+    };
+    let mut performed: Vec<ModerationAction> = Vec::new();
+    let mut would_be: Vec<ModerationAction> = carried_out.clone();
+    for (written, rule) in &matched {
+        if rule.enabled && rule.notify {
+            merged(&mut performed, written);
+        } else if !rule.enabled {
+            merged(&mut would_be, written);
+        }
+    }
+    let would: Vec<ModerationAction> = would_be
+        .into_iter()
+        .filter(|action| !carried_out.contains(action))
+        .collect();
+
+    let narrow = |actions: Vec<ModerationAction>| -> Result<Vec<A>, Err> {
+        actions.into_iter().map(A::try_from).collect()
+    };
     Ok(Some(ModerationMatch {
-        actions: current_actions
-            .into_iter()
-            .map(A::try_from)
-            .collect::<Result<_, _>>()?,
+        actions: narrow(carried_out)?,
+        performed: narrow(performed)?,
+        would_perform: narrow(would)?,
         reasons,
     }))
 }

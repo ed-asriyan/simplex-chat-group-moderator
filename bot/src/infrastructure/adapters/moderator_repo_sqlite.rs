@@ -619,14 +619,15 @@ impl ModerationRepository for SqliteModerationRepository {
             for (rank, rule) in rules.iter().enumerate() {
                 let draft = RuleDraft::from(rule.clone());
                 tx.execute(
-                    "INSERT INTO moderation_rules (group_id, rank, name, trigger, enabled)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    "INSERT INTO moderation_rules (group_id, rank, name, trigger, enabled, notify)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                     rusqlite::params![
                         gid,
                         rank as i64,
                         draft.name,
                         draft.trigger.name(),
-                        draft.enabled
+                        draft.enabled,
+                        draft.notify
                     ],
                 )
                 .map_err(|e| -> Err { e.to_string().into() })?;
