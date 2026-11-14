@@ -24,56 +24,13 @@ pub struct Group {
     pub id: GroupId,
     pub owner_id: UserId,
     pub name: String,
-    pub mode: GroupMode,
 }
 
-/// How the bot treats a match in a group: whether it carries out the rule's
-/// actions, and whether it tells the owner.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GroupMode {
-    /// Checks every message and tells the owner what it would have done, but
-    /// does nothing in the group.
-    Dry,
-    /// Carries out the actions without telling the owner.
-    Silent,
-    /// Carries out the actions and tells the owner about each one.
-    #[default]
-    Notifications,
-}
-
-impl GroupMode {
-    pub fn executes_actions(self) -> bool {
-        self != Self::Dry
-    }
-
-    pub fn notifies_owner(self) -> bool {
-        self != Self::Silent
-    }
-
-    /// The name used in the group's JSON and in the database.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Dry => "dry",
-            Self::Silent => "silent",
-            Self::Notifications => "notifications",
-        }
-    }
-
-    /// The mode whose [`Self::name`] is `name`, if any.
-    pub fn from_name(name: &str) -> Option<Self> {
-        [Self::Dry, Self::Silent, Self::Notifications]
-            .into_iter()
-            .find(|mode| mode.name() == name)
-    }
-}
-
-/// Everything an owner configures about a group, saved and loaded as one: the
-/// mode and the rules.
+/// Everything an owner configures about a group, saved and loaded as one: its
+/// rules, each with its two switches, those turned off included (US-B4, US-C1).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GroupConfig {
-    pub mode: GroupMode,
     pub rules: Vec<ModerationRule>,
 }
 
@@ -160,25 +117,34 @@ impl TriggerEvent {
     }
 }
 
-/// What the rules called for about one message or one join, for the owner
-/// (US-D2, US-D4, US-D6). `actions` are in the order they were carried out,
-/// `reasons` in the order of the rules, one per matched rule.
+/// What the matched rules with *Notifications* on called for about one message
+/// or one join, for the owner (US-D2, US-D4, US-D6). Only those rules are in
+/// it: a matched rule with *Notifications* off is neither named nor are its
+/// actions, though they were carried out.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModerationReport {
     pub event: TriggerEvent,
     /// The display name of the message's author, or of the person who joined.
     pub member_name: String,
-    pub actions: Vec<ModerationAction>,
+    /// What was carried out for the rules with *Actions* on, merged (US-F4),
+    /// in the order it was carried out.
+    pub performed: Vec<ModerationAction>,
+    /// What the rules with *Actions* off would have carried out, merged and in
+    /// that order, less what `performed` already covers (US-D4).
+    pub would_perform: Vec<ModerationAction>,
+    /// One per matched rule, in the order of the rules.
     pub reasons: Vec<RuleReason>,
 }
 
-/// Why one rule matched, as the owner is told (US-D2, US-D6): the rule's name,
-/// if it has one, and what matched — the condition's reason, or, for a join
-/// rule with no condition, that it matches everyone who joins.
+/// Why one rule matched, as the owner is told (US-D2, US-D4, US-D6): the
+/// rule's name, if it has one, what matched — the condition's reason, or, for
+/// a join rule with no condition, that it matches everyone who joins — and
+/// whether the rule's actions are on, a rule with them off being marked so.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuleReason {
     pub rule_name: Option<String>,
     pub reason: String,
+    pub actions_on: bool,
 }
 
 #[derive(Clone, Debug)]

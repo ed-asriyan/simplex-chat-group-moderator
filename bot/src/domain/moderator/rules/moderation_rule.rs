@@ -1,6 +1,6 @@
 //! A rule: what makes the bot check it, what it checks, and what it does on a
-//! match — named by the owner and turned on or off by them (US-D1, US-D6,
-//! US-G13).
+//! match — named by the owner, with its two switches, *Actions* and
+//! *Notifications* (US-D1–US-D4, US-D6, US-G13, US-G19).
 //!
 //! A rule exists in two forms. [`RuleDraft`] is the rule as an owner writes it
 //! — the rules JSON, the editor link —, any condition and any action next to
@@ -33,10 +33,15 @@ pub struct ModerationRule {
     /// characters, never blank. The notifications name a matched rule by it
     /// (US-D2, US-D6); a rule without one is reported by what matched alone.
     pub name: Option<String>,
-    /// A rule that is off is kept with its settings and sent back in the
-    /// editor link, but never checked, and its actions cover nothing (US-D1,
-    /// US-D6, US-G13).
+    /// *Actions*: whether the bot carries out the rule's actions when it
+    /// matches. With them off, the rule is still checked while `notify` is on,
+    /// its actions cover nothing for the rules with them on, and the owner is
+    /// told what it would have done (US-D1, US-D4, US-G13).
     pub enabled: bool,
+    /// *Notifications*: whether the owner is told when the rule matches
+    /// (US-D2, US-D3, US-G19). A rule with both switches off is kept with its
+    /// settings and sent back in the editor link, but never checked.
+    pub notify: bool,
     pub body: TriggeredRule,
 }
 
@@ -119,9 +124,9 @@ impl ModerationRule {
 }
 
 /// A rule as an owner writes it, in the rules JSON: `{"name": ..., "trigger":
-/// ..., "enabled": ..., "condition": {...}, "actions": [...]}`. A missing
-/// `trigger` is a message rule, a missing `enabled` a rule that is on, and a
-/// missing `name` or `condition` is none.
+/// ..., "enabled": ..., "notify": ..., "condition": {...}, "actions": [...]}`.
+/// A missing `trigger` is a message rule, a missing `enabled` or `notify` a
+/// switch that is on, and a missing `name` or `condition` is none.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuleDraft {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -130,9 +135,12 @@ pub struct RuleDraft {
     /// always has.
     #[serde(default, skip_serializing_if = "is_default_trigger")]
     pub trigger: Trigger,
-    /// Written only when the rule is off.
+    /// Written only when the rule's actions are off.
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_enabled")]
     pub enabled: bool,
+    /// Written only when the rule's notifications are off.
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_enabled")]
+    pub notify: bool,
     pub actions: Vec<ModerationAction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<ModerationCondition>,
