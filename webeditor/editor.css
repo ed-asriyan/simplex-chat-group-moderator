@@ -1310,8 +1310,8 @@ dialog::backdrop {
     padding: 0 2px;
 }
 
-#tpl-body .templates {
-    margin-top: 8px;
+#tpldlg .sheet-body {
+    padding-top: 4px;
 }
 
 .sheet-body {

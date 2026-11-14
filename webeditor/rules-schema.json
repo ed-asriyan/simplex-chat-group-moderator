@@ -1772,9 +1772,49 @@
         "message_max_bytes": 15000,
         "templates": [
             {
-                "title": "🚫 Banned words",
+                "title": "👻 Delete blank and invisible messages",
                 "rule": {
-                    "name": "Banned words",
+                    "name": "Delete blank and invisible messages",
+                    "trigger": "message_posted",
+                    "actions": [
+                        {
+                            "type": "ModerateMessage"
+                        }
+                    ],
+                    "condition": {
+                        "type": "Any",
+                        "conditions": [
+                            {
+                                "type": "IsBlank"
+                            },
+                            {
+                                "type": "ContainsInvisibleCharacters"
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "title": "🔁 Delete messages with repeated text",
+                "rule": {
+                    "name": "Delete messages with repeated text",
+                    "trigger": "message_posted",
+                    "actions": [
+                        {
+                            "type": "ModerateMessage"
+                        }
+                    ],
+                    "condition": {
+                        "type": "ContainsRepeatedSequence",
+                        "min_repeats": 4,
+                        "min_length": 5
+                    }
+                }
+            },
+            {
+                "title": "🤬 Delete messages with bad words",
+                "rule": {
+                    "name": "Delete messages with bad words",
                     "trigger": "message_posted",
                     "actions": [
                         {
@@ -1783,15 +1823,378 @@
                     ],
                     "condition": {
                         "type": "ContainsWords",
-                        "keywords": []
+                        "keywords": [
+                            "2 girls 1 cup",
+                            "2g1c",
+                            "Adolf Hitler",
+                            "Hitler",
+                            "acrotomophilia",
+                            "alabama hot pocket",
+                            "alaskan pipeline",
+                            "anal",
+                            "anilingus",
+                            "anus",
+                            "apeshit",
+                            "arsehole",
+                            "ass",
+                            "asshole",
+                            "assmunch",
+                            "auto erotic",
+                            "autoerotic",
+                            "babeland",
+                            "baby batter",
+                            "baby juice",
+                            "ball gag",
+                            "ball gravy",
+                            "ball kicking",
+                            "ball licking",
+                            "ball sack",
+                            "ball sucking",
+                            "bangbros",
+                            "bangbus",
+                            "bareback",
+                            "barenaked",
+                            "bastard",
+                            "bastardo",
+                            "bastinado",
+                            "bbw",
+                            "bdsm",
+                            "beaner",
+                            "beastiality",
+                            "beaver cleaver",
+                            "beaver lips",
+                            "bestiality",
+                            "big black",
+                            "big breasts",
+                            "big knockers",
+                            "bimbos",
+                            "birdlock",
+                            "bitch",
+                            "blonde action",
+                            "blow your load",
+                            "blowjob",
+                            "blue waffle",
+                            "blumpkin",
+                            "bollocks",
+                            "bondage",
+                            "boner",
+                            "boob",
+                            "booty call",
+                            "brown showers",
+                            "brunette action",
+                            "bukkake",
+                            "bulldyke",
+                            "bullet vibe",
+                            "bung hole",
+                            "bunghole",
+                            "busty",
+                            "butt",
+                            "buttcheeks",
+                            "butthole",
+                            "camel toe",
+                            "camgirl",
+                            "camslut",
+                            "camwhore",
+                            "carpet muncher",
+                            "carpetmuncher",
+                            "chocolate rosebuds",
+                            "cialis",
+                            "circlejerk",
+                            "cleveland steamer",
+                            "clit",
+                            "clitoris",
+                            "clover clamps",
+                            "clusterfuck",
+                            "cock",
+                            "coon",
+                            "coprolagnia",
+                            "coprophilia",
+                            "cornhole",
+                            "crawler",
+                            "crawlerbot",
+                            "creampie",
+                            "cum",
+                            "cumshot",
+                            "cunnilingus",
+                            "cunt",
+                            "darkie",
+                            "daterape",
+                            "deep throat",
+                            "dendrophilia",
+                            "dick",
+                            "dildo",
+                            "dingleberries",
+                            "dingleberry",
+                            "dirty pillows",
+                            "dirty sanchez",
+                            "dog style",
+                            "dolcett",
+                            "domination",
+                            "dominatrix",
+                            "dommes",
+                            "donkey punch",
+                            "double dong",
+                            "double penetration",
+                            "dp action",
+                            "dry hump",
+                            "dvda",
+                            "eat my ass",
+                            "ecchi",
+                            "ejaculation",
+                            "erotic",
+                            "erotism",
+                            "escort",
+                            "eunuch",
+                            "fag",
+                            "faggot",
+                            "fecal",
+                            "felch",
+                            "fellatio",
+                            "feltch",
+                            "femdom",
+                            "figging",
+                            "fingerbang",
+                            "fingering",
+                            "fisting",
+                            "foot fetish",
+                            "footjob",
+                            "frotting",
+                            "fuck",
+                            "fucktard",
+                            "fudge packer",
+                            "futanari",
+                            "g-spot",
+                            "gang bang",
+                            "genital",
+                            "girls gone wild",
+                            "goatcx",
+                            "goatse",
+                            "god damn",
+                            "gokkun",
+                            "golden shower",
+                            "goo girl",
+                            "goodpoop",
+                            "goregasm",
+                            "grope",
+                            "guro",
+                            "hand job",
+                            "hentai",
+                            "homoerotic",
+                            "honkey",
+                            "hooker",
+                            "horny",
+                            "hot chick",
+                            "how to kill",
+                            "how to murder",
+                            "hueglot",
+                            "humping",
+                            "incest",
+                            "jack off",
+                            "jail bait",
+                            "jelly donut",
+                            "jerk off",
+                            "jigaboo",
+                            "jizz",
+                            "juggs",
+                            "kike",
+                            "kinbaku",
+                            "kinkster",
+                            "kinky",
+                            "knobbing",
+                            "leather restraint",
+                            "leather straight jacket",
+                            "lemon party",
+                            "livesex",
+                            "make me come",
+                            "male squirting",
+                            "masturbate",
+                            "menage a trois",
+                            "milf",
+                            "missionary position",
+                            "motherfucker",
+                            "mr hands",
+                            "muff diver",
+                            "muffdiving",
+                            "nambla",
+                            "naughty",
+                            "nawashi",
+                            "negro",
+                            "neonazi",
+                            "nigga",
+                            "nigger",
+                            "nimphomania",
+                            "nipple",
+                            "nude",
+                            "nudity",
+                            "nutten",
+                            "nympho",
+                            "nymphomania",
+                            "octopussy",
+                            "omorashi",
+                            "one cup two girls",
+                            "one guy one jar",
+                            "orbot",
+                            "orgasm",
+                            "orgy",
+                            "otro",
+                            "otrobot",
+                            "paedophile",
+                            "paki",
+                            "panties",
+                            "pedobear",
+                            "pedophile",
+                            "pegging",
+                            "penis",
+                            "pikey",
+                            "piss pig",
+                            "pissing",
+                            "pisspig",
+                            "playboy",
+                            "pleasure chest",
+                            "pole smoker",
+                            "ponyplay",
+                            "poof",
+                            "poon",
+                            "poontang",
+                            "poop chute",
+                            "porn",
+                            "porno",
+                            "pornography",
+                            "prince albert piercing",
+                            "psina",
+                            "pthc",
+                            "pubes",
+                            "punany",
+                            "pussy",
+                            "queaf",
+                            "queef",
+                            "quim",
+                            "raghead",
+                            "raging boner",
+                            "rape",
+                            "raping",
+                            "rapist",
+                            "rectum",
+                            "reverse cowgirl",
+                            "rimjob",
+                            "rimming",
+                            "rosy palm",
+                            "rusty trombone",
+                            "s&m",
+                            "sadism",
+                            "santorum",
+                            "scat",
+                            "schlong",
+                            "scissoring",
+                            "semen",
+                            "sex",
+                            "sexcam",
+                            "sexual",
+                            "sexuality",
+                            "sexually",
+                            "shaved beaver",
+                            "shemale",
+                            "shibari",
+                            "shota",
+                            "shrimping",
+                            "skeet",
+                            "slanteye",
+                            "slut",
+                            "smut",
+                            "snatch",
+                            "snowballing",
+                            "sodomize",
+                            "sodomy",
+                            "spastic",
+                            "spic",
+                            "splooge",
+                            "splooge moose",
+                            "spooge",
+                            "spread legs",
+                            "spunk",
+                            "squirt",
+                            "strap on",
+                            "strapon",
+                            "strappado",
+                            "strip club",
+                            "style doggy",
+                            "sultry women",
+                            "swastika",
+                            "swinger",
+                            "tainted love",
+                            "taste my",
+                            "tea bagging",
+                            "teen",
+                            "threesome",
+                            "throating",
+                            "thumbzilla",
+                            "tight white",
+                            "tit",
+                            "tongue in a",
+                            "topless",
+                            "tranny",
+                            "tribadism",
+                            "tub girl",
+                            "tushy",
+                            "twat",
+                            "twink",
+                            "two girls one cup",
+                            "uncensored content",
+                            "uncensored group",
+                            "urethra play",
+                            "urophilia",
+                            "vagina",
+                            "venus mound",
+                            "viagra",
+                            "vibrator",
+                            "violet wand",
+                            "vorarephilia",
+                            "voyeur",
+                            "voyeurweb",
+                            "voyuer",
+                            "vulva",
+                            "wank",
+                            "wet dream",
+                            "wetback",
+                            "whore",
+                            "worldsex",
+                            "wrapping men",
+                            "wrinkled starfish",
+                            "xxx group",
+                            "xxx photos",
+                            "xxx videos",
+                            "yaoi",
+                            "yellow showers",
+                            "yiffy",
+                            "zoophilia",
+                            "卐",
+                            "𓂸"
+                        ]
                     }
                 },
                 "focus": "keywords"
             },
             {
-                "title": "🔗 Links from newcomers",
+                "title": "🔗 Delete links to unknown websites",
                 "rule": {
-                    "name": "Links from newcomers",
+                    "name": "Delete links to unknown websites",
+                    "trigger": "message_posted",
+                    "actions": [
+                        {
+                            "type": "ModerateMessage"
+                        }
+                    ],
+                    "condition": {
+                        "type": "ContainsLinksOutsideTop100",
+                        "domains": []
+                    }
+                },
+                "focus": "domains"
+            },
+            {
+                "title": "🔗 Delete links from newcomers",
+                "rule": {
+                    "name": "Delete links from newcomers",
                     "trigger": "message_posted",
                     "actions": [
                         {
@@ -1814,27 +2217,9 @@
                 }
             },
             {
-                "title": "🌊 Flood",
+                "title": "📏 Delete walls of text",
                 "rule": {
-                    "name": "Flood",
-                    "trigger": "message_posted",
-                    "actions": [
-                        {
-                            "type": "SetAuthorObserver",
-                            "duration_minutes": 10
-                        }
-                    ],
-                    "condition": {
-                        "type": "AuthorHitsMessageRateLimit",
-                        "message_count": 5,
-                        "time_window_minutes": 1
-                    }
-                }
-            },
-            {
-                "title": "📏 Walls of text",
-                "rule": {
-                    "name": "Walls of text",
+                    "name": "Delete walls of text",
                     "trigger": "message_posted",
                     "actions": [
                         {
@@ -1849,6 +2234,79 @@
                 }
             },
             {
+                "title": "🌊 Kick members who flood",
+                "rule": {
+                    "name": "Kick members who flood",
+                    "trigger": "message_posted",
+                    "actions": [
+                        {
+                            "type": "KickAuthor",
+                            "delete_all_messages": true
+                        }
+                    ],
+                    "condition": {
+                        "type": "AuthorHitsMessageRateLimit",
+                        "message_count": 12,
+                        "time_window_minutes": 1
+                    }
+                }
+            },
+            {
+                "title": "🚨 Kick newcomers who spam",
+                "rule": {
+                    "name": "Kick newcomers who spam",
+                    "trigger": "message_posted",
+                    "actions": [
+                        {
+                            "type": "KickAuthor",
+                            "delete_all_messages": true
+                        }
+                    ],
+                    "condition": {
+                        "type": "All",
+                        "conditions": [
+                            {
+                                "type": "AuthorJoinedRecently",
+                                "time_window_minutes": 2880
+                            },
+                            {
+                                "type": "Any",
+                                "conditions": [
+                                    {
+                                        "type": "AuthorHitsModerationRateLimit",
+                                        "message_count": 4,
+                                        "time_window_minutes": 60
+                                    },
+                                    {
+                                        "type": "AuthorHitsMessageRateLimit",
+                                        "message_count": 6,
+                                        "time_window_minutes": 1
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "title": "🌪 Silence senders while the group floods",
+                "rule": {
+                    "name": "Silence senders while the group floods",
+                    "trigger": "message_posted",
+                    "actions": [
+                        {
+                            "type": "SetAuthorObserver",
+                            "duration_minutes": 30
+                        }
+                    ],
+                    "condition": {
+                        "type": "GroupHitsMessageRateLimit",
+                        "message_count": 12,
+                        "time_window_minutes": 1
+                    }
+                }
+            },
+            {
                 "title": "👁 Quarantine newcomers",
                 "rule": {
                     "name": "Quarantine newcomers",
@@ -1859,41 +2317,6 @@
                             "duration_minutes": 60
                         }
                     ]
-                }
-            },
-            {
-                "title": "🚫 Spam names",
-                "rule": {
-                    "name": "Spam names",
-                    "trigger": "member_joined",
-                    "actions": [
-                        {
-                            "type": "KickAuthor",
-                            "delete_all_messages": false
-                        }
-                    ],
-                    "condition": {
-                        "type": "MemberNameContainsWords",
-                        "keywords": []
-                    }
-                },
-                "focus": "keywords"
-            },
-            {
-                "title": "🔗 Links in names",
-                "rule": {
-                    "name": "Links in names",
-                    "trigger": "member_joined",
-                    "actions": [
-                        {
-                            "type": "KickAuthor",
-                            "delete_all_messages": false
-                        }
-                    ],
-                    "condition": {
-                        "type": "MemberNameContainsLinksOutsideList",
-                        "domains": []
-                    }
                 }
             }
         ]

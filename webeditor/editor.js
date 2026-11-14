@@ -746,8 +746,7 @@ function rulePage() {
       <div class="name">
         <label class="label" for="r-name">${esc(R.name.title)}</label>
         <input type="text" id="r-name" class="title-input" maxlength="${R.name.maxLength || 60}" value="${esc(r.name)}"
-          placeholder="${esc(gap ? "New rule" : sentence(r))}" aria-describedby="r-name-h" data-op="name">
-        <p class="hint" id="r-name-h">${md(R.name.description || "")}</p>
+          placeholder="${esc(gap ? "New rule" : sentence(r))}" data-op="name">
       </div>
       <div class="rule-tools">
         <button class="btn" type="button" id="rule-ai" data-op="ai-rule">✨ Edit with AI</button>
@@ -819,7 +818,6 @@ function newPage() {
 /* The templates of the trigger, in a sheet over the page (US-G15). */
 function openTemplates() {
     const t = T.find((x) => x.v === st.trigger) || T[0];
-    $("tpl-sub").textContent = t.newRule;
     $("tpl-body").innerHTML = `<ul class="templates">${templatesOf(t.v)
         .map((x, j) => `<li><button type="button" id="tpl-${j}" data-j="${j}"><span class="ttitle">${esc(x.title)}</span><span class="tline">${esc(sentence(x.rule))}</span></button></li>`)
         .join("")}</ul>`;
@@ -1595,6 +1593,11 @@ async function start() {
             console.warn("Could not read the settings in the link:", err);
             st.unreadable = true;
         }
+    }
+    /* The demo with no settings of its own shows one rule of each template, so
+       a person sees what a group's rules look like (US-G18). */
+    if (st.demo && !hash.config) {
+        st.rules = ((SCHEMA.options && SCHEMA.options.templates) || []).map((x) => ({ ...clone(x.rule), trigger: triggerOf(x.rule).v }));
     }
     st.baseline = snapshot();
 
