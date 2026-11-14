@@ -3,7 +3,7 @@
 import { expect, Page, test } from '@playwright/test';
 import { Person, settingsLink } from '../harness/person';
 import { advance } from '../harness/stack';
-import { anotherMember, apply, conditionEditor, looks, moderated, moderatedAnyway, rule, rules, scene, untouched } from './helpers';
+import { anotherMember, apply, conditionEditor, looks, moderated, moderatedAnyway, notice, rule, rules, scene, turnedOff, untouched } from './helpers';
 
 const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n');
@@ -257,6 +257,22 @@ test('author hits moderation rate limit', async ({ page }) => {
   await moderated(s, 'spam 3', ['author had 3 messages moderated in 60 min', "contains word: 'spam'"]);
   // Then the author's next messages too, while the window holds them.
   await moderated(s, 'hello', ['author had 3 messages moderated in 60 min']);
+});
+
+// US-E20
+test('a message a rule that is off would moderate does not count toward the moderation rate limit', async () => {
+  const s = await scene(rules(
+    rule({ type: 'AuthorHitsModerationRateLimit', message_count: 2, time_window_minutes: 60 }),
+    turnedOff(rule({ type: 'ContainsWords', keywords: ['spam'] }), 'enabled'),
+  ));
+  // The rule that is off only tells; nothing is moderated, so nothing is counted.
+  for (const text of ['spam 1', 'spam 2']) {
+    const item = await s.member.post(s.memberGroup, text);
+    expect(await s.owner.message()).toBe(notice('would moderate the message', text, ["_(off)_ contains word: 'spam'"]));
+    await s.member.seesNothing(3000);
+    expect(item).toBeDefined();
+  }
+  await untouched(s, 'hello');
 });
 
 // US-E21

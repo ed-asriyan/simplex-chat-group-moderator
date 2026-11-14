@@ -2,7 +2,7 @@
 import { expect, test } from '@playwright/test';
 import { Person } from '../harness/person';
 import { advance } from '../harness/stack';
-import { apply, joinNotice, joinRule, moderated, named, notice, rule, rules, scene, untouched } from './helpers';
+import { apply, joinNotice, joinRule, mixedNotice, moderated, moderatedAnyway, named, notice, rule, rules, scene, turnedOff, untouched } from './helpers';
 
 // US-D1
 test('a rule the earlier matches already cover is not checked, and an edit is checked again', async () => {
@@ -21,15 +21,35 @@ test('a rule the earlier matches already cover is not checked, and an edit is ch
 });
 
 // US-D1
-test('a rule that is off is not checked, and its actions cover nothing', async () => {
+test('a rule with both switches off is not checked, and its actions cover nothing', async () => {
   const s = await scene(rules(
-    named('Banned words', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }], false),
+    named('Banned words', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }], false, false),
     named('Casino links', 'message_posted', { type: 'ContainsWords', keywords: ['spam', 'casino'] }, [{ type: 'ModerateMessage' }]),
   ));
   // The first rule matches and is off: only the second one counts, and tells why.
   await moderated(s, 'spam', ["**Casino links**: contains word: 'spam'"]);
-  // An off rule that moderates would have covered the second: it does not.
+  // A rule that is off and moderates would have covered the second: it does not.
   await moderated(s, 'casino', ["**Casino links**: contains word: 'casino'"]);
+});
+
+// US-D1
+test('a rule with Actions off and Notifications on is checked, and covers nothing for the rules that are on', async () => {
+  const s = await scene(rules(
+    named('Trial', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }], false),
+    named('Banned words', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }]),
+  ));
+  // The rule that is on still moderates: the one before it, which only tells, does not cover it.
+  await moderatedAnyway(s, 'spam');
+});
+
+// US-D1
+test('a rule whose every action is covered is not checked, whatever its switches', async () => {
+  const s = await scene(rules(
+    named('Banned words', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }]),
+    // Its only action is covered by the first one's, which carried it out: nothing is told for it either.
+    named('Trial', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }], false),
+  ));
+  await moderated(s, 'spam', ["**Banned words**: contains word: 'spam'"]);
 });
 
 // US-D1
@@ -112,17 +132,44 @@ test('the message is named before the kick', async () => {
   expect(await s.owner.message()).toBe(notice('moderated the message and kicked the member', 'spam', ["contains word: 'spam'"]));
 });
 
+// US-D2
+test('the notification names the actions and the reasons of the rules with Notifications on alone', async () => {
+  const s = await scene(rules(
+    // Carried out, but not told: its action and its reason are not in the notification.
+    named('Quiet', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }], true, false),
+    named('Loud', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'SetAuthorObserver', duration_minutes: 10 }]),
+  ));
+  const item = await s.member.post(s.memberGroup, 'spam');
+  const seen = [await s.member.seesInGroup(), await s.member.seesInGroup()];
+  expect(seen).toContainEqual({ kind: 'deleted', itemIds: [item] });
+  expect(seen).toContainEqual({ kind: 'role', role: 'observer' });
+  expect(await s.owner.message()).toBe(notice('set the member as observer for 10 minutes', 'spam', ["**Loud**: contains word: 'spam'"]));
+});
+
 // US-D3
-test('silent mode acts without telling', async () => {
-  const s = await scene({ mode: 'silent', rules: [rule({ type: 'ContainsWords', keywords: ['spam'] })] });
+test('a message that matches rules with Notifications off is acted on without telling', async () => {
+  const s = await scene(rules(named('Quiet', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }], true, false)));
   const item = await s.member.post(s.memberGroup, 'spam');
   expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
   await s.owner.hearsNothing(5000);
 });
 
+// US-D3
+test('only the actions of the rules with Actions on are carried out when no rule tells', async () => {
+  const s = await scene(rules(
+    named('Quiet', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }], true, false),
+    // Both switches off: not checked, so the member is not kicked and nothing is told.
+    named('Off', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'KickAuthor', delete_all_messages: false }], false, false),
+  ));
+  const item = await s.member.post(s.memberGroup, 'spam');
+  expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
+  await s.member.seesNothing(4000);
+  await s.owner.hearsNothing(0);
+});
+
 // US-D4
-test('dry mode only tells what it would do', async () => {
-  const dry = (actions: unknown[]) => ({ mode: 'dry', rules: [rule({ type: 'ContainsWords', keywords: ['spam'] }, actions)] });
+test('a rule with Actions off only tells what it would do, and the reason line is marked', async () => {
+  const dry = (actions: unknown[]) => ({ rules: [turnedOff(rule({ type: 'ContainsWords', keywords: ['spam'] }, actions), 'enabled')] });
   const s = await scene(dry([{ type: 'SetAuthorObserver', duration_minutes: 60 }, { type: 'ModerateMessage' }]));
   for (const [actions, did] of [
     [[{ type: 'SetAuthorObserver', duration_minutes: 60 }, { type: 'ModerateMessage' }], 'would set the member as observer for 60 minutes and moderate the message'],
@@ -131,10 +178,48 @@ test('dry mode only tells what it would do', async () => {
   ] as const) {
     await apply(s, dry([...actions]));
     await s.member.post(s.memberGroup, 'spam');
-    expect(await s.owner.message()).toBe(notice(did, 'spam', ["contains word: 'spam'"]));
+    expect(await s.owner.message()).toBe(notice(did, 'spam', ["_(off)_ contains word: 'spam'"]));
     // Nothing in the group: the message stays, the member stays a member.
     await s.member.seesNothing(4000);
   }
+});
+
+// US-D4
+test('the reason line of a rule with Actions off names the rule, then marks it', async () => {
+  const s = await scene(rules(named('Flood', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }], false)));
+  await s.member.post(s.memberGroup, 'spam');
+  expect(await s.owner.message()).toBe(notice('would moderate the message', 'spam', ["**Flood** _(off)_: contains word: 'spam'"]));
+  await s.member.seesNothing(4000);
+});
+
+// US-D4
+test('a message that matches rules that act and rules that only tell is told in one notification', async () => {
+  const s = await scene(rules(
+    named('Banned words', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }]),
+    named('Trial kick', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'KickAuthor', delete_all_messages: false }], false),
+  ));
+  const item = await s.member.post(s.memberGroup, 'spam');
+  expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
+  expect(await s.owner.message()).toBe(
+    mixedNotice('moderated the message', 'kick the member', 'spam', ["**Banned words**: contains word: 'spam'", "**Trial kick** _(off)_: contains word: 'spam'"]),
+  );
+  // Nothing more reaches the owner or the group: the member was not kicked.
+  await s.member.seesNothing(4000);
+  await s.owner.hearsNothing(0);
+});
+
+// US-D4
+test('an action it would carry out that one carried out already covers is not named', async () => {
+  const s = await scene(rules(
+    named('Banned words', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }]),
+    // Covered by the moderation that was carried out; the rule is still told, as a rule that is off covers nothing but is checked.
+    named('Trial', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }, { type: 'SetAuthorObserver', duration_minutes: 10 }], false),
+  ));
+  const item = await s.member.post(s.memberGroup, 'spam');
+  expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
+  expect(await s.owner.message()).toBe(
+    mixedNotice('moderated the message', 'set the member as observer for 10 minutes', 'spam', ["**Banned words**: contains word: 'spam'", "**Trial** _(off)_: contains word: 'spam'"]),
+  );
 });
 
 // US-D5
@@ -170,7 +255,7 @@ test('someone the owner adds as a moderator, an admin or an owner is never check
 const FREE = 'Free Casino Bonus';
 
 // US-D6
-test('a join is checked against the rules for when someone joins, and told in notifications mode', async () => {
+test('a join is checked against the rules for when someone joins, and told by a rule with both switches on', async () => {
   const s = await scene(rules(joinRule({ type: 'MemberNameContainsWords', keywords: ['casino'] }, [{ type: 'KickAuthor', delete_all_messages: false }], 'Spam names')));
   const bob = await Person.create(FREE);
   await bob.joinGroupAndWatch(await s.owner.groupLink(s.ownerGroup));
@@ -203,9 +288,9 @@ test('a rule with no condition matches everyone who joins, and a rule without a 
 });
 
 // US-D6
-test('a join is checked in the order of the rules, skipping those that are off and those already covered', async () => {
+test('a join is checked in the order of the rules, skipping those with both switches off and those already covered', async () => {
   const s = await scene(rules(
-    named('Off', 'member_joined', undefined, [{ type: 'KickAuthor', delete_all_messages: false }], false),
+    named('Off', 'member_joined', undefined, [{ type: 'KickAuthor', delete_all_messages: false }], false, false),
     joinRule({ type: 'MemberNameContainsWords', keywords: ['casino'] }, [{ type: 'KickAuthor', delete_all_messages: false }], 'First'),
     // Its only action is covered by the first one's: it is not checked, and gives no reason.
     joinRule({ type: 'MemberNameContainsWords', keywords: ['casino'] }, [{ type: 'KickAuthor', delete_all_messages: false }], 'Second'),
@@ -226,8 +311,8 @@ test('someone who joins as an observer is checked too', async () => {
 });
 
 // US-D6
-test('silent mode acts on a join without telling', async () => {
-  const s = await scene({ mode: 'silent', rules: [joinRule(undefined, [{ type: 'KickAuthor', delete_all_messages: false }], 'Everyone out')] });
+test('a rule with Notifications off acts on a join without telling', async () => {
+  const s = await scene(rules(turnedOff(joinRule(undefined, [{ type: 'KickAuthor', delete_all_messages: false }], 'Everyone out'), 'notify')));
   const bob = await Person.create('Bob');
   await bob.joinGroupAndWatch(await s.owner.groupLink(s.ownerGroup));
   expect(await bob.seesInGroup()).toEqual({ kind: 'removed' });
@@ -235,11 +320,11 @@ test('silent mode acts on a join without telling', async () => {
 });
 
 // US-D6
-test('dry mode tells what it would do on a join, and does nothing', async () => {
-  const s = await scene({ mode: 'dry', rules: [joinRule({ type: 'MemberNameContainsWords', keywords: ['casino'] }, [{ type: 'KickAuthor', delete_all_messages: false }], 'Spam names')] });
+test('a rule with Actions off tells what it would do on a join, and does nothing', async () => {
+  const s = await scene(rules(turnedOff(joinRule({ type: 'MemberNameContainsWords', keywords: ['casino'] }, [{ type: 'KickAuthor', delete_all_messages: false }], 'Spam names'), 'enabled')));
   const bob = await Person.create(FREE);
   const group = await bob.joinGroupAndWatch(await s.owner.groupLink(s.ownerGroup));
-  expect(await s.owner.message()).toBe(joinNotice('would kick the member', bob.name, ["**Spam names**: name contains word: 'casino'"]));
+  expect(await s.owner.message()).toBe(joinNotice('would kick the member', bob.name, ["**Spam names** _(off)_: name contains word: 'casino'"]));
   // Nothing in the group: they stay, and can still write.
   await bob.seesNothing(4000);
   await bob.post(group, 'hello');

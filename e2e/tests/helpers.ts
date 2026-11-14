@@ -38,9 +38,14 @@ export function rule(condition: unknown, actions: unknown[] = [{ type: 'Moderate
   return { actions, condition };
 }
 
-/** A rule with a name, a trigger and, if it is off, `enabled: false` (US-G13). */
-export function named(name: string, trigger: 'message_posted' | 'member_joined', condition: unknown, actions: unknown[], enabled = true) {
-  return { name, trigger, ...(condition === undefined ? {} : { condition }), actions, ...(enabled ? {} : { enabled: false }) };
+/** A rule with a name, a trigger and, where one is off, `enabled: false` (its actions, US-G13) or `notify: false` (its notifications, US-G19). */
+export function named(name: string, trigger: 'message_posted' | 'member_joined', condition: unknown, actions: unknown[], enabled = true, notify = true) {
+  return { name, trigger, ...(condition === undefined ? {} : { condition }), actions, ...(enabled ? {} : { enabled: false }), ...(notify ? {} : { notify: false }) };
+}
+
+/** The rule with its actions (`enabled`) and/or its notifications (`notify`) turned off. */
+export function turnedOff<R extends object>(r: R, ...which: ('enabled' | 'notify')[]) {
+  return { ...r, ...Object.fromEntries(which.map((k) => [k, false])) };
 }
 
 /** A rule for when someone joins; no `condition` matches everyone who joins. */
@@ -49,7 +54,7 @@ export function joinRule(condition: unknown, actions: unknown[], name?: string) 
 }
 
 export function rules(...list: unknown[]) {
-  return { mode: 'notifications', rules: list };
+  return { rules: list };
 }
 
 /** The owner's notification of US-D2. */
@@ -57,6 +62,12 @@ export function notice(did: string, message: string | null, reasons: string[], g
   // Each line quoted; the story does not say how a line break inside a quote is written.
   const quoted = message === null ? '_(no text)_' : message.split('\n').map((l) => `> ${l}`).join('\n');
   return `🛡 I ${did} in **${group}**.\n\n**The message:**\n${quoted}\n\n**Reason:**\n${reasons.map((r) => `- ${r}`).join('\n')}\n\nIf it's a false positive, please [file an issue](${ISSUE}).`;
+}
+
+/** The notification of a message that matched rules that act and rules that only tell (US-D4): what was done, then what would have been. */
+export function mixedNotice(did: string, would: string, message: string | null, reasons: string[], group = 'Crypto Chat') {
+  const quoted = message === null ? '_(no text)_' : message.split('\n').map((l) => `> ${l}`).join('\n');
+  return `🛡 I ${did} in **${group}**, and would also ${would}.\n\n**The message:**\n${quoted}\n\n**Reason:**\n${reasons.map((r) => `- ${r}`).join('\n')}\n\nIf it's a false positive, please [file an issue](${ISSUE}).`;
 }
 
 /** Bob posts `content`; it is moderated, and the owner is told why. */
@@ -117,7 +128,7 @@ export function editorUrl(config: unknown, id: string | null = '7', group: strin
 
 /** Opens the editor on an empty configuration of the bot's group 7. */
 export async function emptyEditor(page: Page) {
-  await open(page, editorUrl({ mode: 'notifications', rules: [] }));
+  await open(page, editorUrl({ rules: [] }));
 }
 
 /**

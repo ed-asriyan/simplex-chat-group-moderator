@@ -46,20 +46,20 @@ test('a rule the bot cannot take is refused with its reason', async () => {
   const s = await scene(SPAM);
   const refused: [unknown, string][] = [
     // A rule for when someone sends a message has a condition.
-    [{ mode: 'notifications', rules: [{ trigger: 'message_posted', actions: [{ type: 'ModerateMessage' }] }] },
+    [{ rules: [{ trigger: 'message_posted', actions: [{ type: 'ModerateMessage' }] }] },
       'A rule for when someone sends a message has no condition. Add one, or remove the rule.'],
     // A rule holds what its trigger takes.
-    [{ mode: 'notifications', rules: [joinRule(undefined, [{ type: 'ModerateMessage' }])] },
+    [{ rules: [joinRule(undefined, [{ type: 'ModerateMessage' }])] },
       "'Moderate the message' does not work in a rule for when someone joins."],
     // A name is at most 60 characters.
-    [{ mode: 'notifications', rules: [named('x'.repeat(61), 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }])] },
+    [{ rules: [named('x'.repeat(61), 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }])] },
       "A rule's name is longer than 60 characters."],
   ];
   for (const [config, reason] of refused) {
     expect(await s.owner.ask(settingsLink(s.id, config))).toBe(failed(reason));
   }
   // A condition that reads a message does not work when someone joins.
-  const misplaced = { mode: 'notifications', rules: [joinRule({ type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'KickAuthor', delete_all_messages: false }])] };
+  const misplaced = { rules: [joinRule({ type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'KickAuthor', delete_all_messages: false }])] };
   expect(await s.owner.ask(settingsLink(s.id, misplaced))).toMatch(/^❌ \*\*Failed to update group settings:\*\*\n\n> \S.* does not work in a rule for when someone joins\.$/);
   // Nothing of them was saved: the old configuration stays.
   await moderated(s, 'spam', ["contains word: 'spam'"]);
