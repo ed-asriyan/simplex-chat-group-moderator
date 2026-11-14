@@ -15,9 +15,9 @@ use rusqlite::{Connection, params};
 use std::sync::{Arc, Mutex};
 
 use crate::domain::moderator::ports::{
-    CategoryTrigger, Err, Group, GroupConfig, GroupId, GroupMode, MessengerGroupId,
-    ModerationAction, ModerationCondition, ModerationRepository, OpenAiCategory,
-    OwnedModerationRule, RuleDraft, UserId,
+    CategoryTrigger, Err, Group, GroupConfig, GroupId, MessengerGroupId, ModerationAction,
+    ModerationCondition, ModerationRepository, OpenAiCategory, OwnedModerationRule, RuleDraft,
+    UserId,
 };
 const GROUP_ID_MIN: i64 = 1;
 const GROUP_ID_MAX: i64 = 1_000_000;
@@ -430,18 +430,6 @@ impl SqliteModerationRepository {
     }
 }
 
-fn read_mode(name: &str) -> Result<GroupMode, Err> {
-    GroupMode::from_name(name).ok_or_else(|| format!("unknown group mode '{name}'").into())
-}
-
-/// The group's `mode` column at `index`, read inside a row mapper.
-fn mode_column(row: &rusqlite::Row<'_>, index: usize) -> Result<GroupMode, rusqlite::Error> {
-    let name: String = row.get(index)?;
-    read_mode(&name).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(index, rusqlite::types::Type::Text, e)
-    })
-}
-
 #[async_trait]
 impl ModerationRepository for SqliteModerationRepository {
     async fn save_owner(
@@ -449,22 +437,20 @@ impl ModerationRepository for SqliteModerationRepository {
         messenger_group_id: &MessengerGroupId,
         name: &str,
         owner_id: &UserId,
-        mode: GroupMode,
     ) -> Result<GroupId, Err> {
         let conn = self.conn.clone();
         let mid = *messenger_group_id;
         let oid = *owner_id;
         let name = name.to_string();
-        let mode = mode.name();
         tokio::task::spawn_blocking(move || -> Result<GroupId, Err> {
             let guard = conn.lock().expect("moderation repo connection poisoned");
             let mut rng = rand::rng();
             for _ in 0..GROUP_ID_ALLOC_MAX_ATTEMPTS {
                 let gid: i64 = rng.random_range(GROUP_ID_MIN..GROUP_ID_MAX);
                 let res = guard.execute(
-                    "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name, mode)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![gid, mid, oid, name, mode],
+                    "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![gid, mid, oid, name],
                 );
                 match res {
                     Ok(_) => return Ok(gid),
@@ -530,14 +516,13 @@ impl ModerationRepository for SqliteModerationRepository {
         tokio::task::spawn_blocking(move || -> Result<Vec<Group>, rusqlite::Error> {
             let guard = conn.lock().expect("moderation repo connection poisoned");
             let mut stmt = guard.prepare(
-                "SELECT group_id, group_name, mode FROM moderation_groups WHERE owner_id = ?1",
+                "SELECT group_id, group_name FROM moderation_groups WHERE owner_id = ?1",
             )?;
             let rows = stmt.query_map(params![oid], |row| {
                 Ok(Group {
                     id: row.get::<_, i64>(0)?,
                     owner_id: oid,
                     name: row.get::<_, String>(1)?,
-                    mode: mode_column(row, 2)?,
                 })
             })?;
             let mut out = Vec::new();
@@ -576,20 +561,11 @@ impl ModerationRepository for SqliteModerationRepository {
         let conn = self.conn.clone();
         let gid = *group_id;
         tokio::task::spawn_blocking(move || -> Result<GroupConfig, Err> {
-            let mode: String = {
-                let guard = conn.lock().expect("moderation repo connection poisoned");
-                guard.query_row(
-                    "SELECT mode FROM moderation_groups WHERE group_id = ?1",
-                    params![gid],
-                    |row| row.get(0),
-                )?
-            };
             let rules =
                 crate::infrastructure::adapters::moderator_repo_sqlite_rules::load_rules_for_group(
                     &conn, gid,
                 )?;
             Ok(GroupConfig {
-                mode: read_mode(&mode)?,
                 rules: rules.into_iter().map(|owned| owned.rule).collect(),
             })
         })
@@ -623,7 +599,6 @@ impl ModerationRepository for SqliteModerationRepository {
         let conn = self.conn.clone();
         let gid = *group_id;
 
-        let mode = config.mode.name();
         let rules = config.rules.clone();
 
         tokio::task::spawn_blocking(move || -> Result<(), Err> {
@@ -631,12 +606,6 @@ impl ModerationRepository for SqliteModerationRepository {
             let tx = guard
                 .transaction()
                 .map_err(|e| -> Err { e.to_string().into() })?;
-
-            tx.execute(
-                "UPDATE moderation_groups SET mode = ?2 WHERE group_id = ?1",
-                rusqlite::params![gid, mode],
-            )
-            .map_err(|e| -> Err { e.to_string().into() })?;
 
             // Everything a rule owns — its condition tree at any depth, its
             // action and both of their settings tables — hangs off the rule by
@@ -703,7 +672,7 @@ impl ModerationRepository for SqliteModerationRepository {
         tokio::task::spawn_blocking(move || -> Result<Option<Group>, rusqlite::Error> {
             let guard = conn.lock().expect("moderation repo connection poisoned");
             let mut stmt = guard.prepare(
-                "SELECT group_id, owner_id, group_name, mode
+                "SELECT group_id, owner_id, group_name
                  FROM moderation_groups WHERE messenger_group_id = ?1",
             )?;
             let mut rows = stmt.query(params![mid])?;
@@ -712,7 +681,6 @@ impl ModerationRepository for SqliteModerationRepository {
                     id: row.get(0)?,
                     owner_id: row.get(1)?,
                     name: row.get(2)?,
-                    mode: mode_column(row, 3)?,
                 }))
             } else {
                 Ok(None)

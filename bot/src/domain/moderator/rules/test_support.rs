@@ -13,6 +13,7 @@ pub fn message_rule(
         name: None,
         trigger: Trigger::MessagePosted,
         enabled: true,
+        notify: true,
         condition: Some(condition),
         actions,
     })
@@ -28,6 +29,7 @@ pub fn join_rule(
         name: None,
         trigger: Trigger::MemberJoined,
         enabled: true,
+        notify: true,
         condition,
         actions,
     })
@@ -38,9 +40,17 @@ pub fn draft_rule(draft: RuleDraft) -> ModerationRule {
     ModerationRule::try_from(draft).expect("a valid rule")
 }
 
-/// `rule` with a name and, if `enabled` is false, switched off.
+/// `rule` with a name and, if `enabled` is false, its actions switched off.
 pub fn named(mut rule: ModerationRule, name: &str, enabled: bool) -> ModerationRule {
     rule.name = Some(name.to_string());
     rule.enabled = enabled;
+    rule
+}
+
+/// `rule` with its two switches set: its actions (`enabled`) and its
+/// notifications (`notify`).
+pub fn switched(mut rule: ModerationRule, enabled: bool, notify: bool) -> ModerationRule {
+    rule.enabled = enabled;
+    rule.notify = notify;
     rule
 }

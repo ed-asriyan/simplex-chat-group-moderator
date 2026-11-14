@@ -228,6 +228,8 @@ where
     let reason_of = |rule: &Candidate<'_, T, A>, reason: String| RuleReason {
         rule_name: rule.name.map(str::to_string),
         reason,
+        // Stage 5 stub: only rules with *Actions* on are checked yet (US-D4).
+        actions_on: true,
     };
 
     // Only pay for the pre-pass when some rule actually depends on what the

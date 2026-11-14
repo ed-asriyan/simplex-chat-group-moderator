@@ -172,6 +172,7 @@ impl TryFrom<RuleDraft> for ModerationRule {
             name,
             trigger,
             enabled,
+            notify,
             condition,
             actions,
         } = draft;
@@ -193,6 +194,7 @@ impl TryFrom<RuleDraft> for ModerationRule {
         Ok(Self {
             name,
             enabled,
+            notify,
             body,
         })
     }
@@ -216,6 +218,7 @@ impl From<ModerationRule> for RuleDraft {
             name: rule.name,
             trigger,
             enabled: rule.enabled,
+            notify: rule.notify,
             condition,
             actions,
         }

@@ -8,7 +8,7 @@ use crate::domain::moderator::ports::conditions::{
     ContainsWords, FlaggedByOmniModeration, FlaggedByOpenRouterInstruction,
 };
 use crate::domain::moderator::ports::{
-    CategoryTrigger, Err, Group, GroupAdministration, GroupConfig, GroupId, GroupMode, KeyCheck,
+    CategoryTrigger, Err, Group, GroupAdministration, GroupConfig, GroupId, KeyCheck,
     MessengerGroup, MessengerGroupId, ModerationAction, ModerationRepository, ModerationRule,
     OpenAi, OpenAiCategoryTriggers, OpenAiModerationResult, OpenRouter,
     OpenRouterInstructionVerdict, OwnedModerationRule, UserId,
@@ -19,8 +19,8 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// Most tests here are about the rules alone, so they save them under the
-/// default mode.
+/// Most tests here are about the rules alone, so they save them as a
+/// configuration of nothing else.
 #[async_trait]
 trait SaveRules {
     async fn save_rules(
@@ -39,10 +39,7 @@ impl<T: GroupAdministration> SaveRules for T {
         group_id: GroupId,
         rules: Vec<ModerationRule>,
     ) -> Result<(), Err> {
-        let config = GroupConfig {
-            mode: GroupMode::default(),
-            rules,
-        };
+        let config = GroupConfig { rules };
         self.set_group_config(user_id, group_id, config).await
     }
 }
@@ -93,7 +90,6 @@ fn app_owning_group(group_id: GroupId, owner_id: UserId) -> GroupAdministrationA
                 id: group_id,
                 owner_id,
                 name: "Test Group".to_string(),
-                mode: GroupMode::Notifications,
             }),
             rules: vec![],
         }),
@@ -309,13 +305,7 @@ impl SavingRepository {
 
 #[async_trait]
 impl ModerationRepository for SavingRepository {
-    async fn save_owner(
-        &self,
-        _: &MessengerGroupId,
-        _: &str,
-        _: &UserId,
-        _: GroupMode,
-    ) -> Result<GroupId, Err> {
+    async fn save_owner(&self, _: &MessengerGroupId, _: &str, _: &UserId) -> Result<GroupId, Err> {
         Ok(10)
     }
     async fn get_owner_by_messenger_id(&self, _: &MessengerGroupId) -> Result<Option<UserId>, Err> {
@@ -331,10 +321,7 @@ impl ModerationRepository for SavingRepository {
         Ok(())
     }
     async fn get_group_config(&self, _: &GroupId) -> Result<GroupConfig, Err> {
-        Ok(self.saved_config().unwrap_or(GroupConfig {
-            mode: GroupMode::default(),
-            rules: vec![],
-        }))
+        Ok(self.saved_config().unwrap_or(GroupConfig { rules: vec![] }))
     }
     async fn get_group_rules_by_messenger_id(
         &self,
@@ -384,38 +371,48 @@ fn moderate_when(condition: ModerationCondition) -> ModerationRule {
     )
 }
 
+// US-C1, US-G13, US-G19: each rule is saved with its two switches, whichever way
+// they stand, and the configuration comes back as it was saved.
 #[tokio::test]
-async fn test_the_mode_is_saved_with_the_rules() {
+async fn test_every_combination_of_a_rules_switches_is_saved() {
     let repository = Arc::new(SavingRepository::default());
     let verifier = FakeKeyVerifier::answering(&[]);
     let app = app_with(&repository, &verifier);
-    let rules = vec![moderate_when(ModerationCondition::ContainsWords(
-        ContainsWords {
-            keywords: vec!["badword".to_string()],
+    let rules: Vec<ModerationRule> = [(true, true), (false, true), (true, false), (false, false)]
+        .into_iter()
+        .map(|(actions, notifications)| {
+            switched(
+                moderate_when(ModerationCondition::ContainsWords(ContainsWords {
+                    keywords: vec!["badword".to_string()],
+                })),
+                actions,
+                notifications,
+            )
+        })
+        .collect();
+
+    app.set_group_config(
+        100,
+        10,
+        GroupConfig {
+            rules: rules.clone(),
         },
-    ))];
+    )
+    .await
+    .unwrap();
 
-    for mode in [GroupMode::Dry, GroupMode::Silent, GroupMode::Notifications] {
-        app.set_group_config(
-            100,
-            10,
-            GroupConfig {
-                mode,
-                rules: rules.clone(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let saved = repository.saved_config().unwrap();
-        assert_eq!(saved.mode, mode);
-        assert_eq!(saved.rules, rules);
-        assert_eq!(app.get_group_config(100, 10).await.unwrap().mode, mode);
-    }
+    let saved = repository.saved_config().unwrap();
+    assert_eq!(saved.rules, rules);
+    let flags: Vec<(bool, bool)> = saved.rules.iter().map(|r| (r.enabled, r.notify)).collect();
+    assert_eq!(
+        flags,
+        vec![(true, true), (false, true), (true, false), (false, false)]
+    );
+    assert_eq!(app.get_group_config(100, 10).await.unwrap().rules, rules);
 }
 
 #[tokio::test]
-async fn test_an_invalid_rule_keeps_the_mode_from_being_saved() {
+async fn test_an_invalid_rule_keeps_the_configuration_from_being_saved() {
     let repository = Arc::new(SavingRepository::default());
     let verifier = FakeKeyVerifier::answering(&[]);
 
@@ -424,7 +421,6 @@ async fn test_an_invalid_rule_keeps_the_mode_from_being_saved() {
             100,
             10,
             GroupConfig {
-                mode: GroupMode::Dry,
                 rules: vec![moderate_when(ModerationCondition::ContainsWords(
                     ContainsWords {
                         keywords: vec!["a".repeat(101)],
@@ -726,8 +722,10 @@ async fn test_an_unlisted_model_is_rejected_before_openrouter_is_asked() {
     assert!(verifier.asked().is_empty());
 }
 
+// US-B1: the owner of the invitation is the group's owner, and the new group has no
+// rules, so the configuration its owner is sent is an empty list of them.
 #[tokio::test]
-async fn test_a_joined_group_starts_out_notifying_its_owner() {
+async fn test_a_joined_group_is_the_inviters_and_has_no_rules() {
     let app = GroupAdministrationApplication::new(
         Arc::new(MockModerationRepository {
             group: None,
@@ -746,13 +744,19 @@ async fn test_a_joined_group_starts_out_notifying_its_owner() {
 
     assert_eq!(group.owner_id, 100);
     assert_eq!(group.name, "New Group");
-    assert_eq!(group.mode, GroupMode::Notifications);
+    assert!(
+        app.get_group_config(100, group.id)
+            .await
+            .unwrap()
+            .rules
+            .is_empty()
+    );
 }
 
 // ---- rules with a trigger, a name and a switch (US-C1, US-C2, US-G13) ----
 
 use crate::domain::moderator::ports::conditions::MemberNameContainsWords;
-use crate::domain::moderator::rules::test_support::{join_rule, named};
+use crate::domain::moderator::rules::test_support::{join_rule, named, switched};
 
 fn kicking() -> Vec<ModerationAction> {
     vec![ModerationAction::KickAuthor(KickAuthor {
@@ -787,7 +791,6 @@ async fn test_rules_of_both_triggers_are_saved_with_their_names_and_switches() {
         100,
         10,
         GroupConfig {
-            mode: GroupMode::Notifications,
             rules: rules.clone(),
         },
     )
@@ -806,7 +809,6 @@ async fn test_a_name_that_is_too_long_keeps_everything_from_being_saved() {
             100,
             10,
             GroupConfig {
-                mode: GroupMode::Silent,
                 rules: vec![named(join_rule(kicking(), None), &"a".repeat(61), true)],
             },
         )
@@ -824,16 +826,9 @@ async fn test_a_blank_name_is_saved_as_no_name() {
     let app = app_with(&repository, &FakeKeyVerifier::answering(&[]));
     let mut rule = join_rule(kicking(), None);
     rule.name = Some("  ".to_string());
-    app.set_group_config(
-        100,
-        10,
-        GroupConfig {
-            mode: GroupMode::Notifications,
-            rules: vec![rule],
-        },
-    )
-    .await
-    .unwrap();
+    app.set_group_config(100, 10, GroupConfig { rules: vec![rule] })
+        .await
+        .unwrap();
     assert_eq!(repository.saved_config().unwrap().rules[0].name, None);
 }
 
@@ -847,7 +842,6 @@ async fn test_a_rule_that_is_off_and_invalid_is_refused() {
             100,
             10,
             GroupConfig {
-                mode: GroupMode::Notifications,
                 rules: vec![named(join_rule(vec![], None), "Nothing", false)],
             },
         )

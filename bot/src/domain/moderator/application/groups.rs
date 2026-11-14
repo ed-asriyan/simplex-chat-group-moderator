@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::domain::moderator::rules::KeyUse;
 
 use crate::domain::moderator::ports::{
-    Err, Group, GroupAdministration, GroupConfig, GroupId, GroupMode, GroupModerator, KeyCheck,
+    Err, Group, GroupAdministration, GroupConfig, GroupId, GroupModerator, KeyCheck,
     MessengerGroup, MessengerGroupId, ModerationRepository, ModerationRule, OpenAi, OpenRouter,
     UserId,
 };
@@ -142,18 +142,14 @@ impl GroupAdministration for GroupAdministrationApplication {
             return Err(format!("Group {} is already registered", messenger_group_id).into());
         }
         self.group_moderator.join_group(group.id).await?;
-        // A group the owner has not configured yet notifies them of every
-        // action, so nothing the bot does goes unseen.
-        let mode = GroupMode::default();
         let group_id = self
             .repository
-            .save_owner(&messenger_group_id, &group.name, &owner_id, mode)
+            .save_owner(&messenger_group_id, &group.name, &owner_id)
             .await?;
         Ok(Group {
             id: group_id,
             owner_id,
             name: group.name.clone(),
-            mode,
         })
     }
 

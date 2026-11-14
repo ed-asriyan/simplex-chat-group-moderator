@@ -452,7 +452,15 @@ impl ModerationNotificationReceiver for BotDmApplication {
         group: &Group,
         notification: &ModerationNotification,
     ) -> Result<(), Err> {
-        let actions_text = describe_actions(&notification.actions, !notification.performed);
+        // Stage 5 stub: the actions it would have carried out are named only
+        // when it carried out none; the mixed form and the `_(off)_` marks are
+        // `/implement`'s (US-D4).
+        let (named, would) = if notification.performed.is_empty() {
+            (&notification.would_perform, true)
+        } else {
+            (&notification.performed, false)
+        };
+        let actions_text = describe_actions(named, would);
         let reasons = notification
             .reasons
             .iter()

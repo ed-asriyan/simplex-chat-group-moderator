@@ -15,7 +15,7 @@ use crate::domain::moderator::rules::test_support::message_rule;
 use crate::infrastructure::migrations;
 
 /// Most tests of the repository, here and in the migrations, are about the
-/// rules alone, so they save them under the default mode.
+/// rules alone, so they save a configuration of nothing else.
 impl SqliteModerationRepository {
     pub(crate) async fn set_group_rules(
         &self,
@@ -23,7 +23,6 @@ impl SqliteModerationRepository {
         rules: &[ModerationRule],
     ) -> Result<(), Err> {
         let config = GroupConfig {
-            mode: GroupMode::default(),
             rules: rules.to_vec(),
         };
         self.set_group_config(group_id, &config).await
@@ -37,6 +36,8 @@ impl SqliteModerationRepository {
     }
 }
 
+// US-B6: forgetting a group removes its rules, with their conditions, actions and
+// both switches, so the group is no longer in the owner's groups.
 #[tokio::test]
 async fn test_delete_group_data_removes_all_conditions_and_actions() {
     let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
@@ -46,12 +47,7 @@ async fn test_delete_group_data_removes_all_conditions_and_actions() {
     let messenger_group_id = 999;
     let owner_id = 123;
     let group_id = repo
-        .save_owner(
-            &messenger_group_id,
-            "Test Group",
-            &owner_id,
-            GroupMode::default(),
-        )
+        .save_owner(&messenger_group_id, "Test Group", &owner_id)
         .await
         .unwrap();
 
@@ -196,12 +192,7 @@ async fn test_save_and_load_rate_limit_rules() {
     let messenger_group_id = 1001;
     let owner_id = 456;
     let group_id = repo
-        .save_owner(
-            &messenger_group_id,
-            "Rate Limit Test Group",
-            &owner_id,
-            GroupMode::default(),
-        )
+        .save_owner(&messenger_group_id, "Rate Limit Test Group", &owner_id)
         .await
         .unwrap();
 
@@ -244,7 +235,7 @@ async fn test_round_trips_line_rate_limit_settings() {
 
     let repo = SqliteModerationRepository::new(conn.clone());
     let group_id = repo
-        .save_owner(&1002, "Line Rate Limit Group", &456, GroupMode::default())
+        .save_owner(&1002, "Line Rate Limit Group", &456)
         .await
         .unwrap();
 
@@ -286,7 +277,7 @@ async fn test_round_trips_group_rate_limit_settings() {
 
     let repo = SqliteModerationRepository::new(conn.clone());
     let group_id = repo
-        .save_owner(&1003, "Group Rate Limit Group", &456, GroupMode::default())
+        .save_owner(&1003, "Group Rate Limit Group", &456)
         .await
         .unwrap();
 
@@ -337,12 +328,7 @@ async fn repo_with_group(messenger_group_id: i64) -> (SqliteModerationRepository
     migrations::run(conn.clone()).await.unwrap();
     let repo = SqliteModerationRepository::new(conn);
     let group_id = repo
-        .save_owner(
-            &messenger_group_id,
-            "Round Trip Test Group",
-            &42,
-            GroupMode::default(),
-        )
+        .save_owner(&messenger_group_id, "Round Trip Test Group", &42)
         .await
         .unwrap();
     (repo, group_id)
@@ -586,37 +572,45 @@ async fn test_preserves_sibling_order_within_a_composite() {
     .await;
 }
 
+// US-C1, US-B4, US-G13, US-G19: a rule is stored with its two switches, every
+// combination of them comes back as it went in, and a rule with none turned off
+// is stored as one that is on and tells.
 #[tokio::test]
-async fn test_round_trips_the_mode_with_the_rules() {
+async fn test_round_trips_each_rules_two_switches() {
+    use crate::domain::moderator::rules::test_support::switched;
     let (repo, group_id) = repo_with_group(2010).await;
-    let rules = vec![message_rule(
-        vec![ModerationAction::ModerateMessage(ModerateMessage {})],
-        ModerationCondition::IsBlank(IsBlank {}),
-    )];
+    let rule = || {
+        message_rule(
+            vec![ModerationAction::ModerateMessage(ModerateMessage {})],
+            ModerationCondition::IsBlank(IsBlank {}),
+        )
+    };
 
-    // A new group notifies its owner until told otherwise.
+    // A new group has no rules.
+    assert!(repo.get_group_rules(&group_id).await.unwrap().is_empty());
+
+    let rules = vec![
+        switched(rule(), true, true),
+        switched(rule(), false, true),
+        switched(rule(), true, false),
+        switched(rule(), false, false),
+    ];
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+
+    let loaded = repo.get_group_rules(&group_id).await.unwrap();
+    assert_eq!(loaded, rules);
+    let flags: Vec<(bool, bool)> = loaded.iter().map(|r| (r.enabled, r.notify)).collect();
     assert_eq!(
-        repo.get_group_config(&group_id).await.unwrap().mode,
-        GroupMode::Notifications
+        flags,
+        vec![(true, true), (false, true), (true, false), (false, false)]
     );
-
-    for mode in [GroupMode::Dry, GroupMode::Silent, GroupMode::Notifications] {
-        let config = GroupConfig {
-            mode,
-            rules: rules.clone(),
-        };
-        repo.set_group_config(&group_id, &config).await.unwrap();
-
-        let loaded = repo.get_group_config(&group_id).await.unwrap();
-        assert_eq!(loaded.mode, mode);
-        assert_eq!(loaded.rules, rules);
-        let group = repo
-            .get_group_by_messenger_id(&2010)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(group.mode, mode);
-    }
+    // The group is there, with no mode of its own to read.
+    let group = repo
+        .get_group_by_messenger_id(&2010)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(group.id, group_id);
 }
 
 #[tokio::test]
@@ -763,12 +757,7 @@ async fn openai_repo(
     migrations::run(conn.clone()).await.unwrap();
     let repo = SqliteModerationRepository::new(conn.clone());
     let group_id = repo
-        .save_owner(
-            &messenger_group_id,
-            "OpenAI Group",
-            &42,
-            GroupMode::default(),
-        )
+        .save_owner(&messenger_group_id, "OpenAI Group", &42)
         .await
         .unwrap();
     (conn, repo, group_id)

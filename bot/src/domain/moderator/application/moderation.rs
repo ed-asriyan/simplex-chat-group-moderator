@@ -118,7 +118,10 @@ impl ModerationEngine for MessageModerationApplication {
                 .get_group_by_messenger_id(&group_message.group.id)
                 .await?;
 
-            if group.as_ref().is_none_or(|g| g.mode.executes_actions()) {
+            // Stage 5 stub: every matched rule's actions are carried out and told,
+            // as if all had both switches on; `/implement` applies each rule's own
+            // switches (US-D1–US-D4).
+            {
                 let outcome =
                     execute_message_actions(&group_message, &matched.actions, &self.action_ports())
                         .await?;
@@ -129,9 +132,7 @@ impl ModerationEngine for MessageModerationApplication {
                 bookkeeping = outcome.bookkeeping_error;
             }
 
-            if let Some(group) = group
-                && group.mode.notifies_owner()
-            {
+            if let Some(group) = group {
                 // Best-effort: a failed notification must not undo moderation.
                 let _ = self
                     .notifier
@@ -143,7 +144,8 @@ impl ModerationEngine for MessageModerationApplication {
                                 message: group_message.text.clone(),
                             },
                             member_name: group_message.author_name.clone(),
-                            actions: matched.actions_as_written(),
+                            performed: matched.actions_as_written(),
+                            would_perform: Vec::new(),
                             reasons: matched.reasons.clone(),
                         },
                     )
@@ -185,14 +187,15 @@ impl ModerationEngine for MessageModerationApplication {
 
         let mut bookkeeping: Option<Err> = None;
         if let Some(matched) = should_moderate_join(&join, &rules, &self.ports()).await? {
-            if group.mode.executes_actions() {
+            // Stage 5 stub: see `process_group_message`.
+            {
                 let outcome =
                     execute_join_actions(&join, &matched.actions, &self.action_ports()).await?;
                 // As for a message: the bot's own records failing must not call
                 // off the owner's notification.
                 bookkeeping = outcome.bookkeeping_error;
             }
-            if group.mode.notifies_owner() {
+            {
                 // Best-effort: a failed notification must not undo moderation.
                 let _ = self
                     .notifier
@@ -202,7 +205,8 @@ impl ModerationEngine for MessageModerationApplication {
                         &ModerationReport {
                             event: TriggerEvent::MemberJoined,
                             member_name: join.display_name.clone(),
-                            actions: matched.actions_as_written(),
+                            performed: matched.actions_as_written(),
+                            would_perform: Vec::new(),
                             reasons: matched.reasons.clone(),
                         },
                     )

@@ -742,6 +742,8 @@ pub(crate) fn load_rules_for_group(
                 name,
                 trigger,
                 enabled,
+                // Stage 5 stub: `notify` is not stored or read yet (US-G19).
+                notify: true,
                 condition,
                 actions,
             })?,

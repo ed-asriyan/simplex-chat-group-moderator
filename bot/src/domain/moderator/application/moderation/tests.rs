@@ -10,15 +10,15 @@ use crate::domain::moderator::ports::conditions::{
     GroupHitsMessageRateLimit,
 };
 use crate::domain::moderator::ports::{
-    CategoryTrigger, Err, Group, GroupId, GroupMessage, GroupMessageActivityRepository, GroupMode,
-    KeyCheck, MessageAttachment, MessageId, MessengerGroup, MessengerGroupId, ModerationAction,
+    CategoryTrigger, Err, Group, GroupId, GroupMessage, GroupMessageActivityRepository, KeyCheck,
+    MessageAttachment, MessageId, MessengerGroup, MessengerGroupId, ModerationAction,
     ModerationEngine, ModerationNotifier, ModerationReport, ModerationRule, OpenAi, OpenAiCategory,
     OpenAiCategoryTriggers, OpenAiModerationResult, OpenRouter, OpenRouterInstructionVerdict,
     OwnedModerationRule, TriggerEvent, UserCharacterActivityRepository, UserId,
     UserLineActivityRepository, UserMessageActivityRepository, UserModerationActivityRepository,
 };
 use crate::domain::moderator::rules::ModerationCondition;
-use crate::domain::moderator::rules::test_support::message_rule;
+use crate::domain::moderator::rules::test_support::{message_rule, switched};
 use crate::infrastructure::adapters::group_character_activity_repo_in_memory::InMemoryGroupCharacterActivityRepository;
 use crate::infrastructure::adapters::group_line_activity_repo_in_memory::InMemoryGroupLineActivityRepository;
 use crate::infrastructure::adapters::group_message_activity_repo_in_memory::InMemoryGroupMessageActivityRepository;
@@ -31,6 +31,25 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+/// How the rules of a test are switched (US-G13, US-G19): both on, *Actions*
+/// off (the rule only tells), or *Notifications* off (the rule acts silently).
+#[derive(Clone, Copy)]
+enum Switches {
+    Both,
+    ActionsOff,
+    NotificationsOff,
+}
+
+impl Switches {
+    fn apply(self, rule: ModerationRule) -> ModerationRule {
+        match self {
+            Self::Both => switched(rule, true, true),
+            Self::ActionsOff => switched(rule, false, true),
+            Self::NotificationsOff => switched(rule, true, false),
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct MockModerationNotifier {
@@ -57,7 +76,7 @@ impl ModerationNotifier for MockModerationNotifier {
         self.notifications.lock().unwrap().push((
             user_id,
             group.id,
-            report.actions.clone(),
+            report.performed.clone(),
             message.to_string(),
             report
                 .reasons
@@ -69,7 +88,7 @@ impl ModerationNotifier for MockModerationNotifier {
         self.call_log.lock().unwrap().push(PortCall::NotifyAction(
             user_id,
             group.id,
-            report.actions.clone(),
+            report.performed.clone(),
         ));
         if self.fail_notification {
             return Err("notification failed".into());
@@ -221,7 +240,6 @@ async fn test_process_group_message_moderate_message_action() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -303,7 +321,6 @@ async fn test_process_group_message_kick_author_with_triggered_message() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -393,7 +410,6 @@ async fn test_process_group_message_kick_author_without_deleting_messages() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -477,7 +493,6 @@ async fn test_process_group_message_kick_author_deleting_all_messages() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -561,11 +576,10 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Dry,
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: message_rule(
+        rule: Switches::ActionsOff.apply(message_rule(
             vec![
                 ModerationAction::ModerateMessage(ModerateMessage {}),
                 ModerationAction::KickAuthor(KickAuthor {
@@ -575,7 +589,7 @@ async fn test_process_group_message_dry_mode_skips_action_but_sends_notification
             ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
             }),
-        ),
+        )),
     };
 
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
@@ -640,7 +654,6 @@ async fn test_process_group_message_no_match_does_nothing() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -712,7 +725,6 @@ async fn test_process_group_message_kick_author_covers_and_upgrades_moderate_mes
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     // Rule 1: ModerateMessage on "first"
     // Rule 2: KickAuthor on "second"
@@ -813,7 +825,6 @@ async fn test_process_group_message_set_author_observer_with_triggered_message_s
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -916,7 +927,6 @@ async fn test_process_group_message_set_author_observer_with_delete_message_none
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -1012,11 +1022,10 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Dry,
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: message_rule(
+        rule: Switches::ActionsOff.apply(message_rule(
             vec![
                 ModerationAction::SetAuthorObserver(SetAuthorObserver {
                     duration_minutes: 0,
@@ -1026,7 +1035,7 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_triggered_
             ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
             }),
-        ),
+        )),
     };
 
     let call_log = Arc::new(Mutex::new(Vec::new()));
@@ -1096,18 +1105,17 @@ async fn test_process_group_message_set_author_observer_dry_mode_with_none() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Dry,
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: message_rule(
+        rule: Switches::ActionsOff.apply(message_rule(
             vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                 duration_minutes: 0,
             })],
             ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
             }),
-        ),
+        )),
     };
 
     let call_log = Arc::new(Mutex::new(Vec::new()));
@@ -1173,11 +1181,10 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Silent,
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: message_rule(
+        rule: Switches::NotificationsOff.apply(message_rule(
             vec![
                 ModerationAction::SetAuthorObserver(SetAuthorObserver {
                     duration_minutes: 0,
@@ -1187,7 +1194,7 @@ async fn test_process_group_message_set_author_observer_notifications_disabled()
             ModerationCondition::ContainsWords(ContainsWords {
                 keywords: vec!["danger".to_string()],
             }),
-        ),
+        )),
     };
 
     let call_log = Arc::new(Mutex::new(Vec::new()));
@@ -1252,7 +1259,6 @@ async fn test_process_group_message_set_author_observer_notification_failure_doe
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -1342,7 +1348,6 @@ async fn test_process_group_message_set_author_observer_rule_order_first_match_w
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule1 = OwnedModerationRule {
         id: 1,
@@ -1439,7 +1444,6 @@ async fn test_process_group_message_set_author_observer_covers_and_upgrades_mode
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule1 = OwnedModerationRule {
         id: 1,
@@ -1538,7 +1542,6 @@ async fn test_process_group_message_message_rate_limit_triggers_on_threshold() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -1628,7 +1631,6 @@ async fn test_process_group_message_message_rate_limit_kick_author() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -1716,11 +1718,10 @@ async fn test_process_group_message_message_rate_limit_dry_mode() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Dry,
     };
     let rule = OwnedModerationRule {
         id: 1,
-        rule: message_rule(
+        rule: Switches::ActionsOff.apply(message_rule(
             vec![
                 ModerationAction::ModerateMessage(ModerateMessage {}),
                 ModerationAction::KickAuthor(KickAuthor {
@@ -1731,7 +1732,7 @@ async fn test_process_group_message_message_rate_limit_dry_mode() {
                 message_count: 1,
                 time_window_minutes: 1,
             }),
-        ),
+        )),
     };
 
     let deleted_messages = Arc::new(Mutex::new(Vec::new()));
@@ -1797,7 +1798,6 @@ async fn test_process_group_message_message_rate_limit_uses_message_timestamp() 
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -1908,7 +1908,6 @@ async fn test_track_user_message_called_when_message_rate_limit_rule_configured(
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -1986,7 +1985,6 @@ async fn test_track_user_message_uses_max_window_across_multiple_message_rate_li
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rules = vec![
         OwnedModerationRule {
@@ -2066,7 +2064,6 @@ async fn test_track_characters_called_when_character_rate_limit_rule_configured(
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -2147,7 +2144,6 @@ async fn test_track_characters_not_called_without_a_character_rate_limit_rule() 
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -2215,7 +2211,6 @@ async fn test_track_lines_called_when_line_rate_limit_rule_configured() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -2301,7 +2296,6 @@ async fn test_track_lines_uses_the_widest_configured_wrap() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rules = vec![
         OwnedModerationRule {
@@ -2385,7 +2379,6 @@ async fn test_track_lines_counts_nothing_for_a_captionless_attachment() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -2450,7 +2443,6 @@ async fn test_track_lines_not_called_without_a_line_rate_limit_rule() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -2516,7 +2508,6 @@ async fn test_track_characters_not_called_when_window_is_zero() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rule = OwnedModerationRule {
         id: 1,
@@ -2577,7 +2568,6 @@ async fn test_track_user_message_not_called_when_no_message_rate_limit_rules() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rules = vec![
         OwnedModerationRule {
@@ -2653,7 +2643,6 @@ async fn test_track_user_message_not_called_when_group_has_empty_rules() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
 
     let recorder = Arc::new(MockActivityRecorder::default());
@@ -2707,7 +2696,6 @@ async fn test_track_user_message_not_called_when_message_rate_limit_window_is_ze
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rules = vec![OwnedModerationRule {
         id: 1,
@@ -2771,7 +2759,6 @@ async fn test_track_user_message_ttl_capped_at_60_minutes() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rules = vec![OwnedModerationRule {
         id: 1,
@@ -2838,7 +2825,6 @@ async fn test_process_group_message_moderation_rate_limit_triggers_and_kicks() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rules = vec![
         OwnedModerationRule {
@@ -2955,7 +2941,6 @@ async fn test_track_moderated_message_called_only_when_message_moderated() {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     let rules = vec![
         OwnedModerationRule {
@@ -3058,7 +3043,6 @@ async fn test_track_moderated_message_not_called_when_no_moderation_rate_limit_r
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     };
     // Group only has keyword rules, no AuthorHitsModerationRateLimit rules
     let rules = vec![OwnedModerationRule {
@@ -3135,7 +3119,6 @@ fn edit_test_group() -> Group {
         id: 10,
         owner_id: 100,
         name: "Test Group".to_string(),
-        mode: GroupMode::Notifications,
     }
 }
 
@@ -3414,18 +3397,17 @@ fn app_with_observer_rule(
                 id: 10,
                 owner_id: 100,
                 name: "Test Group".to_string(),
-                mode: GroupMode::Silent,
             }),
             rules: vec![OwnedModerationRule {
                 id: 1,
-                rule: message_rule(
+                rule: Switches::NotificationsOff.apply(message_rule(
                     vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                         duration_minutes,
                     })],
                     ModerationCondition::ContainsWords(ContainsWords {
                         keywords: vec!["danger".to_string()],
                     }),
-                ),
+                )),
             }],
         }),
         Arc::new(MockGroupModerator::default()),
@@ -3501,18 +3483,17 @@ async fn test_dry_mode_schedules_nothing() {
                 id: 10,
                 owner_id: 100,
                 name: "Test Group".to_string(),
-                mode: GroupMode::Dry,
             }),
             rules: vec![OwnedModerationRule {
                 id: 1,
-                rule: message_rule(
+                rule: Switches::ActionsOff.apply(message_rule(
                     vec![ModerationAction::SetAuthorObserver(SetAuthorObserver {
                         duration_minutes: 15,
                     })],
                     ModerationCondition::ContainsWords(ContainsWords {
                         keywords: vec!["danger".to_string()],
                     }),
-                ),
+                )),
             }],
         }),
         Arc::new(MockGroupModerator::default()),
@@ -3547,18 +3528,17 @@ async fn test_kicking_the_author_cancels_a_scheduled_restore() {
                 id: 10,
                 owner_id: 100,
                 name: "Test Group".to_string(),
-                mode: GroupMode::Silent,
             }),
             rules: vec![OwnedModerationRule {
                 id: 1,
-                rule: message_rule(
+                rule: Switches::NotificationsOff.apply(message_rule(
                     vec![ModerationAction::KickAuthor(KickAuthor {
                         delete_all_messages: false,
                     })],
                     ModerationCondition::ContainsWords(ContainsWords {
                         keywords: vec!["danger".to_string()],
                     }),
-                ),
+                )),
             }],
         }),
         Arc::new(MockGroupModerator::default()),
@@ -3597,7 +3577,6 @@ async fn test_failed_restore_bookkeeping_still_moderates_and_notifies() {
                 id: 10,
                 owner_id: 100,
                 name: "Test Group".to_string(),
-                mode: GroupMode::Notifications,
             }),
             rules: vec![OwnedModerationRule {
                 id: 1,
@@ -3964,19 +3943,16 @@ impl OpenRouter for SpamModel {
 
 fn history_app(
     context_messages: u32,
-    mode: GroupMode,
+    switches: Switches,
     history: Arc<InMemoryGroupMessageHistoryRepository>,
 ) -> MessageModerationApplication {
     let model = Arc::new(SpamModel);
     MessageModerationApplication::new(
         Arc::new(MockModerationRepository {
-            group: Some(Group {
-                mode,
-                ..edit_test_group()
-            }),
+            group: Some(edit_test_group()),
             rules: vec![OwnedModerationRule {
                 id: 1,
-                rule: message_rule(
+                rule: switches.apply(message_rule(
                     vec![ModerationAction::ModerateMessage(ModerateMessage {})],
                     ModerationCondition::FlaggedByOpenRouterInstruction(
                         FlaggedByOpenRouterInstruction {
@@ -3987,7 +3963,7 @@ fn history_app(
                             context_messages,
                         },
                     ),
-                ),
+                )),
             }],
         }),
         Arc::new(MockGroupModerator::default()),
@@ -4028,7 +4004,7 @@ async fn kept_texts(history: &InMemoryGroupMessageHistoryRepository) -> Vec<Stri
 #[tokio::test]
 async fn test_messages_left_standing_are_kept_and_deleted_ones_are_not() {
     let history = Arc::new(InMemoryGroupMessageHistoryRepository::new());
-    let app = history_app(2, GroupMode::Notifications, history.clone());
+    let app = history_app(2, Switches::Both, history.clone());
 
     for (id, text) in [(1, "hello"), (2, "spam"), (3, "how are you"), (4, "fine")] {
         app.process_group_message(history_message(id, text, false))
@@ -4043,7 +4019,7 @@ async fn test_messages_left_standing_are_kept_and_deleted_ones_are_not() {
 #[tokio::test]
 async fn test_in_dry_mode_a_matching_message_stays_in_the_chat_and_in_the_history() {
     let history = Arc::new(InMemoryGroupMessageHistoryRepository::new());
-    let app = history_app(5, GroupMode::Dry, history.clone());
+    let app = history_app(5, Switches::ActionsOff, history.clone());
 
     for (id, text) in [(1, "hello"), (2, "spam")] {
         app.process_group_message(history_message(id, text, false))
@@ -4057,7 +4033,7 @@ async fn test_in_dry_mode_a_matching_message_stays_in_the_chat_and_in_the_histor
 #[tokio::test]
 async fn test_an_edit_replaces_the_kept_text_and_an_edit_deleted_is_forgotten() {
     let history = Arc::new(InMemoryGroupMessageHistoryRepository::new());
-    let app = history_app(5, GroupMode::Notifications, history.clone());
+    let app = history_app(5, Switches::Both, history.clone());
 
     for message in [
         history_message(1, "hello", false),
@@ -4074,7 +4050,7 @@ async fn test_an_edit_replaces_the_kept_text_and_an_edit_deleted_is_forgotten() 
 #[tokio::test]
 async fn test_nothing_is_kept_while_no_rule_reads_earlier_messages() {
     let history = Arc::new(InMemoryGroupMessageHistoryRepository::new());
-    let app = history_app(0, GroupMode::Notifications, history.clone());
+    let app = history_app(0, Switches::Both, history.clone());
 
     app.process_group_message(history_message(1, "hello", false))
         .await
@@ -4108,14 +4084,13 @@ fn group_rate_limit_app(
                 id: 10,
                 owner_id: 100,
                 name: "Test Group".to_string(),
-                mode: GroupMode::Silent,
             }),
             rules: vec![OwnedModerationRule {
                 id: 1,
-                rule: message_rule(
+                rule: Switches::NotificationsOff.apply(message_rule(
                     vec![ModerationAction::ModerateMessage(ModerateMessage {})],
                     condition,
-                ),
+                )),
             }],
         }),
         Arc::new(MockGroupModerator {
@@ -4331,8 +4306,11 @@ struct Watch {
     restores: Arc<MockMemberRestoreRepository>,
 }
 
-/// The application over a group 10 of `mode` with `rules`.
-fn join_app(mode: GroupMode, rules: Vec<ModerationRule>) -> (MessageModerationApplication, Watch) {
+/// The application over a group 10 with `rules`, each switched as `switches` says.
+fn join_app(
+    switches: Switches,
+    rules: Vec<ModerationRule>,
+) -> (MessageModerationApplication, Watch) {
     let watch = Watch {
         moderator: Arc::new(MockGroupModerator::default()),
         notifier: Arc::new(MockModerationNotifier::default()),
@@ -4344,12 +4322,14 @@ fn join_app(mode: GroupMode, rules: Vec<ModerationRule>) -> (MessageModerationAp
                 id: 10,
                 owner_id: 100,
                 name: "Crypto Chat".to_string(),
-                mode,
             }),
             rules: rules
                 .into_iter()
                 .enumerate()
-                .map(|(id, rule)| OwnedModerationRule { id, rule })
+                .map(|(id, rule)| OwnedModerationRule {
+                    id,
+                    rule: switches.apply(rule),
+                })
                 .collect(),
         }),
         watch.moderator.clone(),
@@ -4402,7 +4382,7 @@ fn casino_kick() -> ModerationRule {
 // US-D6, US-F3: in the mode Notifications the member is removed and the owner is told.
 #[tokio::test]
 async fn test_a_join_that_matches_is_acted_on_and_told_in_notifications_mode() {
-    let (app, watch) = join_app(GroupMode::Notifications, vec![casino_kick()]);
+    let (app, watch) = join_app(Switches::Both, vec![casino_kick()]);
     app.process_member_join(joining("Free Casino Bonus", Utc::now()))
         .await
         .unwrap();
@@ -4416,7 +4396,7 @@ async fn test_a_join_that_matches_is_acted_on_and_told_in_notifications_mode() {
     assert_eq!(reports[0].event, Event::MemberJoined);
     assert_eq!(reports[0].member_name, "Free Casino Bonus");
     assert_eq!(
-        reports[0].actions,
+        reports[0].performed,
         vec![ModerationAction::KickAuthor(KickAuthor {
             delete_all_messages: false
         })]
@@ -4425,7 +4405,8 @@ async fn test_a_join_that_matches_is_acted_on_and_told_in_notifications_mode() {
         reports[0].reasons,
         vec![RuleReason {
             rule_name: Some("Spam names".to_string()),
-            reason: "name contains word: 'casino'".to_string()
+            reason: "name contains word: 'casino'".to_string(),
+            actions_on: true,
         }]
     );
     assert_eq!(watch.notifier.notifications.lock().unwrap()[0].0, 100);
@@ -4434,7 +4415,7 @@ async fn test_a_join_that_matches_is_acted_on_and_told_in_notifications_mode() {
 // US-D6: someone the rules do not match is left alone and nobody is told.
 #[tokio::test]
 async fn test_a_join_that_matches_nothing_does_nothing() {
-    let (app, watch) = join_app(GroupMode::Notifications, vec![casino_kick()]);
+    let (app, watch) = join_app(Switches::Both, vec![casino_kick()]);
     app.process_member_join(joining("Carol", Utc::now()))
         .await
         .unwrap();
@@ -4445,7 +4426,7 @@ async fn test_a_join_that_matches_nothing_does_nothing() {
 // US-D6: with the mode Silent the bot acts and does not tell the owner.
 #[tokio::test]
 async fn test_in_silent_mode_a_join_is_acted_on_without_telling() {
-    let (app, watch) = join_app(GroupMode::Silent, vec![casino_kick()]);
+    let (app, watch) = join_app(Switches::NotificationsOff, vec![casino_kick()]);
     app.process_member_join(joining("Free Casino Bonus", Utc::now()))
         .await
         .unwrap();
@@ -4459,7 +4440,7 @@ async fn test_in_silent_mode_a_join_is_acted_on_without_telling() {
 // US-D6: with the mode Dry the bot does nothing in the group and tells the owner.
 #[tokio::test]
 async fn test_in_dry_mode_a_join_is_only_told() {
-    let (app, watch) = join_app(GroupMode::Dry, vec![casino_kick()]);
+    let (app, watch) = join_app(Switches::ActionsOff, vec![casino_kick()]);
     app.process_member_join(joining("Free Casino Bonus", Utc::now()))
         .await
         .unwrap();
@@ -4480,7 +4461,7 @@ async fn test_a_timed_observer_restriction_on_a_join_is_restored_from_the_join()
         "Quarantine newcomers",
         true,
     );
-    let (app, watch) = join_app(GroupMode::Notifications, vec![rule]);
+    let (app, watch) = join_app(Switches::Both, vec![rule]);
     let at = Utc::now();
     app.process_member_join(joining("Carol", at)).await.unwrap();
     assert_eq!(
@@ -4491,16 +4472,17 @@ async fn test_a_timed_observer_restriction_on_a_join_is_restored_from_the_join()
         watch.notifier.reports.lock().unwrap()[0].reasons,
         vec![RuleReason {
             rule_name: Some("Quarantine newcomers".to_string()),
-            reason: "everyone who joins".to_string()
+            reason: "everyone who joins".to_string(),
+            actions_on: true,
         }]
     );
 }
 
-// US-D6, US-G13: rules that are off are skipped.
+// US-D6, US-G13, US-G19: a rule with both switches off is skipped.
 #[tokio::test]
-async fn test_a_join_rule_that_is_off_is_skipped() {
-    let off = named(casino_kick(), "Spam names", false);
-    let (app, watch) = join_app(GroupMode::Notifications, vec![off]);
+async fn test_a_join_rule_with_both_switches_off_is_skipped() {
+    let off = switched(casino_kick(), false, false);
+    let (app, watch) = join_app(Switches::Both, vec![off]);
     app.process_member_join(joining("Free Casino Bonus", Utc::now()))
         .await
         .unwrap();
@@ -4519,7 +4501,7 @@ async fn test_a_join_is_not_checked_against_message_rules() {
             keywords: vec!["casino".to_string()],
         }),
     );
-    let (app, watch) = join_app(GroupMode::Notifications, vec![rule]);
+    let (app, watch) = join_app(Switches::Both, vec![rule]);
     app.process_member_join(joining("Free Casino Bonus", Utc::now()))
         .await
         .unwrap();
@@ -4530,7 +4512,7 @@ async fn test_a_join_is_not_checked_against_message_rules() {
 // US-D6: a group the bot does not know is left alone.
 #[tokio::test]
 async fn test_a_join_in_an_unknown_group_is_ignored() {
-    let (app, watch) = join_app(GroupMode::Notifications, vec![casino_kick()]);
+    let (app, watch) = join_app(Switches::Both, vec![casino_kick()]);
     let mut join = joining("Free Casino Bonus", Utc::now());
     join.group.id = 999;
     // The repository fake answers for any group; what matters is that nothing breaks
@@ -4550,7 +4532,7 @@ async fn test_a_join_in_an_unknown_group_is_ignored() {
 // US-D1: a message is checked against message rules only.
 #[tokio::test]
 async fn test_a_message_is_not_checked_against_join_rules() {
-    let (app, watch) = join_app(GroupMode::Notifications, vec![casino_kick()]);
+    let (app, watch) = join_app(Switches::Both, vec![casino_kick()]);
     let mut msg = triggering_message(Utc::now());
     msg.author_name = "Free Casino Bonus".to_string();
     app.process_group_message(msg).await.unwrap();
@@ -4571,7 +4553,7 @@ async fn test_a_message_notification_names_the_author_and_the_rule() {
         "Banned words",
         true,
     );
-    let (app, watch) = join_app(GroupMode::Notifications, vec![rule]);
+    let (app, watch) = join_app(Switches::Both, vec![rule]);
     let mut msg = triggering_message(Utc::now());
     msg.author_name = "Bob".to_string();
     app.process_group_message(msg).await.unwrap();
@@ -4588,8 +4570,375 @@ async fn test_a_message_notification_names_the_author_and_the_rule() {
         reports[0].reasons,
         vec![RuleReason {
             rule_name: Some("Banned words".to_string()),
-            reason: "contains word: 'danger'".to_string()
+            reason: "contains word: 'danger'".to_string(),
+            actions_on: true,
         }]
     );
     let _ = Trigger::MessagePosted;
+}
+
+// ---------------------------------------------------------------------------
+// A rule's two switches: Actions and Notifications (US-D1–US-D4, US-D6, US-E20)
+// ---------------------------------------------------------------------------
+
+fn observer(minutes: u32) -> ModerationAction {
+    ModerationAction::SetAuthorObserver(SetAuthorObserver {
+        duration_minutes: minutes,
+    })
+}
+
+fn moderate() -> ModerationAction {
+    ModerationAction::ModerateMessage(ModerateMessage {})
+}
+
+fn kick() -> ModerationAction {
+    ModerationAction::KickAuthor(KickAuthor {
+        delete_all_messages: false,
+    })
+}
+
+/// A rule for messages containing `danger`, called `name`, with its two switches.
+fn danger_rule(
+    name: &str,
+    actions: Vec<ModerationAction>,
+    actions_on: bool,
+    notifications_on: bool,
+) -> ModerationRule {
+    switched(
+        named(
+            message_rule(
+                actions,
+                ModerationCondition::ContainsWords(ContainsWords {
+                    keywords: vec!["danger".to_string()],
+                }),
+            ),
+            name,
+            true,
+        ),
+        actions_on,
+        notifications_on,
+    )
+}
+
+/// The reasons of a report as `(rule name, actions on)`, in order.
+fn reasons_of(report: &ModerationReport) -> Vec<(String, bool)> {
+    report
+        .reasons
+        .iter()
+        .map(|r| (r.rule_name.clone().unwrap_or_default(), r.actions_on))
+        .collect()
+}
+
+// US-D2: a rule with both switches on acts and is told.
+#[tokio::test]
+async fn test_a_rule_with_both_switches_on_acts_and_tells() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![danger_rule("Banned words", vec![moderate()], true, true)],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    assert_eq!(
+        *watch.moderator.deleted_messages.lock().unwrap(),
+        vec![(10, 42)]
+    );
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].performed, vec![moderate()]);
+    assert!(reports[0].would_perform.is_empty());
+    assert_eq!(
+        reasons_of(&reports[0]),
+        vec![("Banned words".to_string(), true)]
+    );
+}
+
+// US-D2, US-D3: the notification names the actions and the reasons of the matched
+// rules with Notifications on alone; a matched rule with it off still acts.
+#[tokio::test]
+async fn test_the_report_holds_only_the_rules_with_notifications_on() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![
+            danger_rule("Quiet", vec![moderate()], true, false),
+            danger_rule("Loud", vec![observer(10)], true, true),
+        ],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    // Both carried out their actions...
+    assert_eq!(
+        *watch.moderator.deleted_messages.lock().unwrap(),
+        vec![(10, 42)]
+    );
+    assert_eq!(
+        *watch.moderator.observer_members.lock().unwrap(),
+        vec![(10, 777)]
+    );
+    // ...and the owner is told about the one that tells.
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].performed, vec![observer(10)]);
+    assert!(reports[0].would_perform.is_empty());
+    assert_eq!(reasons_of(&reports[0]), vec![("Loud".to_string(), true)]);
+}
+
+// US-D3: when only rules with Notifications off matched, the bot acts and the owner is not told.
+#[tokio::test]
+async fn test_a_message_matching_only_rules_with_notifications_off_is_acted_on_silently() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![danger_rule("Quiet", vec![moderate()], true, false)],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    assert_eq!(
+        *watch.moderator.deleted_messages.lock().unwrap(),
+        vec![(10, 42)]
+    );
+    assert!(watch.notifier.reports.lock().unwrap().is_empty());
+}
+
+// US-D3, US-D1: a rule with both switches off is not checked: nothing is done and
+// nobody is told; the rules with Actions on carry out theirs.
+#[tokio::test]
+async fn test_a_rule_with_both_switches_off_does_nothing_beside_one_that_acts() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![
+            danger_rule("Quiet", vec![moderate()], true, false),
+            danger_rule("Off", vec![kick()], false, false),
+        ],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    assert_eq!(
+        *watch.moderator.deleted_messages.lock().unwrap(),
+        vec![(10, 42)]
+    );
+    assert!(watch.moderator.kicked_members.lock().unwrap().is_empty());
+    assert!(watch.notifier.reports.lock().unwrap().is_empty());
+}
+
+// US-D4: a rule with Actions off does nothing in the group and tells what it would have done.
+#[tokio::test]
+async fn test_a_rule_with_actions_off_only_tells_what_it_would_do() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![danger_rule("Flood", vec![moderate(), kick()], false, true)],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    assert!(watch.moderator.deleted_messages.lock().unwrap().is_empty());
+    assert!(watch.moderator.kicked_members.lock().unwrap().is_empty());
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports.len(), 1);
+    assert!(reports[0].performed.is_empty());
+    assert_eq!(reports[0].would_perform, vec![moderate(), kick()]);
+    assert_eq!(reasons_of(&reports[0]), vec![("Flood".to_string(), false)]);
+}
+
+// US-D4: what rules that act did and what rules that only tell would also do are
+// one report, the reasons of both in the order of the rules.
+#[tokio::test]
+async fn test_rules_that_act_and_rules_that_only_tell_are_one_report() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![
+            danger_rule("Banned words", vec![moderate()], true, true),
+            danger_rule("Trial kick", vec![kick()], false, true),
+        ],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    assert_eq!(
+        *watch.moderator.deleted_messages.lock().unwrap(),
+        vec![(10, 42)]
+    );
+    assert!(watch.moderator.kicked_members.lock().unwrap().is_empty());
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].performed, vec![moderate()]);
+    assert_eq!(reports[0].would_perform, vec![kick()]);
+    assert_eq!(
+        reasons_of(&reports[0]),
+        vec![
+            ("Banned words".to_string(), true),
+            ("Trial kick".to_string(), false)
+        ]
+    );
+}
+
+// US-D4, US-F4: an action a rule with Actions off would carry out, that one carried
+// out already covers, is not named.
+#[tokio::test]
+async fn test_what_would_be_done_is_not_named_when_it_was_done() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![
+            danger_rule("Banned words", vec![moderate()], true, true),
+            danger_rule("Trial", vec![moderate(), observer(10)], false, true),
+        ],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports[0].performed, vec![moderate()]);
+    assert_eq!(reports[0].would_perform, vec![observer(10)]);
+    assert!(watch.moderator.observer_members.lock().unwrap().is_empty());
+}
+
+// US-D1: a rule with Actions off covers nothing for the rules with Actions on: both
+// moderate, and the one that is on still does.
+#[tokio::test]
+async fn test_a_rule_with_actions_off_covers_nothing_for_a_rule_that_is_on() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![
+            danger_rule("Trial", vec![moderate()], false, true),
+            danger_rule("Banned words", vec![moderate()], true, true),
+        ],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    assert_eq!(
+        *watch.moderator.deleted_messages.lock().unwrap(),
+        vec![(10, 42)]
+    );
+}
+
+// US-D1: a rule is not checked when every action of it is covered by the rules that
+// matched before it, so a rule with Actions off after one that moderated gives no reason.
+#[tokio::test]
+async fn test_a_rule_whose_every_action_is_covered_gives_no_reason() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![
+            danger_rule("Banned words", vec![moderate()], true, true),
+            danger_rule("Trial", vec![moderate()], false, true),
+        ],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(
+        reasons_of(&reports[0]),
+        vec![("Banned words".to_string(), true)]
+    );
+    assert!(reports[0].would_perform.is_empty());
+}
+
+// US-E20: a message that a rule with Actions off would only moderate is not
+// recorded as moderated, so it counts toward no moderation rate limit.
+#[tokio::test]
+async fn test_a_message_only_a_rule_with_actions_off_matched_is_not_recorded_as_moderated() {
+    let recorder = Arc::new(MockModerationActivityRecorder::default());
+    let rules = vec![
+        switched(
+            message_rule(
+                vec![moderate()],
+                ModerationCondition::AuthorHitsModerationRateLimit(AuthorHitsModerationRateLimit {
+                    message_count: 5,
+                    time_window_minutes: 60,
+                }),
+            ),
+            true,
+            true,
+        ),
+        danger_rule("Trial", vec![moderate()], false, true),
+    ];
+    let app = MessageModerationApplication::new(
+        Arc::new(MockModerationRepository {
+            group: Some(Group {
+                id: 10,
+                owner_id: 100,
+                name: "Test Group".to_string(),
+            }),
+            rules: rules
+                .into_iter()
+                .enumerate()
+                .map(|(id, rule)| OwnedModerationRule { id, rule })
+                .collect(),
+        }),
+        Arc::new(MockGroupModerator::default()),
+        Arc::new(MockModerationNotifier::default()),
+        Arc::new(InMemoryUserMessageActivityRepository::new()),
+        Arc::new(InMemoryUserCharacterActivityRepository::new()),
+        Arc::new(InMemoryUserLineActivityRepository::new()),
+        recorder.clone(),
+        Arc::new(InMemoryGroupMessageActivityRepository::new()),
+        Arc::new(InMemoryGroupCharacterActivityRepository::new()),
+        Arc::new(InMemoryGroupLineActivityRepository::new()),
+        Arc::new(InMemoryGroupMessageHistoryRepository::new()),
+        Arc::new(MockMemberRestoreRepository::default()),
+        Arc::new(UnusedAi),
+        Arc::new(UnusedAi),
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    assert!(recorder.recorded.lock().unwrap().is_empty());
+}
+
+// US-D6, US-D4: a join rule with Actions off tells what it would have done, and does nothing.
+#[tokio::test]
+async fn test_a_join_rule_with_actions_off_only_tells_what_it_would_do() {
+    let (app, watch) = join_app(Switches::Both, vec![switched(casino_kick(), false, true)]);
+    app.process_member_join(joining("Free Casino Bonus", Utc::now()))
+        .await
+        .unwrap();
+    assert!(watch.moderator.kicked_members.lock().unwrap().is_empty());
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports.len(), 1);
+    assert!(reports[0].performed.is_empty());
+    assert_eq!(reports[0].would_perform, vec![kick()]);
+    assert_eq!(
+        reasons_of(&reports[0]),
+        vec![("Spam names".to_string(), false)]
+    );
+}
+
+// US-D6, US-D3: a join rule with Notifications off acts and the owner is not told.
+#[tokio::test]
+async fn test_a_join_rule_with_notifications_off_acts_without_telling() {
+    let (app, watch) = join_app(Switches::Both, vec![switched(casino_kick(), true, false)]);
+    app.process_member_join(joining("Free Casino Bonus", Utc::now()))
+        .await
+        .unwrap();
+    assert_eq!(
+        *watch.moderator.kicked_members.lock().unwrap(),
+        vec![(10, 555)]
+    );
+    assert!(watch.notifier.reports.lock().unwrap().is_empty());
+}
+
+// US-D6, US-D4: a join rule with Actions off covers nothing for one that is on, and
+// the report holds what was done and nothing it covers.
+#[tokio::test]
+async fn test_a_join_rule_with_actions_off_covers_nothing_for_one_that_is_on() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![
+            switched(casino_kick(), false, true),
+            named(casino_kick(), "Spam names 2", true),
+        ],
+    );
+    app.process_member_join(joining("Free Casino Bonus", Utc::now()))
+        .await
+        .unwrap();
+    assert_eq!(
+        *watch.moderator.kicked_members.lock().unwrap(),
+        vec![(10, 555)]
+    );
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports[0].performed, vec![kick()]);
+    assert!(reports[0].would_perform.is_empty());
 }
