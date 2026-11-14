@@ -40,10 +40,11 @@ pub fn draft_rule(draft: RuleDraft) -> ModerationRule {
     ModerationRule::try_from(draft).expect("a valid rule")
 }
 
-/// `rule` with a name and, if `enabled` is false, its actions switched off.
-pub fn named(mut rule: ModerationRule, name: &str, enabled: bool) -> ModerationRule {
+/// `rule` with a name and, if `on` is false, turned off: both its switches.
+pub fn named(mut rule: ModerationRule, name: &str, on: bool) -> ModerationRule {
     rule.name = Some(name.to_string());
-    rule.enabled = enabled;
+    rule.enabled = on;
+    rule.notify = on;
     rule
 }
 

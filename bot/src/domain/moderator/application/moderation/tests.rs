@@ -44,11 +44,23 @@ enum Switches {
 impl Switches {
     fn apply(self, rule: ModerationRule) -> ModerationRule {
         match self {
-            Self::Both => switched(rule, true, true),
+            // A rule is on and tells until it is switched: the rules a test
+            // switched itself are left as it set them.
+            Self::Both => rule,
             Self::ActionsOff => switched(rule, false, true),
             Self::NotificationsOff => switched(rule, true, false),
         }
     }
+}
+
+/// What a report names, whether carried out or only what would have been.
+fn told_actions(report: &ModerationReport) -> Vec<ModerationAction> {
+    report
+        .performed
+        .iter()
+        .chain(&report.would_perform)
+        .cloned()
+        .collect()
 }
 
 #[derive(Default)]
@@ -76,7 +88,7 @@ impl ModerationNotifier for MockModerationNotifier {
         self.notifications.lock().unwrap().push((
             user_id,
             group.id,
-            report.performed.clone(),
+            told_actions(report),
             message.to_string(),
             report
                 .reasons
@@ -88,7 +100,7 @@ impl ModerationNotifier for MockModerationNotifier {
         self.call_log.lock().unwrap().push(PortCall::NotifyAction(
             user_id,
             group.id,
-            report.performed.clone(),
+            told_actions(report),
         ));
         if self.fail_notification {
             return Err("notification failed".into());
