@@ -5,7 +5,7 @@ import { expect, Page, test } from '@playwright/test';
 import { configOf } from '../harness/person';
 import { EDITOR } from '../harness/stack';
 import {
-  JOINS, MESSAGES, applyDialog, currentLink, editorUrl, emptyEditor, joinRule, looks, named, newRule, open, openRule, pickable,
+  JOINS, MESSAGES, applyDialog, currentLink, editorUrl, emptyEditor, joinRule, looks, named, newRule, notice, open, openRule, pickable,
   rule, rules, savedConfig, scene, section, toGroup,
 } from './helpers';
 
@@ -30,7 +30,20 @@ async function textOf(locator: ReturnType<Page['locator']>): Promise<string> {
   return (await locator.innerText()).replace(/\s+/g, ' ');
 }
 
-const mode = (page: Page, name: 'Notifications' | 'Silent' | 'Dry') => page.getByRole('radio', { name: new RegExp(`^${name} `) });
+/** A rule's two switches, on its page: *Actions* and *Notifications*, each On or Off (US-G13, US-G19). */
+const switchOf = (page: Page, which: 'Actions' | 'Notifications', value: 'On' | 'Off') =>
+  page.getByRole('radiogroup', { name: which, exact: true }).getByRole('radio', { name: value, exact: true });
+/** How far down the page an element is. */
+const y = async (l: ReturnType<Page['locator']>) => (await l.boundingBox())!.y;
+/** The one line under both switches. */
+const STATE_LINES = {
+  'On On': 'When the rule triggers, I notify you and execute actions',
+  'Off On': 'When the rule triggers, I notify you but do not execute actions',
+  'On Off': 'When the rule triggers, I execute actions but do not notify you',
+  'Off Off': 'When the rule triggers, I do nothing',
+} as const;
+const stateLine = (page: Page) => page.getByText(/^When the rule triggers, I /);
+const NOT_CARRIED_OUT = '⚠ Not carried out: Actions is Off';
 const nameField = (page: Page) => page.getByRole('textbox', { name: 'Name', exact: true });
 const row = (page: Page, name: string) => page.getByRole('listitem').filter({ has: page.getByRole('button', { name, exact: true }) });
 const undo = (page: Page) => page.getByRole('button', { name: 'Undo', exact: true });
@@ -54,19 +67,33 @@ async function rename(page: Page, text: string) {
 // ---------------------------------------------------------------------------
 
 // US-G1
-test('the editor opens on the group overview: the group, its mode and its rules in two sections', async ({ page }) => {
+test('the editor opens on the group overview: the group and its rules in two sections', async ({ page }) => {
   // At a fixed bot id first, for the screenshots; then by the group's own link.
-  await open(page, editorUrl(rules(BANNED, NEWCOMERS, UNNAMED, { ...FLOOD, name: 'Flood', enabled: false }, SPAM_NAMES)));
+  await open(page, editorUrl(rules(
+    BANNED, NEWCOMERS, UNNAMED,
+    named('Flood', 'message_posted', FLOOD.condition, KICK, false),
+    named('Walls of text', 'message_posted', msg(['wall']), MODERATE, true, false),
+    named('Repeats', 'message_posted', msg(['repeat']), MODERATE, false, false),
+    SPAM_NAMES,
+  )));
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Crypto Chat');
   await expect(page.getByText('Moderation settings · Moderator Bot')).toBeVisible();
-  await expect(page.getByRole('region', { name: '🛡 Mode' })).toBeVisible();
+  // The overview holds no setting of the group's own: nothing above its rules.
+  await expect(page.getByText('🛡 Mode')).toHaveCount(0);
+  await expect(page.getByRole('radiogroup')).toHaveCount(0);
   await expect(section(page, MESSAGES)).toContainText('Checked top to bottom.');
   await expect(section(page, JOINS)).toContainText('Checked top to bottom.');
   // A rule is one line: its name, or what it does; its actions in short under a name; its switch.
   await expect(row(page, 'Banned words')).toContainText('🗑 moderate');
   await expect(row(page, 'Links from newcomers')).toContainText('👁 observer · 🗑 moderate');
   await expect(row(page, 'IF author sent at least 5 messages in 1 min THEN 🚪 kick')).toBeVisible();
-  await expect(row(page, 'Flood')).toContainText('Off');
+  // Beside its name, what its two switches make of a rule: nothing when it acts and tells.
+  await expect(row(page, 'Flood')).toContainText('Notify only');
+  await expect(row(page, 'Walls of text')).toContainText('Silent');
+  await expect(row(page, 'Repeats')).toContainText('Off');
+  for (const name of ['Banned words', 'Links from newcomers', 'Spam names']) {
+    await expect(row(page, name)).not.toContainText(/Notify only|Silent|Off/);
+  }
   await expect(row(page, 'Spam names').getByRole('switch', { name: 'Spam names' })).toBeChecked();
   await looks(page, 'overview-rules');
   // By the group's own link: the bot's link carries the group's name.
@@ -110,7 +137,6 @@ test('a rule of a type the editor does not know is kept as it is', async ({ page
   await expect(page.getByText("This type is not in this editor's schema. It is kept as it is — leave it alone unless you mean to replace it.")).toBeVisible();
   await looks(page, 'unknown-type');
   await toGroup(page);
-  await mode(page, 'Dry').check();
   expect((await savedConfig(page)).rules[0]).toEqual(unknown);
 });
 
@@ -120,26 +146,6 @@ test('a link whose settings cannot be read opens the editor empty, with a note',
   await expect(page.getByText('The settings in this link could not be read. Starting from scratch.')).toBeVisible();
   await expect(section(page, MESSAGES)).toContainText('No rules yet.');
   await looks(page, 'unreadable-settings');
-});
-
-// ---------------------------------------------------------------------------
-// The mode
-// ---------------------------------------------------------------------------
-
-// US-G2
-test('the mode is picked on the overview, each of three with its line', async ({ page }) => {
-  await emptyEditor(page);
-  const group = page.getByRole('radiogroup', { name: '🛡 Mode' });
-  await expect(group.getByRole('radio')).toHaveCount(3);
-  await expect(mode(page, 'Notifications')).toHaveAccessibleName(/Act and tell me/);
-  await expect(mode(page, 'Silent')).toHaveAccessibleName(/Act without telling me/);
-  await expect(mode(page, 'Dry')).toHaveAccessibleName(/Only tell me what it would do/);
-  await expect(mode(page, 'Notifications')).toBeChecked();
-  await mode(page, 'Silent').check();
-  await looks(page, 'mode-silent');
-  expect((await savedConfig(page)).mode).toBe('silent');
-  await mode(page, 'Dry').check();
-  expect((await savedConfig(page)).mode).toBe('dry');
 });
 
 // ---------------------------------------------------------------------------
@@ -394,27 +400,28 @@ test('the editor warns past the limits, and marks a covered action', async ({ pa
 
 // US-G6
 test('on the overview every change can be undone and redone', async ({ page }) => {
-  await open(page, editorUrl(rules(FLOOD)));
+  await open(page, editorUrl(rules(BANNED, FLOOD)));
+  const banned = page.getByRole('switch', { name: 'Banned words', exact: true });
   await expect(undo(page)).toBeHidden();
   await expect(redo(page)).toBeHidden();
-  await mode(page, 'Dry').check();
+  await banned.click();
   await undo(page).click();
-  await expect(mode(page, 'Notifications')).toBeChecked();
+  await expect(banned).toBeChecked();
   await expect(redo(page)).toBeVisible();
   await expect(undo(page)).toBeHidden();
   await looks(page, 'redo-shown');
   await redo(page).click();
-  await expect(mode(page, 'Dry')).toBeChecked();
+  await expect(banned).not.toBeChecked();
   // The keys, where there is a keyboard.
   if (!test.info().project.use.isMobile) {
     await page.locator('body').click({ position: { x: 5, y: 5 } });
     await page.keyboard.press('Control+z');
-    await expect(mode(page, 'Notifications')).toBeChecked();
+    await expect(banned).toBeChecked();
     await page.keyboard.press('Control+Shift+z');
-    await expect(mode(page, 'Dry')).toBeChecked();
+    await expect(banned).not.toBeChecked();
     await page.keyboard.press('Control+z');
     await page.keyboard.press('Control+y');
-    await expect(mode(page, 'Dry')).toBeChecked();
+    await expect(banned).not.toBeChecked();
   }
   // Up to 20 steps: 25 changes, and the first five are not undone.
   const flood = page.getByRole('switch', { name: 'Flood', exact: true });
@@ -457,10 +464,12 @@ test("on a rule's page Undo goes through what was changed there, and no rule tha
 
 // US-G7
 test('Apply shows every change before it is sent, each marked, under its section', async ({ page }) => {
-  await open(page, editorUrl({ mode: 'dry', rules: [BANNED, NEWCOMERS, SPAM_NAMES] }));
+  await open(page, editorUrl(rules(BANNED, NEWCOMERS, SPAM_NAMES)));
   await expect(page.getByRole('button', { name: 'Apply changes', exact: true })).toBeVisible();
-  await mode(page, 'Notifications').check();
   await row(page, 'Banned words').getByRole('switch').click();
+  await openRule(page, 'Banned words');
+  await switchOf(page, 'Notifications', 'Off').check();
+  await toGroup(page);
   await openRule(page, 'Links from newcomers');
   await rename(page, 'Links from new members');
   await toGroup(page);
@@ -468,13 +477,13 @@ test('Apply shows every change before it is sent, each marked, under its section
   await page.getByRole('button', { name: /^Start from a template/ }).click();
   await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: titled(FLOOD_TEMPLATE) }).click();
   await toGroup(page);
-  // The button counts the changes: the mode, the switch, the name, the new rule.
-  await expect(page.getByRole('button', { name: 'Apply 4 changes', exact: true })).toBeVisible();
+  // The button counts the changes: the rule whose switches changed, the name, the new rule.
+  await expect(page.getByRole('button', { name: 'Apply 3 changes', exact: true })).toBeVisible();
   const dialog = await applyDialog(page);
   await expect(dialog).toContainText('3 → 4 rules');
-  await expect(dialog).toContainText('🛡 Mode: Dry — only tell me what it would do → Notifications — act and tell me');
   await expect(dialog.getByRole('heading', { name: MESSAGES })).toBeVisible();
-  await expect(dialog).toContainText('turned off');
+  await expect(dialog).toContainText('actions turned off');
+  await expect(dialog).toContainText('notifications turned off');
   await expect(dialog).toContainText('renamed');
   await expect(dialog).toContainText('was “Links from newcomers”');
   await expect(dialog).toContainText('added');
@@ -580,7 +589,9 @@ test('Apply warns when the link nears what one message carries', async ({ page }
 test('the copied link, sent to the bot, saves the changes', async ({ page }) => {
   const s = await scene(rules(BANNED));
   await open(page, await currentLink(s));
-  await mode(page, 'Dry').check();
+  await openRule(page, 'Banned words');
+  await switchOf(page, 'Notifications', 'Off').check();
+  await toGroup(page);
   const dialog = await applyDialog(page);
   await dialog.getByRole('button', { name: 'Copy the link' }).click();
   await expect(dialog).toContainText('Link copied. Paste it into your chat with the bot and send it — that is what applies the changes.');
@@ -590,7 +601,7 @@ test('the copied link, sent to the bot, saves the changes', async ({ page }) => 
   expect(copied).toMatch(new RegExp(`^\\[Settings for Crypto Chat\\]\\(${EDITOR.replace(/[.]/g, '\\.')}/?#bot_id=${s.id}&group=Crypto%20Chat&config=\\S+\\)$`));
   expect(await s.owner.ask(copied)).toBe('✅ Group settings updated.');
   await s.owner.send('/groups');
-  expect(configOf(await s.owner.message()).mode).toBe('dry');
+  expect(configOf(await s.owner.message()).rules[0].notify).toBe(false);
   // From then on, the changes are counted from what was copied.
   await dialog.getByRole('button', { name: 'Close' }).click();
   await expect(await applyDialog(page)).toContainText('Nothing has changed since you opened this page.');
@@ -668,7 +679,7 @@ test('Edit all with AI: copy the prompt, paste the answer', async ({ page }) => 
   await box.fill(reply(rules(BANNED, NEWCOMERS, FLOOD)));
   await load.click();
   await AI_ALL(page).getByRole('button', { name: 'Cancel', exact: true }).click();
-  await mode(page, 'Silent').check();
+  await row(page, 'Banned words').getByRole('switch').click();
   await editAll(page);
   await AI_ALL(page).getByRole('button', { name: 'Undo the load' }).click();
   await expect(page.getByText('You have edited the settings since. Use Undo in the header to step back.')).toBeVisible();
@@ -734,7 +745,7 @@ test('import and export JSON, from the overview menu', async ({ page }) => {
   await box.fill('not json');
   await load.click();
   await expect(imp).toContainText('That is not valid JSON.');
-  await box.fill('{"mode":"dry"}');
+  await box.fill('{}');
   await load.click();
   await expect(imp).toContainText('The rules list is missing.');
   await looks(page, 'import-problem');
@@ -822,23 +833,78 @@ test("the ⋯ menu's Delete removes the rule, as a change that can be undone", a
   expect(await order(page, MESSAGES)).toEqual(['Banned words', 'Flood']);
 });
 
+// US-G13, US-G19
+test("a rule's page has Actions and Notifications, each On or Off, with one line under both for the four combinations", async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED)));
+  await openRule(page, 'Banned words');
+  // Under the name and above When, Actions first, Notifications under it.
+  const actions = page.getByRole('radiogroup', { name: 'Actions', exact: true });
+  const notifications = page.getByRole('radiogroup', { name: 'Notifications', exact: true });
+  expect(await y(nameField(page))).toBeLessThan(await y(actions));
+  expect(await y(actions)).toBeLessThan(await y(notifications));
+  expect(await y(notifications)).toBeLessThan(await y(page.getByRole('heading', { name: 'When', exact: true })));
+  for (const group of [actions, notifications]) {
+    await expect(group.getByRole('radio')).toHaveCount(2);
+    await expect(group.getByRole('radio', { name: 'On', exact: true })).toHaveCount(1);
+    await expect(group.getByRole('radio', { name: 'Off', exact: true })).toHaveCount(1);
+  }
+  // A rule is on, and tells, until one is turned off.
+  await expect(switchOf(page, 'Actions', 'On')).toBeChecked();
+  await expect(switchOf(page, 'Notifications', 'On')).toBeChecked();
+  await expect(stateLine(page)).toHaveText(STATE_LINES['On On']);
+  await expect(page.getByText(NOT_CARRIED_OUT)).toHaveCount(0);
+  await looks(page, 'rule-switches-on');
+  // One line, changing as soon as either switch changes.
+  await switchOf(page, 'Actions', 'Off').check();
+  await expect(stateLine(page)).toHaveText(STATE_LINES['Off On']);
+  await looks(page, 'rule-actions-off');
+  await switchOf(page, 'Notifications', 'Off').check();
+  await expect(stateLine(page)).toHaveText(STATE_LINES['Off Off']);
+  await looks(page, 'rule-both-off');
+  await switchOf(page, 'Actions', 'On').check();
+  await expect(stateLine(page)).toHaveText(STATE_LINES['On Off']);
+  await looks(page, 'rule-notifications-off');
+  await switchOf(page, 'Notifications', 'On').check();
+  await expect(stateLine(page)).toHaveText(STATE_LINES['On On']);
+  await expect(stateLine(page)).toHaveCount(1);
+});
+
 // US-G13
+test('while Actions is off, Then says its actions are not carried out and shows them dimmed', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED)));
+  await openRule(page, 'Banned words');
+  await switchOf(page, 'Actions', 'Off').check();
+  const then = page.getByRole('heading', { name: 'Then', exact: true });
+  await expect(page.getByText(NOT_CARRIED_OUT)).toBeVisible();
+  expect(await y(page.getByText(NOT_CARRIED_OUT))).toBeLessThan(await y(page.getByRole('button', { name: 'Add action', exact: true })));
+  await expect(then).toBeVisible();
+  // The actions can still be changed.
+  await page.getByRole('button', { name: 'Add action', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Pick an action' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await looks(page, 'rule-then-not-carried-out');
+  await switchOf(page, 'Actions', 'On').check();
+  await expect(page.getByText(NOT_CARRIED_OUT)).toHaveCount(0);
+});
+
+// US-G13, US-G1
 test('a rule is turned off with its switch, or in its menu, and turned on again', async ({ page }) => {
   await open(page, editorUrl(rules(BANNED, FLOOD)));
   const flood = page.getByRole('switch', { name: 'Flood', exact: true });
   await expect(flood).toBeChecked();
   await flood.click();
   await expect(flood).not.toBeChecked();
-  await expect(row(page, 'Flood')).toContainText('Off');
+  // Its Actions are off, and it still tells: Notify only.
+  await expect(row(page, 'Flood')).toContainText('Notify only');
   await looks(page, 'rule-off');
-  // Its page says so, with a way to turn it on.
+  // Its page says the same, and the switch there turns it on.
   await openRule(page, 'Flood');
-  await expect(page.getByText('⏸ This rule is off — the bot skips it.')).toBeVisible();
-  await looks(page, 'rule-off-page');
-  await page.getByRole('button', { name: 'Enable', exact: true }).click();
-  await expect(page.getByText('⏸ This rule is off — the bot skips it.')).toHaveCount(0);
+  await expect(switchOf(page, 'Actions', 'Off')).toBeChecked();
+  await expect(stateLine(page)).toHaveText(STATE_LINES['Off On']);
+  await switchOf(page, 'Actions', 'On').check();
   await toGroup(page);
   await expect(flood).toBeChecked();
+  await expect(row(page, 'Flood')).not.toContainText('Notify only');
   // The menu says Disable, then Enable.
   await menuOf(page, 'Flood').click();
   await choose(page, 'Disable').click();
@@ -848,26 +914,83 @@ test('a rule is turned off with its switch, or in its menu, and turned on again'
   await expect(flood).toBeChecked();
 });
 
-// US-G13
-test('a rule that is off is sent, kept by the bot and not checked', async ({ page }) => {
+// US-G13, US-D4
+test('a rule with Actions off is sent, kept by the bot, and only tells what it would do', async ({ page }) => {
   const s = await scene(rules(named('Banned words', 'message_posted', msg(['spam']), MODERATE)));
   await open(page, await currentLink(s));
   await page.getByRole('switch', { name: 'Banned words', exact: true }).click();
   const dialog = await applyDialog(page);
-  await expect(dialog).toContainText('turned off');
+  await expect(dialog).toContainText('actions turned off');
   await dialog.getByRole('button', { name: 'Copy the link' }).click();
   expect(await s.owner.ask(await clipboard(page))).toBe('✅ Group settings updated.');
-  // The bot does not check it...
+  // The bot carries out none of its actions, and tells...
   await s.member.post(s.memberGroup, 'spam');
+  expect(await s.owner.message()).toBe(notice('would moderate the message', 'spam', ["**Banned words** _(off)_: contains word: 'spam'"]));
   await s.member.seesNothing(4000);
-  await s.owner.hearsNothing(0);
-  // ...but keeps it: the next link has it, off.
+  // ...and keeps the rule: the next link has it, with Actions off.
   await s.owner.send('/groups');
   const got = configOf(await s.owner.message());
   expect(got.rules).toHaveLength(1);
   expect(got.rules[0].enabled).toBe(false);
   await open(page, await currentLink(s));
   await expect(page.getByRole('switch', { name: 'Banned words', exact: true })).not.toBeChecked();
+  await expect(row(page, 'Banned words')).toContainText('Notify only');
+});
+
+// US-G19, US-G1
+test('Notifications off marks the rule Silent, or Off when its Actions are off too', async ({ page }) => {
+  await open(page, editorUrl(rules(BANNED, FLOOD)));
+  await openRule(page, 'Banned words');
+  await switchOf(page, 'Notifications', 'Off').check();
+  await toGroup(page);
+  await expect(row(page, 'Banned words')).toContainText('Silent');
+  // The switch on the overview is still the rule's Actions: it stays on.
+  await expect(page.getByRole('switch', { name: 'Banned words', exact: true })).toBeChecked();
+  await looks(page, 'rule-silent');
+  await page.getByRole('switch', { name: 'Banned words', exact: true }).click();
+  await expect(row(page, 'Banned words')).toContainText('Off');
+  await expect(row(page, 'Banned words')).not.toContainText('Silent');
+  await looks(page, 'rule-fully-off');
+  // Notifications on again: Notify only.
+  await openRule(page, 'Banned words');
+  await switchOf(page, 'Notifications', 'On').check();
+  await toGroup(page);
+  await expect(row(page, 'Banned words')).toContainText('Notify only');
+});
+
+// US-G19
+test('a rule with Notifications off is sent, kept by the bot, and acts without telling', async ({ page }) => {
+  const s = await scene(rules(named('Banned words', 'message_posted', msg(['spam']), MODERATE)));
+  await open(page, await currentLink(s));
+  await openRule(page, 'Banned words');
+  await switchOf(page, 'Notifications', 'Off').check();
+  await toGroup(page);
+  const dialog = await applyDialog(page);
+  await expect(dialog).toContainText('notifications turned off');
+  await looks(page, 'apply-notifications-off');
+  await dialog.getByRole('button', { name: 'Copy the link' }).click();
+  expect(await s.owner.ask(await clipboard(page))).toBe('✅ Group settings updated.');
+  const item = await s.member.post(s.memberGroup, 'spam');
+  expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
+  await s.owner.hearsNothing(5000);
+  await s.owner.send('/groups');
+  expect(configOf(await s.owner.message()).rules[0].notify).toBe(false);
+  await open(page, await currentLink(s));
+  await expect(row(page, 'Banned words')).toContainText('Silent');
+});
+
+// US-G7
+test('the changes of the switches are marked, each with its own words', async ({ page }) => {
+  await open(page, editorUrl(rules(named('Trial', 'message_posted', msg(['spam']), MODERATE, false), named('Flood', 'message_posted', FLOOD.condition, KICK, true, false), BANNED)));
+  // Trial's Actions on, and Flood's Notifications on.
+  await page.getByRole('switch', { name: 'Trial', exact: true }).click();
+  await openRule(page, 'Flood');
+  await switchOf(page, 'Notifications', 'On').check();
+  await toGroup(page);
+  const dialog = await applyDialog(page);
+  await expect(dialog).toContainText('actions turned on');
+  await expect(dialog).toContainText('notifications turned on');
+  await looks(page, 'apply-switches-marks');
 });
 
 // ---------------------------------------------------------------------------
@@ -1142,7 +1265,6 @@ test('Edit with AI on a rule: its prompt holds this rule alone, and the answer r
   expect(prompt).toContain('"spam"');
   // Nothing else of the configuration goes into it.
   expect(prompt).not.toContain('Links from newcomers');
-  expect(prompt).not.toContain('"mode"');
   const box = dialog.getByRole('textbox', { name: 'Paste what it answers' });
   const load = dialog.getByRole('button', { name: 'Load into the rule', exact: true });
   await load.click();
@@ -1196,18 +1318,24 @@ const DEMO_NOTE = "This is a demo, so there is nothing to send. Invite the bot t
 const banner = (page: Page) => page.getByRole('note');
 
 // US-G18
-test('the link of the welcome opens a demo group with one rule of each template, in the mode Notifications, under a banner', async ({ page }) => {
+test('the link of the welcome opens a demo group with one rule of each template, all with both switches on, under a banner', async ({ page }) => {
   await open(page, EDITOR);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Demo group');
   await expect(page.getByText('Moderation settings · Moderator Bot', { exact: true })).toBeVisible();
   await expect(banner(page)).toHaveText(DEMO_BANNER);
-  await expect(mode(page, 'Notifications')).toBeChecked();
+  await expect(page.getByRole('radiogroup')).toHaveCount(0);
   // One rule of each template, in the order of US-G15, each under its section, all on.
   expect(await order(page, MESSAGES)).toEqual(NAMES_OF(MESSAGE_TEMPLATES));
   expect(await order(page, JOINS)).toEqual(NAMES_OF(JOIN_TEMPLATES));
   for (const name of [...NAMES_OF(MESSAGE_TEMPLATES), ...NAMES_OF(JOIN_TEMPLATES)]) {
     await expect(row(page, name).getByRole('switch', { name })).toBeChecked();
   }
+  // None is marked Notify only, Silent or Off: both switches are on.
+  await expect(page.getByText(/^(Notify only|Silent|Off)$/)).toHaveCount(0);
+  await openRule(page, NAMES_OF(MESSAGE_TEMPLATES)[0]);
+  await expect(switchOf(page, 'Actions', 'On')).toBeChecked();
+  await expect(switchOf(page, 'Notifications', 'On')).toBeChecked();
+  await toGroup(page);
   await expect(page.getByText('No rules yet.')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Apply changes', exact: true })).toBeVisible();
   await expect(page.getByText('No bot ID found in the URL.')).toHaveCount(0);
@@ -1254,14 +1382,16 @@ test('Apply with no change in the demo says there is nothing to send, and has no
 // US-G18
 test('Apply with changes in the demo lists them as for a group, and has no Copy the link', async ({ page }) => {
   await open(page, EDITOR);
-  await mode(page, 'Dry').check();
+  await openRule(page, NAMES_OF(MESSAGE_TEMPLATES)[0]);
+  await switchOf(page, 'Notifications', 'Off').check();
+  await toGroup(page);
   await newRule(page);
   await page.getByRole('button', { name: /^Start from a template/ }).click();
   await page.getByRole('dialog', { name: 'Start from a template' }).getByRole('button', { name: titled(FLOOD_TEMPLATE) }).click();
   await toGroup(page);
   const dialog = await applyDialog(page);
   await expect(dialog).toContainText('10 → 11 rules');
-  await expect(dialog).toContainText('🛡 Mode: Notifications — act and tell me → Dry — only tell me what it would do');
+  await expect(dialog).toContainText('notifications turned off');
   await expect(dialog.getByRole('heading', { name: MESSAGES })).toBeVisible();
   await expect(dialog).toContainText('added');
   await expect(dialog).toContainText(DEMO_NOTE);

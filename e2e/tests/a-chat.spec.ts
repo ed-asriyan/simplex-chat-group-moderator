@@ -21,7 +21,7 @@ Invite me to your group as **Moderator** to delete messages, **Admin** to also m
 ### 👀 Not ready to invite me?
 [Try the editor on a demo group](${EDITOR}): see exactly what you would set up, without inviting me or giving me any role.
 
-Send /help for the commands and modes. My code is open [on GitHub](${REPO}).`;
+Send /help for the commands. My code is open [on GitHub](${REPO}).`;
 
 const HELP = `### How to use this bot
 
@@ -34,13 +34,12 @@ const HELP = `### How to use this bot
 
 To stop me moderating a group, just remove me from it.
 
-### Modes
+### Each rule's switches
 
-Each group has a mode, set in the same editor as its rules (send /groups to get the link):
+Every rule has two, set in the same editor (send /groups to get the link):
 
-- **Notifications** — I act and DM you every time I do.
-- **Silent** — I act without telling you.
-- **Dry** — I run every check and DM you what I would have done, but delete and kick nothing.
+- **Actions** — on, I carry out its actions; off, I still check it but do nothing in the group.
+- **Notifications** — on, I DM you every time it matches, with what I did or would have done; off, I never DM you about it.
 
 ### Commands
 

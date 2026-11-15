@@ -1764,7 +1764,6 @@
     },
     "type": "object",
     "required": [
-        "mode",
         "rules"
     ],
     "additionalProperties": false,
@@ -2322,26 +2321,6 @@
         ]
     },
     "properties": {
-        "mode": {
-            "type": "string",
-            "title": "🛡 Mode",
-            "description": "What the bot does when a rule matches. **Notifications** — carries out the rule's actions and DMs you about each one. **Silent** — carries out the actions without telling you. **Dry** — does nothing in the group and DMs you what it would have done, which is how to try out new rules safely.",
-            "default": "notifications",
-            "oneOf": [
-                {
-                    "const": "notifications",
-                    "title": "Notifications — act and tell me"
-                },
-                {
-                    "const": "silent",
-                    "title": "Silent — act without telling me"
-                },
-                {
-                    "const": "dry",
-                    "title": "Dry — only tell me what it would do"
-                }
-            ]
-        },
         "rules": {
             "type": "array",
             "title": "Rules",
@@ -2353,7 +2332,17 @@
                 ],
                 "additionalProperties": false,
                 "options": {
-                    "disable_collapse": true
+                    "disable_collapse": true,
+                    "states": {
+                        "on": {
+                            "on": "When the rule triggers, I notify you and execute actions",
+                            "off": "When the rule triggers, I execute actions but do not notify you"
+                        },
+                        "off": {
+                            "on": "When the rule triggers, I notify you but do not execute actions",
+                            "off": "When the rule triggers, I do nothing"
+                        }
+                    }
                 },
                 "properties": {
                     "name": {
@@ -2398,9 +2387,15 @@
                     },
                     "enabled": {
                         "type": "boolean",
-                        "title": "On",
+                        "title": "Actions",
                         "default": true,
-                        "description": "A rule that is off stays in the list with its settings, and the bot skips it."
+                        "description": "Whether the bot carries out the rule's actions when it matches. With actions off, the rule stays in the list with its settings and is still checked, so with *Notifications* on it tells you what it would have done — a way to try a rule out before it acts."
+                    },
+                    "notify": {
+                        "type": "boolean",
+                        "title": "Notifications",
+                        "default": true,
+                        "description": "Whether the bot messages you every time the rule matches: with what it did when its actions are on, with what it would have done when they are off. Off, it never tells you about this rule. With both this and *Actions* off, the rule is fully off."
                     },
                     "condition": {
                         "$ref": "#/definitions/condition"

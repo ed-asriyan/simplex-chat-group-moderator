@@ -654,11 +654,17 @@ pub(crate) fn load_rules_for_group(
     let guard = conn.lock().expect("moderation repo connection poisoned");
 
     let mut stmt = guard.prepare(
-        "SELECT id, name, trigger, enabled FROM moderation_rules WHERE group_id = ?1 ORDER BY rank, id",
+        "SELECT id, name, trigger, enabled, notify FROM moderation_rules WHERE group_id = ?1 ORDER BY rank, id",
     )?;
-    let rule_rows: Vec<(i64, Option<String>, String, bool)> = stmt
+    let rule_rows: Vec<(i64, Option<String>, String, bool, bool)> = stmt
         .query_map(params![gid], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
         })?
         .collect::<Result<_, _>>()?;
     if rule_rows.is_empty() {
@@ -709,7 +715,7 @@ pub(crate) fn load_rules_for_group(
     let mut actions_by_rule = load_actions(&guard, gid)?;
 
     let mut rules = Vec::with_capacity(rule_rows.len());
-    for (rule_id, name, trigger, enabled) in rule_rows {
+    for (rule_id, name, trigger, enabled, notify) in rule_rows {
         let trigger = Trigger::from_name(&trigger).ok_or_else(|| -> Err {
             format!("unknown trigger '{trigger}' on rule {rule_id}").into()
         })?;
@@ -742,6 +748,7 @@ pub(crate) fn load_rules_for_group(
                 name,
                 trigger,
                 enabled,
+                notify,
                 condition,
                 actions,
             })?,

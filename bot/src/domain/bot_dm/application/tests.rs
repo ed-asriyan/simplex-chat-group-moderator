@@ -61,7 +61,7 @@ fn test_describes_several_actions_as_one_sentence() {
 
 // US-D4
 #[test]
-fn test_dry_mode_switches_to_what_would_have_happened() {
+fn test_what_would_have_happened_is_told_in_the_conditional() {
     assert_eq!(
         describe_actions(&[ModerationAction::ModerateMessage, KICK], true),
         "🛡 I would moderate the message and kick the member"
@@ -343,7 +343,7 @@ Invite me to your group as **Moderator** to delete messages, **Admin** to also m
 ### 👀 Not ready to invite me?
 [Try the editor on a demo group]({editor}): see exactly what you would set up, without inviting me or giving me any role.
 
-Send /help for the commands and modes. My code is open [on GitHub](https://github.com/ed-asriyan/simplex-chat-group-moderator).
+Send /help for the commands. My code is open [on GitHub](https://github.com/ed-asriyan/simplex-chat-group-moderator).
 "
     )
 }
@@ -406,14 +406,23 @@ fn message_notification(
         event: TriggerEvent::MessagePosted {
             message: message.to_string(),
         },
-        performed,
         member_name: "Bob".to_string(),
-        actions: vec![ModerationAction::ModerateMessage],
+        performed: if performed {
+            vec![ModerationAction::ModerateMessage]
+        } else {
+            vec![]
+        },
+        would_perform: if performed {
+            vec![]
+        } else {
+            vec![ModerationAction::ModerateMessage]
+        },
         reasons: reasons
             .iter()
             .map(|reason| RuleReason {
                 rule_name: None,
                 reason: reason.to_string(),
+                actions_on: performed,
             })
             .collect(),
     }
@@ -516,6 +525,15 @@ fn reason(rule_name: Option<&str>, reason: &str) -> RuleReason {
     RuleReason {
         rule_name: rule_name.map(str::to_string),
         reason: reason.to_string(),
+        actions_on: true,
+    }
+}
+
+/// The reason of a rule whose actions are off.
+fn reason_off(rule_name: Option<&str>, reason: &str) -> RuleReason {
+    RuleReason {
+        actions_on: false,
+        ..self::reason(rule_name, reason)
     }
 }
 
@@ -526,9 +544,9 @@ fn join_notification(
 ) -> ModerationNotification {
     ModerationNotification {
         event: TriggerEvent::MemberJoined,
-        performed,
         member_name: "Free Casino Bonus".to_string(),
-        actions,
+        performed: if performed { actions.clone() } else { vec![] },
+        would_perform: if performed { vec![] } else { actions },
         reasons,
     }
 }
@@ -541,14 +559,14 @@ async fn test_a_notification_names_the_rules_that_matched() {
         event: TriggerEvent::MessagePosted {
             message: "Buy cheap followers at https://spam.example".to_string(),
         },
-        performed: true,
         member_name: "Bob".to_string(),
-        actions: vec![
+        performed: vec![
             ModerationAction::SetAuthorObserver {
                 duration_minutes: 60,
             },
             ModerationAction::ModerateMessage,
         ],
+        would_perform: vec![],
         reasons: vec![
             reason(Some("Links from newcomers"), "spam.example"),
             reason(None, "contains word: 'buy'"),
@@ -582,7 +600,7 @@ async fn test_a_join_notification_says_who_joined_and_why() {
     );
 }
 
-// US-D6: with the mode Dry, what it would have done.
+// US-D6, US-D4: what a rule with its actions off would have done.
 #[tokio::test]
 async fn test_a_dry_join_notification_says_what_it_would_have_done() {
     let text = notified(join_notification(
@@ -639,4 +657,95 @@ async fn test_a_join_notification_names_the_actions_as_a_messages_does() {
         kick_all.contains("**Reason:**\n- name links to spam.example\n\n"),
         "{kick_all}"
     );
+}
+
+// US-D4: the reason line of a rule whose actions are off is marked after its
+// name, or leads the line when the rule has none.
+#[tokio::test]
+async fn test_a_rule_whose_actions_are_off_is_marked_in_its_reason_line() {
+    let text = notified(ModerationNotification {
+        event: TriggerEvent::MessagePosted {
+            message: "spam".to_string(),
+        },
+        member_name: "Bob".to_string(),
+        performed: vec![],
+        would_perform: vec![ModerationAction::ModerateMessage],
+        reasons: vec![
+            reason_off(Some("Flood"), "author sent 12 messages in 1 min"),
+            reason_off(None, "contains word: 'spam'"),
+        ],
+    })
+    .await;
+    assert_eq!(
+        text,
+        format!(
+            "🛡 I would moderate the message in **Crypto Chat**.\n\n**The message:**\n> spam\n\n**Reason:**\n- **Flood** _(off)_: author sent 12 messages in 1 min\n- _(off)_ contains word: 'spam'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
+        )
+    );
+}
+
+// US-D4: what was carried out is told first, then what rules with their
+// actions off would also have carried out; the reasons of both are in the order
+// of the rules.
+#[tokio::test]
+async fn test_a_message_that_rules_act_on_and_rules_only_tell_about_is_one_notification() {
+    let text = notified(ModerationNotification {
+        event: TriggerEvent::MessagePosted {
+            message: "spam".to_string(),
+        },
+        member_name: "Bob".to_string(),
+        performed: vec![ModerationAction::ModerateMessage],
+        would_perform: vec![KICK],
+        reasons: vec![
+            reason(Some("Banned words"), "contains word: 'spam'"),
+            reason_off(Some("Trial kick"), "contains word: 'spam'"),
+        ],
+    })
+    .await;
+    assert_eq!(
+        text,
+        format!(
+            "🛡 I moderated the message in **Crypto Chat**, and would also kick the member.\n\n**The message:**\n> spam\n\n**Reason:**\n- **Banned words**: contains word: 'spam'\n- **Trial kick** _(off)_: contains word: 'spam'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
+        )
+    );
+}
+
+// US-D4, US-D6: a join told only about what would have been done marks the
+// reason line of its rule too.
+#[tokio::test]
+async fn test_a_join_rule_whose_actions_are_off_is_marked_in_its_reason_line() {
+    let text = notified(ModerationNotification {
+        event: TriggerEvent::MemberJoined,
+        member_name: "Free Casino Bonus".to_string(),
+        performed: vec![],
+        would_perform: vec![KICK],
+        reasons: vec![reason_off(
+            Some("Spam names"),
+            "name contains word: 'casino'",
+        )],
+    })
+    .await;
+    assert_eq!(
+        text,
+        format!(
+            "🛡 I would kick the member when they joined **Crypto Chat**.\n\n**The member:** Free Casino Bonus\n\n**Reason:**\n- **Spam names** _(off)_: name contains word: 'casino'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
+        )
+    );
+}
+
+// US-A3: /help explains the two switches every rule has, and has no mode of a group.
+#[tokio::test]
+async fn test_help_explains_each_rules_two_switches() {
+    let sent = send_without_groups("/help", EDITOR).await;
+
+    assert_eq!(sent.len(), 1);
+    let help = &sent[0];
+    assert!(
+        help.contains(
+            "### Each rule's switches\n\nEvery rule has two, set in the same editor (send /groups to get the link):\n\n- **Actions** — on, I carry out its actions; off, I still check it but do nothing in the group.\n- **Notifications** — on, I DM you every time it matches, with what I did or would have done; off, I never DM you about it.\n\n### Commands"
+        ),
+        "{help}"
+    );
+    assert!(!help.contains("### Modes"), "{help}");
+    assert!(!help.contains("Dry"), "{help}");
 }

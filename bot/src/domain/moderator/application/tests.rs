@@ -5,9 +5,9 @@ use chrono::{DateTime, Utc};
 use std::sync::{Arc, Mutex};
 
 use crate::domain::moderator::ports::{
-    Err, Group, GroupConfig, GroupId, GroupMemberRole, GroupMode, GroupModerator,
-    MemberRestoreRepository, MessageId, MessengerGroupId, ModerationAction, ModerationRepository,
-    OwnedModerationRule, ScheduledMemberRestore, UserId,
+    Err, Group, GroupConfig, GroupId, GroupMemberRole, GroupModerator, MemberRestoreRepository,
+    MessageId, MessengerGroupId, ModerationAction, ModerationRepository, OwnedModerationRule,
+    ScheduledMemberRestore, UserId,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -109,7 +109,6 @@ impl ModerationRepository for MockModerationRepository {
         _m_gid: &MessengerGroupId,
         _name: &str,
         _owner_id: &UserId,
-        _mode: GroupMode,
     ) -> Result<GroupId, Err> {
         Ok(1)
     }
@@ -130,7 +129,6 @@ impl ModerationRepository for MockModerationRepository {
     }
     async fn get_group_config(&self, _group_id: &GroupId) -> Result<GroupConfig, Err> {
         Ok(GroupConfig {
-            mode: self.group.as_ref().map(|g| g.mode).unwrap_or_default(),
             rules: self.rules.iter().map(|owned| owned.rule.clone()).collect(),
         })
     }

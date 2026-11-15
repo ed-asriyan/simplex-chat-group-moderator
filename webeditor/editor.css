@@ -423,12 +423,6 @@ svg {
     color: var(--accent-ink);
 }
 
-.alert.off {
-    background: var(--card);
-    border: 1px dashed var(--line-2);
-    color: var(--ink-2);
-}
-
 .help {
     margin: 8px 0 12px;
     padding: 12px 14px;
@@ -463,6 +457,11 @@ svg {
     font-weight: 600;
     line-height: 1.6;
     white-space: nowrap;
+}
+
+.tag.notify {
+    background: var(--accent-soft);
+    color: var(--accent-ink);
 }
 
 .tag.warn {
@@ -917,6 +916,55 @@ textarea::placeholder {
     border: 1px solid var(--line-2);
     border-radius: var(--r-sm);
     background: var(--card);
+}
+
+/* The rule's two switches, one under the other, each a small On/Off beside its
+   name, and one line under both of what the rule does. */
+.switches {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 20px;
+    padding: 12px 16px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    background: var(--card);
+}
+
+.switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.switch-name {
+    font-size: 15px;
+    font-weight: 650;
+}
+
+.switches .segments.two {
+    grid-template-columns: repeat(2, 60px);
+    gap: 2px;
+    padding: 3px;
+    border-radius: 10px;
+}
+
+.switches .segment {
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 7px;
+    font-size: 14px;
+}
+
+.switches .hint {
+    margin-top: 2px;
+}
+
+/* Actions that are off: the bot will not carry them out (US-G13). */
+.step.idle .step-body>.node,
+.step.idle .step-body>.sub {
+    opacity: .55;
 }
 
 /* The flow: a dot and a line for each step. */
@@ -1538,7 +1586,8 @@ dialog::backdrop {
 }
 
 .mark.added,
-.mark.turned-on {
+.mark.actions-turned-on,
+.mark.notifications-turned-on {
     background: var(--if-soft);
     color: #075347;
 }
@@ -1548,7 +1597,8 @@ dialog::backdrop {
     color: var(--danger);
 }
 
-.mark.turned-off {
+.mark.actions-turned-off,
+.mark.notifications-turned-off {
     background: var(--warn-soft);
     color: var(--warn);
 }
@@ -1798,6 +1848,19 @@ dialog::backdrop {
 
     .rule-tools {
         padding-top: 0;
+    }
+
+    .switches {
+        padding: 12px;
+    }
+
+    .switches .segments.two {
+        grid-template-columns: repeat(2, 60px);
+    }
+
+    .switches .segment {
+        justify-content: center;
+        min-height: 36px;
     }
 
     .name {

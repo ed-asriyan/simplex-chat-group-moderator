@@ -20,7 +20,7 @@ async fn test_migrations_apply_successfully() {
     let version: i64 = guard
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 37);
+    assert_eq!(version, 38);
 }
 
 /// 0037 gives every rule a trigger, an optional name and a switch. A rule stored
@@ -122,7 +122,8 @@ async fn test_0037_adds_the_lists_of_the_name_conditions_under_their_conditions(
     }
 }
 
-/// 0036 folds the two toggles into one mode. Dry mode used to switch
+/// 0036 folds the two toggles into one mode (which 0038 later moves onto the
+/// rules): checked as it stood after 0036. Dry mode used to switch
 /// notifications on, but the owner could switch them off again; such a
 /// group stays dry, since doing nothing is what its owner asked for.
 #[tokio::test]
@@ -140,7 +141,7 @@ async fn test_0036_folds_the_toggles_into_a_mode() {
                 (4, 400, 10, 'Dry, unnotified', 0, 1);",
     )
     .unwrap();
-    apply(&mut conn).unwrap();
+    apply_through(&mut conn, 36).unwrap();
 
     let modes: Vec<(i64, String)> = conn
         .prepare("SELECT group_id, mode FROM moderation_groups ORDER BY group_id")
@@ -634,12 +635,9 @@ async fn test_deleting_a_group_row_cascades_through_the_whole_schema() {
             conn.clone(),
         );
     use crate::domain::moderator::ports::{
-        GroupMode, ModerationAction, ModerationCondition, ModerationRepository,
+        ModerationAction, ModerationCondition, ModerationRepository,
     };
-    let group_id = repo
-        .save_owner(&800, "Cascade Group", &80, GroupMode::default())
-        .await
-        .unwrap();
+    let group_id = repo.save_owner(&800, "Cascade Group", &80).await.unwrap();
     repo.set_group_rules(
         &group_id,
         &[message_rule(
@@ -939,4 +937,73 @@ async fn the_design_shows_the_schema_the_migrations_produce() {
         "docs/design.md *Schema* is not the schema the migrations produce: \
          run `UPDATE_SCHEMA=1 cargo test schema`"
     );
+}
+
+/// 0038 moves what the group's mode said onto each rule's two switches, `enabled`
+/// (its actions) and `notify` (its notifications), and drops the mode (US-G13,
+/// US-G19). A group that notified keeps every rule as it was; one that was
+/// silent has its rules act without telling; one that was dry has its rules only
+/// tell; and a rule that was off, whatever the mode, stays fully off, as it was
+/// never checked.
+#[tokio::test]
+async fn test_0038_moves_the_groups_mode_onto_its_rules() {
+    let mut conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+    apply_through(&mut conn, 37).unwrap();
+    conn.execute_batch(
+        "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name, mode)
+         VALUES (1, 100, 10, 'Notified', 'notifications'),
+                (2, 200, 10, 'Silent', 'silent'),
+                (3, 300, 10, 'Dry', 'dry');
+         INSERT INTO moderation_rules (id, group_id, rank, enabled)
+         VALUES (11, 1, 0, 1), (12, 1, 1, 0),
+                (21, 2, 0, 1), (22, 2, 1, 0),
+                (31, 3, 0, 1), (32, 3, 1, 0);",
+    )
+    .unwrap();
+    apply(&mut conn).unwrap();
+
+    let switches: Vec<(i64, bool, bool)> = conn
+        .prepare("SELECT id, enabled, notify FROM moderation_rules ORDER BY id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        switches,
+        vec![
+            (11, true, true),
+            (12, false, false),
+            (21, true, false),
+            (22, false, false),
+            (31, false, true),
+            (32, false, false),
+        ]
+    );
+
+    // The group has no mode column any more.
+    let columns: Vec<String> = conn
+        .prepare("SELECT name FROM pragma_table_info('moderation_groups')")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert!(!columns.contains(&"mode".to_string()), "{columns:?}");
+
+    // A rule saved from now on is on and tells, until a switch is turned off.
+    conn.execute(
+        "INSERT INTO moderation_rules (id, group_id, rank) VALUES (41, 1, 2)",
+        [],
+    )
+    .unwrap();
+    let new: (bool, bool) = conn
+        .query_row(
+            "SELECT enabled, notify FROM moderation_rules WHERE id = 41",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(new, (true, true));
 }

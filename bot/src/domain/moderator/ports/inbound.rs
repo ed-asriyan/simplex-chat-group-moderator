@@ -13,23 +13,23 @@ use super::types::{
 
 /// Inbound port: moderate what happens in a group the bot has joined — a
 /// message posted, someone joining — against the group's rules for that
-/// trigger. Both are one use case: the rules, the merging of their actions,
-/// the mode and the owner's notification are the same.
+/// trigger. Both are one use case: the rules, their two switches, the merging
+/// of their actions and the owner's notification are the same.
 #[async_trait]
 pub trait ModerationEngine: Send + Sync {
     /// Checks the message against the group's rules for
-    /// `Trigger::MessagePosted` that are on, carries out what they call for as
-    /// the group's mode says, and tells the owner through
-    /// `ModerationNotifier::notify_moderation` (US-D1–US-D4). The caller hands
+    /// `Trigger::MessagePosted` that have *Actions* or *Notifications* on,
+    /// carries out what the matched rules with *Actions* on call for, and
+    /// tells the owner through `ModerationNotifier::notify_moderation` about
+    /// the matched rules with *Notifications* on (US-D1–US-D4). The caller hands
     /// in only a member's messages: a moderator's, an admin's or an owner's is
     /// never checked (US-D5).
     async fn process_group_message(&self, group_message: GroupMessage) -> Result<(), Err>;
 
     /// Checks the member against the group's rules for
-    /// `Trigger::MemberJoined` that are on — a rule with no condition matches
-    /// everyone —, carries out what they call for as the group's mode says,
-    /// and tells the owner through `ModerationNotifier::notify_moderation`
-    /// (US-D6). A group the bot does not know, or one with no such rule, is
+    /// `Trigger::MemberJoined` that have *Actions* or *Notifications* on — a
+    /// rule with no condition matches everyone —, carries out and tells as for
+    /// a message (US-D6). A group the bot does not know, or one with no such rule, is
     /// left alone. The caller hands in only someone joining as a member or an
     /// observer: a moderator, an admin or an owner joining is never checked
     /// (US-D5).

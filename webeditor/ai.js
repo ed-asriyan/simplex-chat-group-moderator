@@ -172,23 +172,26 @@ function promptAll() {
     const settings = Object.entries(SCHEMA.properties).filter(([k]) => k !== "rules")
         .map(([k, pr]) => `${k}: ${fieldSpec(pr)}${pr.description ? `\n    ${plain(pr.description)}` : ""}`).join("\n\n");
     return `I run a SimpleX Chat group, and a moderation bot enforces rules in it. You are helping me
-understand and change its configuration: the group settings and the rules.
+understand and change its configuration: ${S.length ? "the group settings and the rules" : "its rules"}.
 
 ${LANGUAGE}
 
 HOW THE BOT WORKS
 A rule has a "name", a "trigger" (when the bot checks it), a "condition" (what to detect) and a list of
-"actions" (what to do about it). A rule with "enabled": false is kept but skipped. The triggers are:
+"actions" (what to do about it). It has two switches, both true unless set to false: "enabled" -
+whether the bot carries out the actions, and "notify" - whether it messages me when the rule matches.
+A rule with "enabled": false is still checked, and with "notify" on it tells me what it would have
+done: that is how a rule is tried out. With both false the rule does nothing. The triggers are:
 ${triggersText()}
 The rules of one trigger are checked top to bottom, and every rule that matches contributes its
 actions. A condition is a single check or a tree built from the containers ${shape().containers.join(" / ")}.
-Besides the rules, the configuration holds group settings (${S.map((f) => f.key).join(", ")}) - see GROUP
-SETTINGS. The whole configuration is one JSON object: the settings as its keys, next to "rules".
+${S.length ? `Besides the rules, the configuration holds group settings (${S.map((f) => f.key).join(", ")}) - see GROUP
+SETTINGS. The whole configuration is one JSON object: the settings as its keys, next to "rules".` : `The whole configuration is one JSON object with "rules" as its only key.`}
 
 ${DATA}
 
 WHAT TO DO FIRST
-1. Say in one line what my group settings mean in practice. Then list my rules in plain language, by
+1. ${S.length ? "Say in one line what my group settings mean in practice. Then list" : "List"} my rules in plain language, by
    trigger and by name, in their order - one or two lines each: what it detects, what happens then.
 2. Point out anything that looks wrong: a rule that can never match, one broad enough to hit ordinary
    messages, or two rules that do the same thing.
@@ -203,20 +206,20 @@ change that fixes this case, and say plainly what else it would start catching o
 AFTER THAT
 - If I ask a question, just answer it. No JSON.
 - If I ask for a change, reply with one sentence on what you changed, then the line "MODERATION
-  SETTINGS - paste this back into the editor:", then the complete new configuration (every setting and
-  the whole rule list) as a single \`\`\`json code block. No other code block in that reply.
+  SETTINGS - paste this back into the editor:", then the complete new configuration (${S.length ? "every setting and the whole rule list" : "the whole rule list"})
+  as a single \`\`\`json code block. No other code block in that reply.
 ${markersText()}
 CONSTRAINTS ON THE JSON YOU PRODUCE
-- The complete configuration, one JSON object: every setting and every rule, with your change applied.
+- The complete configuration, one JSON object: ${S.length ? "every setting and every rule" : "every rule"}, with your change applied.
   Never a fragment, a diff, or the rule list on its own.
 - Every rule has a "trigger" from the list above; a condition or an action works only in rules of the
   triggers its catalogue entry names.
 ${rulesText("all")}
 
-GROUP SETTINGS
+${S.length ? `GROUP SETTINGS
 ${settings}
 
-CONDITION CATALOGUE
+` : ""}CONDITION CATALOGUE
 ${catalogue("condition")}
 
 ACTION CATALOGUE
@@ -232,7 +235,7 @@ function promptOne() {
     const t = T.find((x) => x.v === ai.trigger) || T[0];
     const creating = ai.mode === "create";
     const shown = creating ? (hideIn([]), null) : hideIn([st.rules[ai.index]])[0];
-    const { trigger, enabled, ...body } = shown || {};
+    const { trigger, enabled, notify, ...body } = shown || {};
     const shapeOfAnswer = `one JSON object with "name", ${t.optional ? `"condition" (or none)` : `"condition"`} and "actions"`;
     return `I run a SimpleX Chat group, and a moderation bot enforces rules in it. You are helping me
 ${creating ? "write a new rule for it" : "with one of its rules"}.
@@ -437,8 +440,10 @@ function readRules(list, { ownSecrets = false, trigger = null } = {}) {
         const t = T.find((x) => x.v === (trigger || r.trigger || T[0].v));
         if (!t) { errors.push(`${where}: “${r.trigger}” is not a trigger. It should be ${T.map((x) => JSON.stringify(x.v)).join(" or ")}.`); return null; }
         out.trigger = t.v;
-        if (r.enabled === false) out.enabled = false;
-        else if (r.enabled !== undefined && r.enabled !== true) errors.push(`${where}: “enabled” should be true or false.`);
+        for (const k of ["enabled", "notify"]) {
+            if (r[k] === false) out[k] = false;
+            else if (r[k] !== undefined && r[k] !== true) errors.push(`${where}: “${k}” should be true or false.`);
+        }
 
         const acts = Array.isArray(r.actions) ? r.actions : [];
         if (!acts.length) errors.push(`${where}: no actions, so it would detect something and then do nothing.`);
@@ -632,8 +637,11 @@ function setupAi() {
             go("rule", { sel: k, replace: st.view === "new" });
             return toast(`Added “${titleOf(rule)}”. Press Apply changes when you are ready.`);
         }
-        /* The rule keeps its place, and whether it is on. */
+        /* The rule keeps its place and its switches. */
+        delete rule.enabled;
+        delete rule.notify;
         if (!isOn(st.rules[ai.index])) rule.enabled = false;
+        if (!notifies(st.rules[ai.index])) rule.notify = false;
         const before = snapshot();
         edit(() => (st.rules[ai.index] = rule));
         loaded(before);

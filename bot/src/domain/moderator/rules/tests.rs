@@ -3016,7 +3016,8 @@ async fn test_a_join_is_checked_against_the_rules_for_joins() {
         hit.reasons,
         vec![RuleReason {
             rule_name: None,
-            reason: "name contains word: 'casino'".to_string()
+            reason: "name contains word: 'casino'".to_string(),
+            actions_on: true,
         }]
     );
     assert!(on_join(&rules, &joining("Carol")).await.is_none());
@@ -3035,7 +3036,8 @@ async fn test_a_join_rule_with_no_condition_matches_everyone() {
         hit.reasons,
         vec![RuleReason {
             rule_name: Some("Quarantine newcomers".to_string()),
-            reason: "everyone who joins".to_string()
+            reason: "everyone who joins".to_string(),
+            actions_on: true,
         }]
     );
 }
@@ -3093,7 +3095,8 @@ async fn test_a_join_rule_the_earlier_ones_cover_gives_no_reason() {
         hit.reasons,
         vec![RuleReason {
             rule_name: Some("First".to_string()),
-            reason: "name contains word: 'casino'".to_string()
+            reason: "name contains word: 'casino'".to_string(),
+            actions_on: true,
         }]
     );
 }
@@ -3117,7 +3120,8 @@ async fn test_a_rule_that_is_off_is_skipped_and_covers_nothing() {
         hit.reasons,
         vec![RuleReason {
             rule_name: Some("On".to_string()),
-            reason: "name contains word: 'casino'".to_string()
+            reason: "name contains word: 'casino'".to_string(),
+            actions_on: true,
         }]
     );
     // Off, it matches nobody.
@@ -3154,7 +3158,8 @@ async fn test_a_rule_that_is_off_is_skipped_and_covers_nothing() {
         hit.reasons,
         vec![RuleReason {
             rule_name: Some("Second".to_string()),
-            reason: "contains word: 'spam'".to_string()
+            reason: "contains word: 'spam'".to_string(),
+            actions_on: true,
         }]
     );
 }
@@ -3322,7 +3327,8 @@ async fn test_a_message_reason_carries_the_rules_name() {
         hit.reasons,
         vec![RuleReason {
             rule_name: Some("Banned words".to_string()),
-            reason: "contains word: 'spam'".to_string()
+            reason: "contains word: 'spam'".to_string(),
+            actions_on: true,
         }]
     );
 }

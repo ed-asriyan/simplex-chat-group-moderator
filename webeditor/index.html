@@ -111,9 +111,9 @@
             <button class="x" type="button" data-close aria-label="Close">×</button>
         </div>
         <div class="sheet-body">
-            <label class="label" for="imp-text">Paste the group's settings: its mode and its rules</label>
+            <label class="label" for="imp-text">Paste the group's settings: its rules with their switches</label>
             <textarea id="imp-text" class="code" rows="10" spellcheck="false"
-                placeholder='{"mode":"notifications","rules":[{"name":"Blank","trigger":"message_posted","condition":{"type":"IsBlank"},"actions":[{"type":"ModerateMessage"}]}]}'></textarea>
+                placeholder='{"rules":[{"name":"Blank","trigger":"message_posted","notify":false,"condition":{"type":"IsBlank"},"actions":[{"type":"ModerateMessage"}]}]}'></textarea>
             <input id="imp-file" type="file" accept=".json,application/json" hidden>
             <div class="row"><button class="btn" id="imp-file-btn" type="button">Choose JSON file</button></div>
             <div class="note" id="imp-result" role="status" hidden></div>

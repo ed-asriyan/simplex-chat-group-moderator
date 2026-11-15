@@ -19,12 +19,15 @@ pub enum ModerationAction {
 }
 
 /// Why one rule matched, as the owner reads it in a notification (US-D2,
-/// US-D6): the rule's name, if it has one, and what matched. This context's own
-/// copy of the moderator's type; the notification router translates between them.
+/// US-D4, US-D6): the rule's name, if it has one, what matched, and whether
+/// the rule's actions are on — its line is marked `_(off)_` when they are not.
+/// This context's own copy of the moderator's type; the notification router
+/// translates between them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuleReason {
     pub rule_name: Option<String>,
     pub reason: String,
+    pub actions_on: bool,
 }
 
 /// What made the bot check the rules, with what the owner is shown of it. This
@@ -38,17 +41,19 @@ pub enum TriggerEvent {
     MemberJoined,
 }
 
-/// One moderation notification for an owner (US-D2, US-D4, US-D6).
+/// One moderation notification for an owner (US-D2, US-D4, US-D6): what was
+/// carried out, then what would have been, for the rules that tell the owner.
+/// At least one of the two lists holds an action.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModerationNotification {
     pub event: TriggerEvent,
-    /// Whether the actions were carried out, or only would have been (the
-    /// mode *Dry*).
-    pub performed: bool,
     /// The display name of the message's author, or of the person who joined.
     pub member_name: String,
-    /// In the order they were carried out.
-    pub actions: Vec<ModerationAction>,
+    /// What was carried out, in the order it was.
+    pub performed: Vec<ModerationAction>,
+    /// What rules with their actions off would have carried out, in the order
+    /// it would have been, none of it covered by `performed`.
+    pub would_perform: Vec<ModerationAction>,
     /// One per matched rule, in the order of the rules.
     pub reasons: Vec<RuleReason>,
 }
@@ -93,9 +98,9 @@ pub trait BotMessenger: Send + Sync {
     async fn send_dm(&self, user_id: &UserId, text: &str) -> Result<(), Err>;
 }
 
-/// Inbound port: deliver a notification to a group owner that the bot performed
-/// moderation actions in their group — or, when `performed` is false, would
-/// have (US-D2, US-D4, US-D6).
+/// Inbound port: deliver a notification to a group owner of the moderation
+/// actions the bot carried out in their group, and of those it would have
+/// carried out (US-D2, US-D4, US-D6).
 #[async_trait]
 pub trait ModerationNotificationReceiver: Send + Sync {
     async fn send_moderation_notification(
@@ -120,8 +125,8 @@ pub trait GroupOperations: Send + Sync {
     /// editor link carries (US-B4).
     async fn get_groups(&self, user_id: UserId) -> Result<Vec<Group>, Err>;
 
-    /// Replace the group's whole configuration — its mode and its rules —
-    /// with the one in `json`.
+    /// Replace the group's whole configuration — its rules, each with its
+    /// switches — with the one in `json` (US-C1).
     async fn set_config_json(
         &self,
         user_id: UserId,

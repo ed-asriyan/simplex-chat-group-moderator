@@ -1,4 +1,4 @@
-use super::{CategoryTrigger, GroupConfig, GroupMode, OpenAiCategory, OpenAiCategoryTriggers};
+use super::{CategoryTrigger, GroupConfig, OpenAiCategory, OpenAiCategoryTriggers};
 
 fn only(category: OpenAiCategory, trigger: CategoryTrigger) -> OpenAiCategoryTriggers {
     let mut triggers = OpenAiCategoryTriggers::default();
@@ -149,38 +149,23 @@ fn test_missing_category_field_is_off() {
 }
 
 /// The editor writes and reads this exact shape: the hash, the schema root and
-/// `GroupConfig` must agree on it.
+/// `GroupConfig` must agree on it. The group has no setting of its own: a
+/// configuration is its rules.
+// US-B4, US-C1
 #[test]
-fn test_group_config_json_is_the_mode_beside_the_rules() {
-    let config: GroupConfig = serde_json::from_str(r#"{"mode":"dry","rules":[]}"#).unwrap();
-    assert_eq!(config.mode, GroupMode::Dry);
+fn test_group_config_json_is_the_rules_alone() {
+    let config: GroupConfig = serde_json::from_str(r#"{"rules":[]}"#).unwrap();
     assert!(config.rules.is_empty());
-    assert_eq!(
-        serde_json::to_string(&config).unwrap(),
-        r#"{"mode":"dry","rules":[]}"#
-    );
+    assert_eq!(serde_json::to_string(&config).unwrap(), r#"{"rules":[]}"#);
 
     for json in [
-        r#"{"rules":[]}"#,
-        r#"{"mode":"loud","rules":[]}"#,
-        r#"{"mode":"dry"}"#,
-        r#"{"mode":"dry","rules":[],"notifications":true}"#,
+        r#"{"mode":"dry","rules":[]}"#,
+        r#"{"rules":[],"notifications":true}"#,
+        r#"{}"#,
         r#"[]"#,
     ] {
         assert!(serde_json::from_str::<GroupConfig>(json).is_err(), "{json}");
     }
-}
-
-#[test]
-fn test_group_mode_names_round_trip() {
-    for mode in [GroupMode::Dry, GroupMode::Silent, GroupMode::Notifications] {
-        assert_eq!(GroupMode::from_name(mode.name()), Some(mode));
-        assert_eq!(
-            serde_json::to_string(&mode).unwrap(),
-            format!("\"{}\"", mode.name())
-        );
-    }
-    assert_eq!(GroupMode::from_name("loud"), None);
 }
 
 // ---------------------------------------------------------------------------
@@ -189,11 +174,11 @@ fn test_group_mode_names_round_trip() {
 
 use super::{Trigger, TriggerEvent};
 
-// US-C1: the link's JSON carries the mode and rules of both triggers, off ones included.
+// US-C1, US-G13, US-G19: the link's JSON carries the rules of both triggers with
+// their two switches, off ones included; a switch that is on is left out.
 #[test]
 fn test_a_configuration_with_rules_of_both_triggers_parses_and_comes_back_unchanged() {
     let json = serde_json::json!({
-        "mode": "dry",
         "rules": [
             {
                 "name": "Banned words", "trigger": "message_posted", "enabled": true,
@@ -202,6 +187,7 @@ fn test_a_configuration_with_rules_of_both_triggers_parses_and_comes_back_unchan
             },
             {
                 "name": "Spam names", "trigger": "member_joined", "enabled": false,
+                "notify": false,
                 "condition": { "type": "MemberNameContainsWords", "keywords": ["casino"] },
                 "actions": [{ "type": "KickAuthor", "delete_all_messages": false }]
             },
@@ -215,6 +201,15 @@ fn test_a_configuration_with_rules_of_both_triggers_parses_and_comes_back_unchan
     assert_eq!(config.rules.len(), 3);
     assert_eq!(config.rules[1].trigger(), Trigger::MemberJoined);
     assert!(!config.rules[1].enabled);
+    assert!(!config.rules[1].notify);
+    assert!(config.rules[0].enabled && config.rules[0].notify);
+    assert!(config.rules[2].enabled && config.rules[2].notify);
+    // A switch that is on is written by neither, and one that is off by that
+    // switch alone.
+    let written = serde_json::to_value(&config).unwrap();
+    assert_eq!(written["rules"][0].get("notify"), None);
+    assert_eq!(written["rules"][1]["enabled"], false);
+    assert_eq!(written["rules"][1]["notify"], false);
     let again: GroupConfig =
         serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
     assert_eq!(again.rules, config.rules);
@@ -224,7 +219,6 @@ fn test_a_configuration_with_rules_of_both_triggers_parses_and_comes_back_unchan
 #[test]
 fn test_a_configuration_with_a_rule_its_trigger_does_not_take_is_refused() {
     let err = serde_json::from_value::<GroupConfig>(serde_json::json!({
-        "mode": "notifications",
         "rules": [{
             "trigger": "member_joined",
             "actions": [{ "type": "ModerateMessage" }]

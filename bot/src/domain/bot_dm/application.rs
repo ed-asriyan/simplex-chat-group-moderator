@@ -1,6 +1,6 @@
 use super::ports::{
     BotDmReceiver, BotMessenger, Err, GroupId, GroupInvitation, GroupOperations, ModerationAction,
-    ModerationNotification, ModerationNotificationReceiver, TriggerEvent, UserId,
+    ModerationNotification, ModerationNotificationReceiver, RuleReason, TriggerEvent, UserId,
 };
 use crate::domain::bot_dm::ports::{Group, Message};
 use async_trait::async_trait;
@@ -37,13 +37,12 @@ const HELP: &str = "\
 
 To stop me moderating a group, just remove me from it.
 
-### Modes
+### Each rule's switches
 
-Each group has a mode, set in the same editor as its rules (send /groups to get the link):
+Every rule has two, set in the same editor (send /groups to get the link):
 
-- **Notifications** — I act and DM you every time I do.
-- **Silent** — I act without telling you.
-- **Dry** — I run every check and DM you what I would have done, but delete and kick nothing.
+- **Actions** — on, I carry out its actions; off, I still check it but do nothing in the group.
+- **Notifications** — on, I DM you every time it matches, with what I did or would have done; off, I never DM you about it.
 
 ### Commands
 
@@ -83,7 +82,7 @@ Invite me to your group as **Moderator** to delete messages, **Admin** to also m
 ### 👀 Not ready to invite me?
 {demo}: see exactly what you would set up, without inviting me or giving me any role.
 
-Send /help for the commands and modes. My code is open [on GitHub]({SOURCE_URL}).
+Send /help for the commands. My code is open [on GitHub]({SOURCE_URL}).
 ",
         demo = demo_link(editor_base_url)
     )
@@ -373,13 +372,24 @@ impl BotDmReceiver for BotDmApplication {
     }
 }
 
-/// Renders the actions the moderator performed (or, in dry mode, would have
-/// performed) as one sentence, e.g. "🛡 I moderated the message and kicked the
-/// author".
+/// Renders the actions the moderator performed (or, with `dry_mode`, would
+/// have performed) as one sentence, e.g. "🛡 I moderated the message and kicked
+/// the author".
 ///
 /// The actions arrive already merged and in execution order, so the phrases are
-/// joined in the order they are given. Dry mode only switches the tense.
+/// joined in the order they are given. `dry_mode` only switches the tense.
 fn describe_actions(actions: &[ModerationAction], dry_mode: bool) -> String {
+    let joined = action_phrases(actions, dry_mode);
+    if dry_mode {
+        format!("🛡 I would {joined}")
+    } else {
+        format!("🛡 I {joined}")
+    }
+}
+
+/// The actions as phrases joined by commas and a last `and`, in the past tense
+/// or, with `dry_mode`, in the infinitive.
+fn action_phrases(actions: &[ModerationAction], dry_mode: bool) -> String {
     let phrases: Vec<String> = actions
         .iter()
         .map(|action| match (action, dry_mode) {
@@ -430,17 +440,23 @@ fn describe_actions(actions: &[ModerationAction], dry_mode: bool) -> String {
 
     // A match always carries at least one action, but saying so plainly beats
     // claiming something that did not happen if one ever arrives empty.
-    let joined = match phrases.split_last() {
+    match phrases.split_last() {
         None if dry_mode => "take no action".to_owned(),
         None => "took no action".to_owned(),
         Some((last, [])) => last.clone(),
         Some((last, rest)) => format!("{} and {}", rest.join(", "), last),
-    };
+    }
+}
 
-    if dry_mode {
-        format!("🛡 I would {joined}")
-    } else {
-        format!("🛡 I {joined}")
+/// The reason line of one matched rule: its name in bold, then what matched,
+/// with the mark `_(off)_` after the name — or leading the line of a rule with
+/// no name — when the rule's actions are off (US-D2, US-D4).
+fn reason_line(reason: &RuleReason) -> String {
+    match (&reason.rule_name, reason.actions_on) {
+        (Some(name), true) => format!("- **{}**: {}", name, reason.reason),
+        (Some(name), false) => format!("- **{}** _(off)_: {}", name, reason.reason),
+        (None, true) => format!("- {}", reason.reason),
+        (None, false) => format!("- _(off)_ {}", reason.reason),
     }
 }
 
@@ -452,14 +468,33 @@ impl ModerationNotificationReceiver for BotDmApplication {
         group: &Group,
         notification: &ModerationNotification,
     ) -> Result<(), Err> {
-        let actions_text = describe_actions(&notification.actions, !notification.performed);
+        // What was carried out comes first; when something would also be done,
+        // it follows after the place (US-D4): "🛡 I moderated the message in
+        // **Crypto Chat**, and would also kick the member." With nothing carried
+        // out the sentence is the conditional alone.
+        let (actions_text, also) = if notification.performed.is_empty() {
+            (
+                describe_actions(&notification.would_perform, true),
+                String::new(),
+            )
+        } else if notification.would_perform.is_empty() {
+            (
+                describe_actions(&notification.performed, false),
+                String::new(),
+            )
+        } else {
+            (
+                describe_actions(&notification.performed, false),
+                format!(
+                    ", and would also {}",
+                    action_phrases(&notification.would_perform, true)
+                ),
+            )
+        };
         let reasons = notification
             .reasons
             .iter()
-            .map(|reason| match &reason.rule_name {
-                Some(name) => format!("- **{}**: {}", name, reason.reason),
-                None => format!("- {}", reason.reason),
-            })
+            .map(reason_line)
             .collect::<Vec<_>>()
             .join("\n");
         let text = match &notification.event {
@@ -480,13 +515,13 @@ impl ModerationNotificationReceiver for BotDmApplication {
                     quote(&message)
                 };
                 format!(
-                    "{} in **{}**.\n\n**The message:**\n{}\n\n**Reason:**\n{}\n\nIf it's a false positive, please [file an issue]({}).",
-                    actions_text, group.name, message, reasons, ISSUE_URL,
+                    "{} in **{}**{}.\n\n**The message:**\n{}\n\n**Reason:**\n{}\n\nIf it's a false positive, please [file an issue]({}).",
+                    actions_text, group.name, also, message, reasons, ISSUE_URL,
                 )
             }
             TriggerEvent::MemberJoined => format!(
-                "{} when they joined **{}**.\n\n**The member:** {}\n\n**Reason:**\n{}\n\nIf it's a false positive, please [file an issue]({}).",
-                actions_text, group.name, notification.member_name, reasons, ISSUE_URL,
+                "{} when they joined **{}**{}.\n\n**The member:** {}\n\n**Reason:**\n{}\n\nIf it's a false positive, please [file an issue]({}).",
+                actions_text, group.name, also, notification.member_name, reasons, ISSUE_URL,
             ),
         };
         self.messenger.send_dm(&user_id, &text).await

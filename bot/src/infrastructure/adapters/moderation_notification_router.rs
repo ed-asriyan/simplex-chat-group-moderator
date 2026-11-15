@@ -51,23 +51,24 @@ impl ModerationNotifier for ModerationNotificationRouter {
             id: group.id,
             name: group.name.clone(),
         };
-        let bot_dm_actions: Vec<BotDmAction> = report
-            .actions
-            .iter()
-            .map(|action| match action {
-                ModAction::ModerateMessage(ModerateMessage {}) => BotDmAction::ModerateMessage,
-                ModAction::SetAuthorObserver(SetAuthorObserver { duration_minutes }) => {
-                    BotDmAction::SetAuthorObserver {
-                        duration_minutes: *duration_minutes,
+        let translated = |actions: &[ModAction]| -> Vec<BotDmAction> {
+            actions
+                .iter()
+                .map(|action| match action {
+                    ModAction::ModerateMessage(ModerateMessage {}) => BotDmAction::ModerateMessage,
+                    ModAction::SetAuthorObserver(SetAuthorObserver { duration_minutes }) => {
+                        BotDmAction::SetAuthorObserver {
+                            duration_minutes: *duration_minutes,
+                        }
                     }
-                }
-                ModAction::KickAuthor(KickAuthor {
-                    delete_all_messages,
-                }) => BotDmAction::KickAuthor {
-                    delete_all_messages: *delete_all_messages,
-                },
-            })
-            .collect();
+                    ModAction::KickAuthor(KickAuthor {
+                        delete_all_messages,
+                    }) => BotDmAction::KickAuthor {
+                        delete_all_messages: *delete_all_messages,
+                    },
+                })
+                .collect()
+        };
         let notification = ModerationNotification {
             event: match &report.event {
                 ModTriggerEvent::MessagePosted { message } => TriggerEvent::MessagePosted {
@@ -75,15 +76,16 @@ impl ModerationNotifier for ModerationNotificationRouter {
                 },
                 ModTriggerEvent::MemberJoined => TriggerEvent::MemberJoined,
             },
-            performed: group.mode.executes_actions(),
             member_name: report.member_name.clone(),
-            actions: bot_dm_actions,
+            performed: translated(&report.performed),
+            would_perform: translated(&report.would_perform),
             reasons: report
                 .reasons
                 .iter()
                 .map(|r| BotDmRuleReason {
                     rule_name: r.rule_name.clone(),
                     reason: r.reason.clone(),
+                    actions_on: r.actions_on,
                 })
                 .collect(),
         };

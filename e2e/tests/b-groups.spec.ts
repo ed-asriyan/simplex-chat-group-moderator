@@ -15,8 +15,8 @@ for (const role of ['moderator', 'admin', 'owner']) {
     expect(await alice.message()).toBe('✅ I joined the group. Open the editor below to set up its rules.');
     const link = await alice.message();
     expect(link).toMatch(new RegExp(`^\\*\\*Crypto Chat\\*\\*\\n\\[View and Edit Settings\\]\\(${EDITOR.replace(/[.]/g, '\\.')}#bot_id=\\d+&group=Crypto%20Chat&config=[^)]+\\)$`));
-    // A new group has no rules and the mode Notifications.
-    expect(configOf(link)).toEqual({ mode: 'notifications', rules: [] });
+    // A new group has no rules.
+    expect(configOf(link)).toEqual({ rules: [] });
   });
 }
 
@@ -44,9 +44,8 @@ test('the link names the group, and carries its configuration with the rules tha
   // The group's name, as the editor reads it from the link: spaces written %20.
   expect(new URL(link).hash).toContain('&group=Crypto%20Chat&');
   const config = {
-    mode: 'dry',
     rules: [
-      { name: 'Banned words', trigger: 'message_posted', condition: { type: 'ContainsWords', keywords: ['spam'] }, actions: [{ type: 'ModerateMessage' }] },
+      { name: 'Banned words', trigger: 'message_posted', notify: false, condition: { type: 'ContainsWords', keywords: ['spam'] }, actions: [{ type: 'ModerateMessage' }] },
       { name: 'Flood', trigger: 'message_posted', enabled: false, condition: { type: 'ExceedsMaxLines', max_lines: 10, chars_per_line: 40 }, actions: [{ type: 'ModerateMessage' }] },
       { name: 'Spam names', trigger: 'member_joined', condition: { type: 'MemberNameContainsWords', keywords: ['casino'] }, actions: [{ type: 'KickAuthor', delete_all_messages: false }] },
     ],
@@ -55,11 +54,11 @@ test('the link names the group, and carries its configuration with the rules tha
   await alice.send('/groups');
   const sent = await alice.message();
   expect(sent).toContain('&group=Crypto%20Chat&');
-  // Its whole current configuration: the mode, and every rule, the one that is off too.
+  // Its whole current configuration: every rule with its switches, the one that is off too.
   const got = configOf(sent);
-  expect(got.mode).toBe('dry');
   expect(got.rules.map((r: any) => r.name)).toEqual(['Banned words', 'Flood', 'Spam names']);
   expect(got.rules.map((r: any) => r.trigger ?? 'message_posted')).toEqual(['message_posted', 'message_posted', 'member_joined']);
+  expect(got.rules[0].notify).toBe(false);
   expect(got.rules[1].enabled).toBe(false);
 });
 
