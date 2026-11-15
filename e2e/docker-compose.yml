@@ -57,9 +57,12 @@ services:
   # harness sets E2E_PLAYWRIGHT_VERSION from e2e/node_modules), so a page
   # renders the same on every machine and screenshots compare. It serves the
   # tests' own Playwright, read from their node_modules; the tests connect to
-  # it and let it reach their localhost, where the editor is.
+  # it and let it reach their localhost, where the editor is. It is the same
+  # architecture's on every machine too: Chromium on arm64 draws the text of a
+  # row that scrolls sideways one of two ways from run to run.
   browser:
     image: mcr.microsoft.com/playwright:v${E2E_PLAYWRIGHT_VERSION:-0}-noble
+    platform: linux/amd64
     init: true
     user: pwuser
     working_dir: /e2e
