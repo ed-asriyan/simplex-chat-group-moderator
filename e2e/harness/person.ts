@@ -26,6 +26,13 @@ export type GroupEvent =
   /** A message to this person in the group's chat with admins, which only they and the group's admins see. */
   | { kind: 'admins'; text: string };
 
+/** The text of a message someone posted in a group's chat everyone sees, if `item` is one. */
+function inGroup(item: Event): string | undefined {
+  if (item.chatInfo?.type === 'group' && !item.chatInfo.groupChatScope && item.chatItem?.content?.type === 'rcvMsgContent')
+    return item.chatItem.content.msgContent.text;
+  return undefined;
+}
+
 /** The text of a message an admin wrote to this person in a group's chat with admins, if `item` is one. */
 function fromAdmins(item: Event): string | undefined {
   if (item.chatInfo?.type === 'group' && item.chatInfo.groupChatScope?.type === 'memberSupport' && item.chatItem?.content?.type === 'rcvMsgContent')
@@ -319,8 +326,12 @@ export class Person {
     }
   }
 
-  /** Asserts that nothing happens to this person in groups — a message in a chat with admins included —, or from the bot, for `ms`. */
-  async seesNothing(ms: number) {
+  /**
+   * Asserts that nothing happens to this person in groups — a message in a chat with admins included —, or from the bot, for `ms`.
+   * With `posted`, the messages the group's members posted that this person is expected to see, any other message in the group's
+   * chat everyone sees is a failure too: what the bot says there, everyone reads.
+   */
+  async seesNothing(ms: number, posted?: string[]) {
     const deadline = Date.now() + ms;
     for (;;) {
       const left = deadline - Date.now();
@@ -336,6 +347,8 @@ export class Person {
             throw new Error(`${this.name}: expected nothing, the bot said ${JSON.stringify(item.chatItem.content.msgContent.text)}`);
           const text = fromAdmins(item);
           if (text !== undefined) throw new Error(`${this.name}: expected nothing, got in the chat with admins ${JSON.stringify(text)}`);
+          const open = inGroup(item);
+          if (posted && open !== undefined && !posted.includes(open)) throw new Error(`${this.name}: expected nothing, got in the group ${JSON.stringify(open)}`);
         }
     }
   }

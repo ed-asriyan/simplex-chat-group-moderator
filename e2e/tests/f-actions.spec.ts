@@ -178,10 +178,11 @@ test('a warning alone: the member is told, the message stays, and nobody else in
   await s.member.post(s.memberGroup, 'look at https://spam.example');
   expect(await s.member.seesInGroup()).toEqual({ kind: 'admins', text: warning });
   expect(await s.owner.message()).toBe(notice('messaged the member privately', 'look at https://spam.example', ['**No links**: spam.example']));
-  // Nothing else is done, and Carol, a member too, sees nothing of it.
+  // Nothing else is done, and Carol, a member too, sees nothing of it: not in the chat with admins, not in the group.
+  const posted = ['look at https://spam.example'];
   await s.member.seesNothing(3000);
-  await carol.person.seesNothing(1000);
-  expect(await s.owner.history(s.ownerGroup)).toContainEqual({ text: 'look at https://spam.example', deleted: false });
+  await carol.person.seesNothing(3000, posted);
+  expect(await s.owner.history(s.ownerGroup)).toEqual([{ text: posted[0], deleted: false }]);
   // A message the rule does not match gets nothing.
   const item = await s.member.post(s.memberGroup, 'see https://simplex.chat/blog');
   await s.member.seesNothing(4000);
@@ -190,6 +191,30 @@ test('a warning alone: the member is told, the message stays, and nobody else in
   await s.member.edit(s.memberGroup, item, 'see https://spam.example');
   expect(await s.member.seesInGroup()).toEqual({ kind: 'admins', text: warning });
   expect(await s.owner.message()).toBe(notice('messaged the member privately', 'see https://spam.example', ['**No links**: spam.example']));
+  await carol.person.seesNothing(3000, [...posted, 'see https://simplex.chat/blog']);
+  expect((await s.owner.history(s.ownerGroup)).map((m) => m.text)).toEqual([...posted, 'see https://spam.example']);
+});
+
+// US-F6
+test('a rule without a private message to the member sends nothing to anyone, whatever else it does', async () => {
+  const a = await scene(rules(rule(SPAM, [{ type: 'SetAuthorObserver', duration_minutes: 10 }, { type: 'ModerateMessage' }])), 'admin');
+  const carolA = await anotherMember(a);
+  const item = await a.member.post(a.memberGroup, 'spam');
+  expect(await a.member.seesInGroup()).toEqual({ kind: 'role', role: 'observer' });
+  expect(await a.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
+  await a.member.seesNothing(4000);
+  // Carol sees the message moderated, as everyone does, and nothing more.
+  expect(await carolA.person.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [expect.any(Number)] });
+  await carolA.person.seesNothing(3000, ['spam']);
+  expect((await a.owner.history(a.ownerGroup)).map((m) => m.text)).toEqual(['spam']);
+
+  const k = await scene(rules(rule(SPAM, [{ type: 'KickAuthor', delete_all_messages: false }])));
+  const carolK = await anotherMember(k);
+  await k.member.post(k.memberGroup, 'spam');
+  expect(await k.member.seesInGroup()).toEqual({ kind: 'removed' });
+  await k.member.seesNothing(4000);
+  await carolK.person.seesNothing(3000, ['spam']);
+  expect((await k.owner.history(k.ownerGroup)).map((m) => m.text)).toEqual(['spam']);
 });
 
 // US-F6
