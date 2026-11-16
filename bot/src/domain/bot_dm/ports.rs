@@ -13,9 +13,16 @@ pub type JoinError = Box<dyn Error + Send + Sync>;
 /// of the moderator's action type; the notification router translates between them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModerationAction {
+    /// The member was sent the owner's message, named whether it reached them
+    /// or not (US-D2, US-F6).
+    SendMemberMessage,
     ModerateMessage,
-    SetAuthorObserver { duration_minutes: u32 },
-    KickAuthor { delete_all_messages: bool },
+    SetAuthorObserver {
+        duration_minutes: u32,
+    },
+    KickAuthor {
+        delete_all_messages: bool,
+    },
 }
 
 /// Why one rule matched, as the owner reads it in a notification (US-D2,

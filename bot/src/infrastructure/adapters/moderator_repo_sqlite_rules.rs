@@ -7,7 +7,9 @@
 //! the tree is assembled in memory. The query count is therefore independent of
 //! how many rules the group has and how deeply nested they are.
 
-use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
+use crate::domain::moderator::ports::actions::{
+    KickAuthor, ModerateMessage, SendMemberMessage, SetAuthorObserver,
+};
 use crate::domain::moderator::ports::conditions::{
     AuthorHitsCharacterRateLimit, AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit,
     AuthorHitsModerationRateLimit, AuthorJoinedRecently, ContainsFile, ContainsImage,
@@ -39,8 +41,9 @@ fn load_actions(
     gid: i64,
 ) -> Result<HashMap<i64, Vec<ModerationAction>>, Err> {
     let mut stmt = guard.prepare(
-        "SELECT a.rule_id, a.type, k.delete_all_messages, o.duration_minutes
+        "SELECT a.rule_id, a.type, k.delete_all_messages, o.duration_minutes, m.text
            FROM moderation_actions a
+           LEFT JOIN moderation_action__send_member_message m ON m.action_id = a.id
            JOIN moderation_rules r ON r.id = a.rule_id
            LEFT JOIN moderation_action__kick_author k ON k.action_id = a.id
            LEFT JOIN moderation_action__set_author_observer o ON o.action_id = a.id
@@ -53,13 +56,17 @@ fn load_actions(
             row.get::<_, String>(1)?,
             row.get::<_, Option<bool>>(2)?,
             row.get::<_, Option<u32>>(3)?,
+            row.get::<_, Option<String>>(4)?,
         ))
     })?;
 
     let mut out: HashMap<i64, Vec<ModerationAction>> = HashMap::new();
     for row in rows {
-        let (rule_id, type_tag, delete_all_messages, duration_minutes) = row?;
+        let (rule_id, type_tag, delete_all_messages, duration_minutes, text) = row?;
         let action = match type_tag.as_str() {
+            "SendMemberMessage" => ModerationAction::SendMemberMessage(SendMemberMessage {
+                text: text.unwrap_or_default(),
+            }),
             "ModerateMessage" => ModerationAction::ModerateMessage(ModerateMessage {}),
             "SetAuthorObserver" => ModerationAction::SetAuthorObserver(SetAuthorObserver {
                 duration_minutes: duration_minutes.unwrap_or(0),

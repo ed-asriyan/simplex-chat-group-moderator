@@ -41,6 +41,16 @@ pub trait GroupModerator: Send + Sync {
         delete_all_messages: bool,
     ) -> Result<(), Err>;
 
+    /// Sends the member `text` in the group's chat with admins, which only they
+    /// and the group's admins see (US-F6). An error means it did not reach
+    /// them — the group's chat with admins is off, or they are gone.
+    async fn send_member_message(
+        &self,
+        group_id: &GroupId,
+        user_id: &UserId,
+        text: &str,
+    ) -> Result<(), Err>;
+
     async fn set_member_role(
         &self,
         group_id: &GroupId,

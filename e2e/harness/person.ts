@@ -1,7 +1,8 @@
 // A person in the people's SimpleX CLI: a user profile of its own, which talks
 // to the bot in a direct chat and owns or joins groups the bot moderates.
 // What they see arrives as their CLI's events: the bot's messages, messages
-// deleted, their role changed, their removal from a group.
+// deleted, their role changed, their removal from a group, a message to them
+// in a group's chat with admins.
 import LZ from 'lz-string';
 import { Cli, Event, Queue } from './cli';
 import { botAddress, EDITOR, PERSON_WS } from './stack';
@@ -21,7 +22,16 @@ async function shared(): Promise<Cli> {
 export type GroupEvent =
   | { kind: 'deleted'; itemIds: number[] }
   | { kind: 'role'; role: string }
-  | { kind: 'removed' };
+  | { kind: 'removed' }
+  /** A message to this person in the group's chat with admins, which only they and the group's admins see. */
+  | { kind: 'admins'; text: string };
+
+/** The text of a message an admin wrote to this person in a group's chat with admins, if `item` is one. */
+function fromAdmins(item: Event): string | undefined {
+  if (item.chatInfo?.type === 'group' && item.chatInfo.groupChatScope?.type === 'memberSupport' && item.chatItem?.content?.type === 'rcvMsgContent')
+    return item.chatItem.content.msgContent.text;
+  return undefined;
+}
 
 export class Person {
   private constructor(
@@ -263,6 +273,18 @@ export class Person {
     if (r.type !== 'membersRoleUser' && r.type !== 'memberRoleUser') throw new Error(`role: ${JSON.stringify(r).slice(0, 300)}`);
   }
 
+  /** Turns the group's chat with admins on or off, as its owner does in the group's preferences: off, no admin can write to a member there. */
+  async chatWithAdmins(group: number, on: boolean) {
+    await this.activate();
+    const info = await this.cli.command(`/_info #${group}`);
+    if (info.type !== 'groupInfo') throw new Error(`group info: ${JSON.stringify(info).slice(0, 300)}`);
+    const profile = info.groupInfo.groupProfile;
+    const r = await this.cli.command(
+      `/_group_profile #${group} ${JSON.stringify({ ...profile, groupPreferences: { ...(profile.groupPreferences || {}), support: { enable: on ? 'on' : 'off' } } })}`,
+    );
+    if (r.type !== 'groupUpdated') throw new Error(`chat with admins: ${JSON.stringify(r).slice(0, 300)}`);
+  }
+
   /** Removes the bot from the group. */
   async removeBot(group: number) {
     await this.activate();
@@ -289,10 +311,15 @@ export class Person {
       if (e.type === 'chatItemsDeleted') return { kind: 'deleted', itemIds: e.chatItemDeletions.map((d: any) => d.deletedChatItem.chatItem.meta.itemId) };
       if (e.type === 'memberRole' && e.member?.groupMemberId === e.groupInfo?.membership?.groupMemberId) return { kind: 'role', role: e.toRole };
       if (e.type === 'deletedMemberUser') return { kind: 'removed' };
+      if (e.type === 'newChatItems')
+        for (const item of e.chatItems) {
+          const text = fromAdmins(item);
+          if (text !== undefined) return { kind: 'admins', text };
+        }
     }
   }
 
-  /** Asserts that nothing happens to this person in groups, or from the bot, for `ms`. */
+  /** Asserts that nothing happens to this person in groups — a message in a chat with admins included —, or from the bot, for `ms`. */
   async seesNothing(ms: number) {
     const deadline = Date.now() + ms;
     for (;;) {
@@ -304,9 +331,12 @@ export class Person {
       // Another member's role changing is not something that happens to this person.
       if (e.type === 'memberRole' && e.member?.groupMemberId === e.groupInfo?.membership?.groupMemberId) throw new Error(`${this.name}: expected nothing, saw ${e.type}`);
       if (e.type === 'newChatItems')
-        for (const item of e.chatItems)
+        for (const item of e.chatItems) {
           if (item.chatInfo?.type === 'direct' && item.chatItem?.content?.type === 'rcvMsgContent')
             throw new Error(`${this.name}: expected nothing, the bot said ${JSON.stringify(item.chatItem.content.msgContent.text)}`);
+          const text = fromAdmins(item);
+          if (text !== undefined) throw new Error(`${this.name}: expected nothing, got in the chat with admins ${JSON.stringify(text)}`);
+        }
     }
   }
 }

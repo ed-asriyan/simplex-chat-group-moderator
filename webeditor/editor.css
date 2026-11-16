@@ -409,6 +409,11 @@ svg {
     color: var(--danger);
 }
 
+.fields textarea[aria-invalid="true"] {
+    border-color: var(--warn-line);
+    background: var(--warn-soft);
+}
+
 .alert.warn {
     background: var(--warn-soft);
     border: 1px solid var(--warn-line);

@@ -1,5 +1,7 @@
 use super::*;
-use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
+use crate::domain::moderator::ports::actions::{
+    KickAuthor, ModerateMessage, SendMemberMessage, SetAuthorObserver,
+};
 use crate::domain::moderator::ports::conditions::{
     AuthorHitsMessageRateLimit, ContainsWords, FlaggedByOpenRouterInstruction,
     MemberNameContainsWords,
@@ -26,6 +28,12 @@ fn moderate() -> ModerationAction {
 fn kick() -> ModerationAction {
     ModerationAction::KickAuthor(KickAuthor {
         delete_all_messages: false,
+    })
+}
+
+fn send(text: &str) -> ModerationAction {
+    ModerationAction::SendMemberMessage(SendMemberMessage {
+        text: text.to_string(),
     })
 }
 
@@ -349,4 +357,81 @@ fn test_the_keys_a_rule_carries_are_listed() {
         }),
     );
     assert!(rate.key_uses().is_empty());
+}
+
+// ---- a message to the member (US-F4, US-F5, US-C2) ----
+
+// US-C2, US-F5: a rule for joins does not take it, as it does not take moderating
+// the message.
+#[test]
+fn test_a_message_to_the_member_does_not_work_in_a_rule_for_joins() {
+    let err = parse(json!({
+        "trigger": "member_joined",
+        "actions": [{ "type": "SendMemberMessage", "text": "Welcome!" }]
+    }))
+    .unwrap_err();
+    assert!(
+        err.contains("'Send the member a private message' does not work in a rule for when someone joins."),
+        "{err}"
+    );
+}
+
+// US-F5: a rule for messages keeps the text it was written with, in the JSON the
+// editor and the link carry.
+#[test]
+fn test_a_rule_keeps_the_text_of_its_message_to_the_member() {
+    let rule = parse(json!({
+        "actions": [{ "type": "SendMemberMessage", "text": "Read the rules,\n_please_" }],
+        "condition": { "type": "IsBlank" }
+    }))
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&rule).unwrap()["actions"],
+        json!([{ "type": "SendMemberMessage", "text": "Read the rules,\n_please_" }])
+    );
+}
+
+// US-C2, US-F5: a rule whose message is empty, or longer than 1000 characters, is
+// refused when it is saved.
+#[test]
+fn test_a_rule_with_an_empty_or_too_long_message_is_refused() {
+    let mut empty = message_rule(vec![moderate(), send("")], words("spam"));
+    assert_eq!(
+        empty.normalize_and_validate().unwrap_err().to_string(),
+        "A private message to the member is empty. Write it, or remove the action."
+    );
+    let mut long = message_rule(vec![send(&"x".repeat(1001))], words("spam"));
+    assert_eq!(
+        long.normalize_and_validate().unwrap_err().to_string(),
+        "A private message to the member is longer than 1000 characters."
+    );
+    let mut longest = message_rule(vec![send(&"x".repeat(1000))], words("spam"));
+    longest.normalize_and_validate().unwrap();
+}
+
+// US-F4: a saved rule's actions are merged and ordered, the message to the member
+// first, and the member keeps getting one message, the first the rule lists.
+#[test]
+fn test_a_saved_rule_sends_the_member_one_message_and_first() {
+    let mut rule = message_rule(
+        vec![
+            kick(),
+            moderate(),
+            send("first"),
+            observer(5),
+            send("second"),
+        ],
+        words("spam"),
+    );
+    rule.normalize_and_validate().unwrap();
+    assert_eq!(
+        RuleDraft::from(rule).actions,
+        vec![send("first"), moderate(), kick()]
+    );
+    let mut timed = message_rule(vec![moderate(), observer(5), send("hi")], words("spam"));
+    timed.normalize_and_validate().unwrap();
+    assert_eq!(
+        RuleDraft::from(timed).actions,
+        vec![send("hi"), observer(5), moderate()]
+    );
 }

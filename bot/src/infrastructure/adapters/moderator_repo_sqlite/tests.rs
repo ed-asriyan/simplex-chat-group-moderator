@@ -1,7 +1,9 @@
 use super::*;
 use crate::domain::moderator::ports::ModerationRule;
 use crate::domain::moderator::ports::RuleDraft;
-use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
+use crate::domain::moderator::ports::actions::{
+    KickAuthor, ModerateMessage, SendMemberMessage, SetAuthorObserver,
+};
 use crate::domain::moderator::ports::conditions::{
     AuthorHitsCharacterRateLimit, AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit,
     AuthorHitsModerationRateLimit, AuthorJoinedRecently, ContainsFile, ContainsImage,
@@ -1132,4 +1134,118 @@ async fn test_replacing_rules_leaves_no_orphan_name_conditions() {
             .unwrap();
         assert_eq!(rows, 0, "{table}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// A message to the member (US-F4, US-F5, US-B6)
+// ---------------------------------------------------------------------------
+
+fn sending(text: &str) -> ModerationAction {
+    ModerationAction::SendMemberMessage(SendMemberMessage {
+        text: text.to_string(),
+    })
+}
+
+fn spam_words() -> ModerationCondition {
+    ModerationCondition::ContainsWords(ContainsWords {
+        keywords: vec!["spam".to_string()],
+    })
+}
+
+// US-F5: the text comes back exactly as the owner wrote it: lines, Markdown, quotes
+// and non-Latin letters included, at the longest it may be.
+#[tokio::test]
+async fn test_round_trips_the_text_of_a_message_to_the_member() {
+    let (repo, group_id) = repo_with_group(2100).await;
+    let texts = [
+        "Your message was removed: no spam here.\nPlease read the pinned rules.".to_string(),
+        "  **Bold**, _italic_, 'quoted', \"double\", {name}, 100% \\ done  ".to_string(),
+        "Привет! 🙂".to_string(),
+        "я".repeat(1000),
+    ];
+    let rules: Vec<ModerationRule> = texts
+        .iter()
+        .map(|text| message_rule(vec![sending(text)], spam_words()))
+        .collect();
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+
+    let loaded = repo.get_group_rules(&group_id).await.unwrap();
+    assert_eq!(loaded, rules);
+    let loaded_texts: Vec<Vec<ModerationAction>> = loaded
+        .into_iter()
+        .map(|r| RuleDraft::from(r).actions)
+        .collect();
+    assert_eq!(
+        loaded_texts,
+        texts.iter().map(|t| vec![sending(t)]).collect::<Vec<_>>()
+    );
+}
+
+// US-F4, US-F5: the actions of a rule come back in the order they were saved in, the
+// message to the member first.
+#[tokio::test]
+async fn test_a_message_to_the_member_keeps_its_place_among_the_actions() {
+    let (repo, group_id) = repo_with_group(2101).await;
+    let rules = vec![message_rule(
+        vec![
+            sending("hi"),
+            ModerationAction::SetAuthorObserver(SetAuthorObserver {
+                duration_minutes: 10,
+            }),
+            ModerationAction::ModerateMessage(ModerateMessage {}),
+            ModerationAction::KickAuthor(KickAuthor {
+                delete_all_messages: true,
+            }),
+        ],
+        spam_words(),
+    )];
+    repo.set_group_rules(&group_id, &rules).await.unwrap();
+
+    let loaded = repo.get_group_rules(&group_id).await.unwrap();
+    assert_eq!(loaded, rules);
+    assert_eq!(RuleDraft::from(loaded[0].clone()).actions[0], sending("hi"));
+}
+
+// US-F5: replacing the rules leaves no text of a rule that is gone.
+#[tokio::test]
+async fn test_replacing_rules_leaves_no_orphan_message_to_the_member() {
+    let (repo, group_id) = repo_with_group(2102).await;
+    let first = vec![message_rule(vec![sending("hi")], spam_words())];
+    repo.set_group_rules(&group_id, &first).await.unwrap();
+    repo.set_group_rules(&group_id, &first).await.unwrap();
+    let second = vec![message_rule(vec![sending("another")], spam_words())];
+    repo.set_group_rules(&group_id, &second).await.unwrap();
+
+    let guard = repo.conn.lock().unwrap();
+    let texts: Vec<String> = guard
+        .prepare("SELECT text FROM moderation_action__send_member_message")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(texts, vec!["another".to_string()]);
+}
+
+// US-B6, US-F5: forgetting a group forgets its messages to members too.
+#[tokio::test]
+async fn test_forgetting_a_group_forgets_its_messages_to_members() {
+    let (repo, group_id) = repo_with_group(2103).await;
+    repo.set_group_rules(
+        &group_id,
+        &[message_rule(vec![sending("hi")], spam_words())],
+    )
+    .await
+    .unwrap();
+    repo.delete_group_data(&2103).await.unwrap();
+
+    let guard = repo.conn.lock().unwrap();
+    let left: i64 = guard
+        .query_row(
+            "SELECT COUNT(*) FROM moderation_action__send_member_message",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(left, 0);
 }

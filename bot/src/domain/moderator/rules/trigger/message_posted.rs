@@ -40,6 +40,7 @@ trigger_conditions! {
 
 trigger_actions! {
     MessageAction on GroupMessage, Trigger::MessagePosted;
+    SendMemberMessage,
     ModerateMessage,
     SetAuthorObserver,
     KickAuthor,

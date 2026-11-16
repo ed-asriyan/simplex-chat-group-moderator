@@ -2,7 +2,9 @@ use super::MessageModerationApplication;
 use crate::domain::moderator::application::tests::{
     MockGroupModerator, MockMemberRestoreRepository, MockModerationRepository, PortCall,
 };
-use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
+use crate::domain::moderator::ports::actions::{
+    KickAuthor, ModerateMessage, SendMemberMessage, SetAuthorObserver,
+};
 use crate::domain::moderator::ports::conditions::{
     AuthorHitsCharacterRateLimit, AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit,
     AuthorHitsModerationRateLimit, ContainsWords, ExceedsMaxLines, FlaggedByOmniModeration,
@@ -4323,8 +4325,17 @@ fn join_app(
     switches: Switches,
     rules: Vec<ModerationRule>,
 ) -> (MessageModerationApplication, Watch) {
+    join_app_with(MockGroupModerator::default(), switches, rules)
+}
+
+/// The same, over the group's moderator as the test sets it up.
+fn join_app_with(
+    moderator: MockGroupModerator,
+    switches: Switches,
+    rules: Vec<ModerationRule>,
+) -> (MessageModerationApplication, Watch) {
     let watch = Watch {
-        moderator: Arc::new(MockGroupModerator::default()),
+        moderator: Arc::new(moderator),
         notifier: Arc::new(MockModerationNotifier::default()),
         restores: Arc::new(MockMemberRestoreRepository::default()),
     };
@@ -4953,4 +4964,336 @@ async fn test_a_join_rule_with_actions_off_covers_nothing_for_one_that_is_on() {
     let reports = watch.notifier.reports.lock().unwrap();
     assert_eq!(reports[0].performed, vec![kick()]);
     assert!(reports[0].would_perform.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// A message to the member (US-F4, US-F5, US-F6, US-D2–US-D4)
+// ---------------------------------------------------------------------------
+
+fn send(text: &str) -> ModerationAction {
+    ModerationAction::SendMemberMessage(SendMemberMessage {
+        text: text.to_string(),
+    })
+}
+
+const REMOVED: &str = "Your message was removed: no spam here. Please read the pinned rules.";
+
+/// What the member was sent: group, member, text.
+fn sent_to_members(watch: &Watch) -> Vec<(GroupId, UserId, String)> {
+    watch.moderator.sent_member_messages.lock().unwrap().clone()
+}
+
+// US-F6: the author of the message that matched is sent the owner's text, in the
+// group, before the message is moderated; the owner is told it was done.
+#[tokio::test]
+async fn test_the_author_is_sent_the_message_before_theirs_is_moderated() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![danger_rule(
+            "Banned words",
+            vec![moderate(), send(REMOVED)],
+            true,
+            true,
+        )],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    // The author is member 777 of group 10; the message is message 42.
+    assert_eq!(
+        sent_to_members(&watch),
+        vec![(10, 777, REMOVED.to_string())]
+    );
+    assert_eq!(
+        *watch.moderator.call_log.lock().unwrap(),
+        vec![
+            PortCall::SendMemberMessage(10, 777, REMOVED.to_string()),
+            PortCall::DeleteMessage(10, 42),
+        ]
+    );
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].performed, vec![send(REMOVED), moderate()]);
+    assert!(reports[0].would_perform.is_empty());
+}
+
+// US-F6, US-F4: the message comes first, so a member who is made an observer or
+// kicked, their messages deleted, has it all the same.
+#[tokio::test]
+async fn test_the_message_is_sent_before_the_member_is_made_an_observer_or_kicked() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![danger_rule(
+            "Observers",
+            vec![observer(10), moderate(), send(REMOVED)],
+            true,
+            true,
+        )],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    assert_eq!(
+        *watch.moderator.call_log.lock().unwrap(),
+        vec![
+            PortCall::SendMemberMessage(10, 777, REMOVED.to_string()),
+            PortCall::SetObserver(10, 777),
+            PortCall::DeleteMessage(10, 42),
+        ]
+    );
+
+    let wipe = ModerationAction::KickAuthor(KickAuthor {
+        delete_all_messages: true,
+    });
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![danger_rule(
+            "Kicks",
+            vec![wipe.clone(), send(REMOVED)],
+            true,
+            true,
+        )],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    assert_eq!(
+        *watch.moderator.call_log.lock().unwrap(),
+        vec![
+            PortCall::SendMemberMessage(10, 777, REMOVED.to_string()),
+            PortCall::KickMember(10, 777),
+        ]
+    );
+    assert_eq!(
+        watch.notifier.reports.lock().unwrap()[0].performed,
+        vec![send(REMOVED), wipe]
+    );
+}
+
+// US-F6: a rule that only warns leaves the message in the chat.
+#[tokio::test]
+async fn test_a_rule_that_only_warns_leaves_the_message_standing() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![danger_rule("Warn", vec![send("Careful.")], true, true)],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    assert_eq!(
+        sent_to_members(&watch),
+        vec![(10, 777, "Careful.".to_string())]
+    );
+    assert!(watch.moderator.deleted_messages.lock().unwrap().is_empty());
+    assert!(watch.moderator.kicked_members.lock().unwrap().is_empty());
+    assert_eq!(
+        watch.notifier.reports.lock().unwrap()[0].performed,
+        vec![send("Careful.")]
+    );
+}
+
+// US-F6, US-F4: a message that matches several rules with a message gets the member
+// one, the first matched rule's; what else the later rule calls for is done.
+#[tokio::test]
+async fn test_the_member_gets_one_message_the_first_matched_rules() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![
+            danger_rule("First", vec![send("From the first rule.")], true, true),
+            danger_rule(
+                "Second",
+                vec![send("From the second rule."), observer(10)],
+                true,
+                true,
+            ),
+        ],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    assert_eq!(
+        sent_to_members(&watch),
+        vec![(10, 777, "From the first rule.".to_string())]
+    );
+    assert_eq!(
+        *watch.moderator.observer_members.lock().unwrap(),
+        vec![(10, 777)]
+    );
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(
+        reports[0].performed,
+        vec![send("From the first rule."), observer(10)]
+    );
+    assert_eq!(
+        reasons_of(&reports[0]),
+        vec![("First".to_string(), true), ("Second".to_string(), true)]
+    );
+}
+
+// US-F6, US-D4: with Actions off the member is sent nothing, and the owner is told
+// the bot would have sent the message.
+#[tokio::test]
+async fn test_a_rule_with_actions_off_sends_the_member_nothing() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![danger_rule(
+            "Trial",
+            vec![send(REMOVED), moderate()],
+            false,
+            true,
+        )],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    assert!(sent_to_members(&watch).is_empty());
+    assert!(watch.moderator.deleted_messages.lock().unwrap().is_empty());
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports.len(), 1);
+    assert!(reports[0].performed.is_empty());
+    assert_eq!(reports[0].would_perform, vec![send(REMOVED), moderate()]);
+    assert_eq!(reasons_of(&reports[0]), vec![("Trial".to_string(), false)]);
+}
+
+// US-F6, US-D3: with Notifications off the member is sent the message all the same,
+// and the owner is not told.
+#[tokio::test]
+async fn test_a_rule_with_notifications_off_sends_the_member_the_message_without_telling() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![danger_rule("Quiet", vec![send(REMOVED)], true, false)],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    assert_eq!(
+        sent_to_members(&watch),
+        vec![(10, 777, REMOVED.to_string())]
+    );
+    assert!(watch.notifier.reports.lock().unwrap().is_empty());
+}
+
+// US-D4, US-F4: a rule that acts, and one with Actions off that would send the
+// member a message: the member is sent nothing, and the owner is told what was
+// done and what would have been.
+#[tokio::test]
+async fn test_a_message_a_rule_with_actions_off_would_send_is_told_beside_what_was_done() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![
+            danger_rule("Banned words", vec![moderate()], true, true),
+            danger_rule("Warn", vec![send("Please stop.")], false, true),
+        ],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    assert!(sent_to_members(&watch).is_empty());
+    assert_eq!(
+        *watch.moderator.deleted_messages.lock().unwrap(),
+        vec![(10, 42)]
+    );
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports[0].performed, vec![moderate()]);
+    assert_eq!(reports[0].would_perform, vec![send("Please stop.")]);
+}
+
+// US-D4, US-F4: a message the bot would send that one it sent already covers is not
+// named as one it would send.
+#[tokio::test]
+async fn test_a_message_a_rule_with_actions_off_would_send_after_one_was_sent_is_not_named() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![
+            danger_rule("Warn", vec![send("Please stop.")], true, true),
+            danger_rule(
+                "Trial",
+                vec![send("Another text."), moderate()],
+                false,
+                true,
+            ),
+        ],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    assert_eq!(
+        sent_to_members(&watch),
+        vec![(10, 777, "Please stop.".to_string())]
+    );
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports[0].performed, vec![send("Please stop.")]);
+    assert_eq!(reports[0].would_perform, vec![moderate()]);
+}
+
+// US-F6: a message that cannot reach the member does not call off the rest of the
+// rule, and the owner is told all the same.
+#[tokio::test]
+async fn test_a_message_that_cannot_reach_the_member_does_not_call_off_the_rest() {
+    let (app, watch) = join_app_with(
+        MockGroupModerator {
+            fail_member_message: true,
+            ..Default::default()
+        },
+        Switches::Both,
+        vec![danger_rule(
+            "Banned words",
+            vec![send(REMOVED), moderate(), kick()],
+            true,
+            true,
+        )],
+    );
+    app.process_group_message(triggering_message(Utc::now()))
+        .await
+        .unwrap();
+    // It was tried, and what came after it was done.
+    assert_eq!(
+        sent_to_members(&watch),
+        vec![(10, 777, REMOVED.to_string())]
+    );
+    assert_eq!(
+        *watch.moderator.deleted_messages.lock().unwrap(),
+        vec![(10, 42)]
+    );
+    assert_eq!(
+        *watch.moderator.kicked_members.lock().unwrap(),
+        vec![(10, 777)]
+    );
+    let reports = watch.notifier.reports.lock().unwrap();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(
+        reports[0].performed,
+        vec![send(REMOVED), moderate(), kick()]
+    );
+}
+
+// US-D1, US-F6: an edited message is checked again, and the member is told again.
+#[tokio::test]
+async fn test_an_edit_that_matches_sends_the_member_the_message_again() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![danger_rule("Warn", vec![send("Careful.")], true, true)],
+    );
+    let mut edited = triggering_message(Utc::now());
+    edited.is_edit = true;
+    app.process_group_message(edited).await.unwrap();
+    assert_eq!(
+        sent_to_members(&watch),
+        vec![(10, 777, "Careful.".to_string())]
+    );
+}
+
+// US-F6: a message that matches no rule sends the member nothing.
+#[tokio::test]
+async fn test_a_message_that_matches_nothing_sends_the_member_nothing() {
+    let (app, watch) = join_app(
+        Switches::Both,
+        vec![danger_rule("Warn", vec![send("Careful.")], true, true)],
+    );
+    let mut calm = triggering_message(Utc::now());
+    calm.text = "Good morning".to_string();
+    app.process_group_message(calm).await.unwrap();
+    assert!(sent_to_members(&watch).is_empty());
+    assert!(watch.notifier.reports.lock().unwrap().is_empty());
 }

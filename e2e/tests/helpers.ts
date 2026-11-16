@@ -53,6 +53,11 @@ export function joinRule(condition: unknown, actions: unknown[], name?: string) 
   return { ...(name ? { name } : {}), trigger: 'member_joined', ...(condition === undefined ? {} : { condition }), actions };
 }
 
+/** ✉️ Send the member a private message, with `text` (US-F5). */
+export function message(text: string) {
+  return { type: 'SendMemberMessage', text };
+}
+
 export function rules(...list: unknown[]) {
   return { rules: list };
 }
@@ -76,6 +81,8 @@ export async function moderated(s: Scene, content: string | Record<string, unkno
   expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
   const text = message !== undefined ? message : quoted(typeof content === 'string' ? content : (content.text as string) || null);
   expect(lineEnds(await s.owner.message())).toBe(lineEnds(notice('moderated the message', text, reasons)));
+  // No rule wrote to Bob: nothing in his chat with admins (US-F6).
+  await s.member.seesNothing(1000);
 }
 
 /** A message as the notification quotes it: cut after 300 characters. */

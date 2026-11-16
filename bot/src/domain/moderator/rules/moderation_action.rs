@@ -50,7 +50,8 @@ pub(in crate::domain::moderator::rules) trait Action:
     fn effect(&self) -> Effect;
 
     /// Where the action goes in the safe execution order; lower runs first.
-    /// Restricting the member comes first, then moderating the message, and
+    /// The message to the member comes first, while they can still get it
+    /// (US-F4); then restricting the member, then moderating the message, and
     /// kicking the member last — once they are out of the group, acting on
     /// them or on their message may no longer be possible. The order
     /// deliberately does not come from the order the owner listed the actions
@@ -80,7 +81,7 @@ pub(in crate::domain::moderator::rules) trait ActionOn<S: ?Sized + Sync>:
 /// A trigger's action type — what `trigger_actions!` builds for each trigger
 /// —, as the planner and the engine use it, whichever trigger it is.
 pub(in crate::domain::moderator::rules) trait TriggerAction:
-    Copy + Eq + Send + Sync + Sized
+    Clone + Eq + Send + Sync + Sized
 {
     /// What the trigger's actions are carried out on.
     type Subject: Sync;
@@ -99,8 +100,9 @@ macro_rules! actions {
             $(pub use super::$module::$variant;)*
         }
 
-        /// An action as an owner writes it: any action.
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+        /// An action as an owner writes it: any action. Not `Copy`: an action
+        /// may carry the owner's text (`SendMemberMessage`, US-F5).
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
         #[serde(tag = "type")]
         pub enum ModerationAction {
             $($variant($module::$variant),)*
@@ -131,6 +133,7 @@ macro_rules! actions {
 }
 
 actions! {
+    SendMemberMessage => send_member_message,
     ModerateMessage => moderate_message,
     SetAuthorObserver => set_author_observer,
     KickAuthor => kick_author,
@@ -143,7 +146,7 @@ actions! {
 macro_rules! trigger_actions {
     ($name:ident on $subject:ty, $trigger:expr; $($variant:ident,)*) => {
         /// An action the trigger takes.
-        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        #[derive(Clone, Debug, PartialEq, Eq)]
         pub enum $name {
             $($variant($crate::domain::moderator::rules::actions::$variant),)*
         }
@@ -237,9 +240,11 @@ where
         bookkeeping_error = bookkeeping_error.or(report.bookkeeping_error);
     }
     Ok(ActionOutcome {
-        message_deleted: actions
-            .iter()
-            .any(|action| ModerationAction::from(*action).effect().message_deleted),
+        message_deleted: actions.iter().any(|action| {
+            ModerationAction::from(action.clone())
+                .effect()
+                .message_deleted
+        }),
         bookkeeping_error,
     })
 }

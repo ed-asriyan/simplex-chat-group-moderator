@@ -226,6 +226,29 @@ impl SimplexDriver {
         Ok(())
     }
 
+    /// Sends `text` to a member in the group's chat with admins, which only that
+    /// member and the group's admins see. `send_raw` hands back the CLI's answer
+    /// whatever it is, so a refusal — the group's chat with admins is off, the
+    /// member has left — is read off it.
+    pub async fn send_group_member_message(
+        &self,
+        group_id: GroupId,
+        member_id: UserId,
+        text: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let composed = serde_json::json!([{ "msgContent": { "type": "text", "text": text } }]);
+        let answer = self
+            .client
+            .send_raw(format!(
+                "/_send #{group_id}(_support:{member_id}) json {composed}"
+            ))
+            .await?;
+        if answer.contains("\"chatCmdError\"") || answer.contains("\"chatError\"") {
+            return Err(format!("the message did not reach the member: {answer}").into());
+        }
+        Ok(())
+    }
+
     pub async fn kick_group_member(
         &self,
         group_id: GroupId,

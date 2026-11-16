@@ -19,8 +19,8 @@ struct ActionSet {
 impl ActionSet {
     fn from_actions(raw: &[ModerationAction]) -> Self {
         let mut set = Self::default();
-        for &action in raw {
-            set.add(action);
+        for action in raw {
+            set.add(action.clone());
         }
         set
     }
@@ -51,8 +51,8 @@ impl ActionSet {
     /// Merges two sets; any action covered by a stronger one disappears.
     fn union(&self, other: &ActionSet) -> Self {
         let mut result = self.clone();
-        for &action in &other.actions {
-            result.add(action);
+        for action in &other.actions {
+            result.add(action.clone());
         }
         result
     }

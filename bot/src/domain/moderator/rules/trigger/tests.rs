@@ -1,5 +1,5 @@
 use super::*;
-use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage};
+use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SendMemberMessage};
 use crate::domain::moderator::ports::conditions::{ContainsWords, MemberNameContainsWords};
 use crate::domain::moderator::ports::{
     JoinAction, JoinCondition, MessageAction, MessageCondition, ModerationAction,
@@ -93,12 +93,27 @@ fn test_the_actions_a_trigger_takes() {
     let kick = ModerationAction::KickAuthor(KickAuthor {
         delete_all_messages: true,
     });
-    assert!(MessageAction::try_from(moderate).is_ok());
-    assert!(MessageAction::try_from(kick).is_ok());
-    assert!(JoinAction::try_from(kick).is_ok());
+    assert!(MessageAction::try_from(moderate.clone()).is_ok());
+    assert!(MessageAction::try_from(kick.clone()).is_ok());
+    assert!(JoinAction::try_from(kick.clone()).is_ok());
     assert!(JoinAction::try_from(moderate).is_err());
     assert_eq!(
-        ModerationAction::from(JoinAction::try_from(kick).unwrap()),
+        ModerationAction::from(JoinAction::try_from(kick.clone()).unwrap()),
         kick
+    );
+}
+
+// US-F5, US-C2: a message to the member works in a rule for messages, and is refused,
+// in words, in a rule for joins.
+#[test]
+fn test_a_message_to_the_member_is_taken_by_a_rule_for_messages_only() {
+    let send = ModerationAction::SendMemberMessage(SendMemberMessage {
+        text: "hi".to_string(),
+    });
+    let taken = MessageAction::try_from(send.clone()).unwrap();
+    assert_eq!(ModerationAction::from(taken), send);
+    assert_eq!(
+        JoinAction::try_from(send).unwrap_err().to_string(),
+        "'Send the member a private message' does not work in a rule for when someone joins."
     );
 }

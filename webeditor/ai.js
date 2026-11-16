@@ -51,7 +51,10 @@ function fieldSpec(pr) {
         return pr.oneOf.map((b) => ("const" in b ? JSON.stringify(b.const) : fieldSpec(b))).join(" | ") + (first ? ` (left out: ${JSON.stringify(first.const)})` : "");
     }
     if (pr.type === "string" && pr.format === "password") return "secret string (see SECRETS)";
-    if (pr.type === "string") return pr.maxLength ? `string (up to ${pr.maxLength} chars)` : "string";
+    if (pr.type === "string") {
+        const lim = [pr.minLength && "not empty", pr.maxLength && `up to ${pr.maxLength} chars`].filter(Boolean);
+        return "string" + (lim.length ? ` (${lim.join(", ")})` : "");
+    }
     return pr.type;
 }
 
@@ -404,6 +407,7 @@ function readField(f, v, type, where, errors, stats, level, ownSecrets, t) {
         case "text":
         case "prose":
             if (typeof v !== "string") { errors.push(`${where}: “${f.key}” should be text.`); return ""; }
+            if (f.minLength && v.trim().length < f.minLength) errors.push(`${where}: “${f.key}” is empty; write it.`);
             if (f.maxLength && v.length > f.maxLength) errors.push(`${where}: “${f.key}” is ${v.length} characters long, the maximum is ${f.maxLength}.`);
             return v;
         case "choice": {

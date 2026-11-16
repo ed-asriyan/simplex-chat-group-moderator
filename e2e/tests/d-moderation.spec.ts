@@ -2,7 +2,7 @@
 import { expect, test } from '@playwright/test';
 import { Person } from '../harness/person';
 import { advance } from '../harness/stack';
-import { apply, joinNotice, joinRule, mixedNotice, moderated, moderatedAnyway, named, notice, rule, rules, scene, turnedOff, untouched } from './helpers';
+import { apply, joinNotice, joinRule, message, mixedNotice, moderated, moderatedAnyway, named, notice, rule, rules, scene, turnedOff, untouched } from './helpers';
 
 // US-D1
 test('a rule the earlier matches already cover is not checked, and an edit is checked again', async () => {
@@ -359,3 +359,27 @@ test('someone the owner adds to the group as a member or an observer is checked'
 });
 
 const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
+// US-D4
+test('a rule with Actions off tells that it would message the member privately, first, and sends nothing', async () => {
+  const s = await scene(rules(turnedOff(rule({ type: 'ContainsWords', keywords: ['spam'] }, [
+    { type: 'KickAuthor', delete_all_messages: false }, message('Bye.'),
+  ]), 'enabled')));
+  await s.member.post(s.memberGroup, 'spam');
+  expect(await s.owner.message()).toBe(notice('would message the member privately and kick the member', 'spam', ["_(off)_ contains word: 'spam'"]));
+  await s.member.seesNothing(5000);
+});
+
+// US-D4
+test('a rule that acts and a rule with Actions off that would message the member privately: one notification, and no message', async () => {
+  const s = await scene(rules(
+    named('Banned words', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }]),
+    named('Warn', 'message_posted', { type: 'ContainsWords', keywords: ['spam'] }, [message('Please stop.')], false),
+  ));
+  const item = await s.member.post(s.memberGroup, 'spam');
+  expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
+  expect(await s.owner.message()).toBe(mixedNotice('moderated the message', 'message the member privately', 'spam', [
+    "**Banned words**: contains word: 'spam'", "**Warn** _(off)_: contains word: 'spam'",
+  ]));
+  await s.member.seesNothing(4000);
+});

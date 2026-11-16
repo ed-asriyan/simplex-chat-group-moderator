@@ -237,7 +237,7 @@ fn narrowed<A: TryFrom<ModerationAction, Error = Err>>(
 /// own settings first, then the planner's merge and order (US-F4).
 fn normalized_actions<A>(actions: &[A]) -> Result<Vec<A>, Err>
 where
-    A: Copy + TryFrom<ModerationAction, Error = Err>,
+    A: Clone + TryFrom<ModerationAction, Error = Err>,
     ModerationAction: From<A>,
 {
     if actions.is_empty() {
@@ -245,7 +245,7 @@ where
             "A rule has no actions. Add at least one action to it, or remove the rule.".into(),
         );
     }
-    let mut written: Vec<ModerationAction> = actions.iter().copied().map(Into::into).collect();
+    let mut written: Vec<ModerationAction> = actions.iter().cloned().map(Into::into).collect();
     for action in &mut written {
         action.normalize_and_validate()?;
     }

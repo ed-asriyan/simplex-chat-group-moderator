@@ -59,6 +59,21 @@ impl GroupModerator for SimplexAdapter {
         Ok(())
     }
 
+    async fn send_member_message(
+        &self,
+        group_id: &ModGroupId,
+        user_id: &ModUserId,
+        text: &str,
+    ) -> Result<(), ModeratorErr> {
+        self.driver
+            .send_group_member_message(*group_id, *user_id, text)
+            .await
+            .map_err(|e| {
+                log::warn!("a message to member {user_id} of group {group_id} was not sent: {e}");
+                e.to_string().into()
+            })
+    }
+
     async fn set_member_role(
         &self,
         group_id: &ModGroupId,

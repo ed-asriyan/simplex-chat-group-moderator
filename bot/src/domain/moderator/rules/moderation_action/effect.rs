@@ -16,6 +16,9 @@ pub struct Effect {
     pub author_silenced: Silence,
     /// The author is out of the group.
     pub author_removed: bool,
+    /// The author is sent the owner's message. One message covers another,
+    /// whatever either says: the author gets one, the first matched rule's (US-F4).
+    pub member_messaged: bool,
 }
 
 /// How long an author is kept from writing, weakest first.
@@ -37,5 +40,6 @@ impl Effect {
             && self.history_deleted >= other.history_deleted
             && self.author_silenced >= other.author_silenced
             && self.author_removed >= other.author_removed
+            && self.member_messaged >= other.member_messaged
     }
 }
