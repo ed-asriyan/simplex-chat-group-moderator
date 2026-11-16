@@ -7,7 +7,14 @@
   "workspaceFolder": "/workspace",
   "service": "bot",
   "overrideCommand": false,
+  "mounts": [
+    "source=claude-code-config,target=/claude-config,type=volume"
+  ],
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/claude-config"
+  },
   "features": {
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {},
     "ghcr.io/devcontainers/features/common-utils:2": {
       "installZsh": true,
       "configureZshAsDefaultShell": true,
