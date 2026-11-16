@@ -749,3 +749,116 @@ async fn test_help_explains_each_rules_two_switches() {
     assert!(!help.contains("### Modes"), "{help}");
     assert!(!help.contains("Dry"), "{help}");
 }
+
+// ---- a message to the member (US-D2, US-D4, US-F6) ----
+
+const SEND: ModerationAction = ModerationAction::SendMemberMessage;
+
+// US-D2, US-F6: the bot names that it messaged the member privately, in the order it
+// carried the actions out: the message to the member first.
+#[test]
+fn test_names_the_message_to_the_member_as_sent() {
+    assert_eq!(
+        describe_actions(&[SEND], false),
+        "🛡 I messaged the member privately"
+    );
+    assert_eq!(
+        describe_actions(&[SEND, ModerationAction::ModerateMessage], false),
+        "🛡 I messaged the member privately and moderated the message"
+    );
+    assert_eq!(
+        describe_actions(
+            &[
+                SEND,
+                ModerationAction::SetAuthorObserver {
+                    duration_minutes: 10
+                },
+                ModerationAction::ModerateMessage,
+                KICK
+            ],
+            false
+        ),
+        "🛡 I messaged the member privately, set the member as observer for 10 minutes, moderated the message and kicked the member"
+    );
+}
+
+// US-D4: what would have been done is told in the conditional.
+#[test]
+fn test_names_the_message_to_the_member_in_the_conditional() {
+    assert_eq!(
+        describe_actions(&[SEND], true),
+        "🛡 I would message the member privately"
+    );
+    assert_eq!(
+        describe_actions(&[SEND, KICK_ALL], true),
+        "🛡 I would message the member privately and kick the member and delete all their messages"
+    );
+}
+
+// US-D2, US-F6: the owner is told that the member was sent a message, beside the
+// rest, and the reason line names the rule.
+#[tokio::test]
+async fn test_a_notification_names_the_message_sent_to_the_member() {
+    let text = notified(ModerationNotification {
+        event: TriggerEvent::MessagePosted {
+            message: "cheap spam here".to_string(),
+        },
+        member_name: "Bob".to_string(),
+        performed: vec![SEND, ModerationAction::ModerateMessage],
+        would_perform: vec![],
+        reasons: vec![reason(Some("Banned words"), "contains word: 'spam'")],
+    })
+    .await;
+    assert_eq!(
+        text,
+        format!(
+            "🛡 I messaged the member privately and moderated the message in **Crypto Chat**.\n\n**The message:**\n> cheap spam here\n\n**Reason:**\n- **Banned words**: contains word: 'spam'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
+        )
+    );
+}
+
+// US-D4: a rule with its actions off tells what it would have sent.
+#[tokio::test]
+async fn test_a_notification_says_the_bot_would_send_the_member_a_message() {
+    let text = notified(ModerationNotification {
+        event: TriggerEvent::MessagePosted {
+            message: "spam".to_string(),
+        },
+        member_name: "Bob".to_string(),
+        performed: vec![],
+        would_perform: vec![SEND, ModerationAction::ModerateMessage],
+        reasons: vec![reason_off(Some("Trial"), "contains word: 'spam'")],
+    })
+    .await;
+    assert_eq!(
+        text,
+        format!(
+            "🛡 I would message the member privately and moderate the message in **Crypto Chat**.\n\n**The message:**\n> spam\n\n**Reason:**\n- **Trial** _(off)_: contains word: 'spam'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
+        )
+    );
+}
+
+// US-D4: what was done, then what would also have been: a message the bot would
+// send reads like any other action it would carry out.
+#[tokio::test]
+async fn test_a_message_the_bot_would_also_send_follows_what_it_did() {
+    let text = notified(ModerationNotification {
+        event: TriggerEvent::MessagePosted {
+            message: "spam".to_string(),
+        },
+        member_name: "Bob".to_string(),
+        performed: vec![ModerationAction::ModerateMessage],
+        would_perform: vec![SEND],
+        reasons: vec![
+            reason(Some("Banned words"), "contains word: 'spam'"),
+            reason_off(Some("Warn"), "contains word: 'spam'"),
+        ],
+    })
+    .await;
+    assert_eq!(
+        text,
+        format!(
+            "🛡 I moderated the message in **Crypto Chat**, and would also message the member privately.\n\n**The message:**\n> spam\n\n**Reason:**\n- **Banned words**: contains word: 'spam'\n- **Warn** _(off)_: contains word: 'spam'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
+        )
+    );
+}

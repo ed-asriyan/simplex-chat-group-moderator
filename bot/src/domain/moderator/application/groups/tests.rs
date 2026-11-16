@@ -3,7 +3,9 @@
 
 use super::GroupAdministrationApplication;
 use crate::domain::moderator::application::tests::{MockGroupModerator, MockModerationRepository};
-use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
+use crate::domain::moderator::ports::actions::{
+    KickAuthor, ModerateMessage, SendMemberMessage, SetAuthorObserver,
+};
 use crate::domain::moderator::ports::conditions::{
     ContainsWords, FlaggedByOmniModeration, FlaggedByOpenRouterInstruction,
 };
@@ -842,4 +844,100 @@ async fn test_a_rule_that_is_off_and_invalid_is_refused() {
         .to_string();
     assert!(err.contains("A rule has no actions"), "{err}");
     assert!(repository.saved_config().is_none());
+}
+
+// ---- a message to the member (US-C1, US-C2, US-F4, US-F5) ----
+
+fn sending(text: &str) -> ModerationAction {
+    ModerationAction::SendMemberMessage(SendMemberMessage {
+        text: text.to_string(),
+    })
+}
+
+fn spam_rule(actions: Vec<ModerationAction>) -> ModerationRule {
+    message_rule(
+        actions,
+        ModerationCondition::ContainsWords(ContainsWords {
+            keywords: vec!["spam".to_string()],
+        }),
+    )
+}
+
+// US-C2, US-F5: a message to the member that is empty, or too long, keeps the whole
+// configuration from being saved, with the reason an owner reads.
+#[tokio::test]
+async fn test_a_message_to_the_member_that_is_empty_or_too_long_keeps_everything_from_being_saved()
+{
+    for (text, reason) in [
+        (
+            String::new(),
+            "A private message to the member is empty. Write it, or remove the action.",
+        ),
+        (
+            "x".repeat(1001),
+            "A private message to the member is longer than 1000 characters.",
+        ),
+    ] {
+        let repository = Arc::new(SavingRepository::default());
+        let app = app_with(&repository, &FakeKeyVerifier::answering(&[]));
+        let err = app
+            .save_rules(
+                100,
+                10,
+                vec![
+                    moderate_when(ModerationCondition::ContainsWords(ContainsWords {
+                        keywords: vec!["ok".to_string()],
+                    })),
+                    spam_rule(vec![sending(&text)]),
+                ],
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+        assert_eq!(err, reason);
+        assert!(repository.saved_config().is_none());
+    }
+}
+
+// US-C1, US-F5: the text is saved as it was written.
+#[tokio::test]
+async fn test_a_message_to_the_member_is_saved_as_written() {
+    let repository = Arc::new(SavingRepository::default());
+    let app = app_with(&repository, &FakeKeyVerifier::answering(&[]));
+    let text = "**Read the rules** first.\n_No spam_, please.";
+    app.save_rules(100, 10, vec![spam_rule(vec![sending(text)])])
+        .await
+        .unwrap();
+    let saved = repository.saved_config().unwrap().rules;
+    assert_eq!(
+        crate::domain::moderator::ports::RuleDraft::from(saved[0].clone()).actions,
+        vec![sending(text)]
+    );
+}
+
+// US-F4: a configuration saved is merged the way the bot carries it out: the message
+// to the member first, a second one dropped.
+#[tokio::test]
+async fn test_a_saved_configuration_has_the_message_to_the_member_first_and_once() {
+    let repository = Arc::new(SavingRepository::default());
+    let app = app_with(&repository, &FakeKeyVerifier::answering(&[]));
+    app.save_rules(
+        100,
+        10,
+        vec![spam_rule(vec![
+            ModerationAction::ModerateMessage(ModerateMessage {}),
+            sending("first"),
+            sending("second"),
+        ])],
+    )
+    .await
+    .unwrap();
+    let saved = repository.saved_config().unwrap().rules;
+    assert_eq!(
+        crate::domain::moderator::ports::RuleDraft::from(saved[0].clone()).actions,
+        vec![
+            sending("first"),
+            ModerationAction::ModerateMessage(ModerateMessage {})
+        ]
+    );
 }

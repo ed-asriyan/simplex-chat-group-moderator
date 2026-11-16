@@ -86,9 +86,10 @@ Moderation **actions** live in their own tables and are children of the rule:
 - joining and forgetting groups, and their owners;
 - a group's configuration (`GroupConfig`: its rules, each with its switches), validated and saved as one, with the owner's AI keys checked first;
 - checking every member's message, and everyone who joins as a member or an observer, against the group's rules for that trigger that have a switch on, carrying out the matched actions of the rules with *Actions* on, and telling the owner through `ModerationNotifier` what the matched rules with *Notifications* on did or would have done;
-- restoring members whose timed observer restriction is up.
+- restoring members whose timed observer restriction is up;
+- sending a member the owner's own text, when a matched rule says so, in the group's chat with admins (`GroupModerator::send_member_message`, US-F6): the text is the owner's, so it is no wording of the bot's.
 
-**Not responsible for:** direct messages, wording, the editor link.
+**Not responsible for:** direct messages, the bot's wording, the editor link.
 
 **Interacts with:**
 - driven by the SimpleX event loop through `ModerationEngine` (a group message, someone joined) and `GroupAdministration::remove_group` (the bot removed from a group), by `bot_dm` through `GroupAdministration` (via the router), and by the tick through `MemberRestoreRunner`;
@@ -306,9 +307,9 @@ A rule's condition is a **tree**, not a single predicate: besides the leaves the
 Stored rules are the only thing that has to survive: the bot always sends the owner a freshly generated editor link, so old type tags never come back through a link. Do **not** add `#[serde(alias = ...)]`s or compatibility deserializers for old shapes. Instead, add a migration that rewrites the stored rows — update `moderation_conditions.type` and rename the condition's tables (`ALTER TABLE ... RENAME TO`) for a rename, or rebuild the affected nodes for a condition replaced by differently shaped ones. Precedents: `0025_neutral_condition_names.sql`, and `0031_openai_instruction_and_omni_rename.sql` / `0033_openrouter_instruction.sql` for a plain rename.
 
 ### Adding an action type (do all of these)
-`ModerationAction` (in `domain/moderator/rules/moderation_action.rs`) is the **single source of truth** for actions: a `#[serde(tag = "type")]` enum, built by the `actions!` registry, whose variants each wrap a type of their own carrying the action's settings (`ModerateMessage(ModerateMessage {})`, `SetAuthorObserver(SetAuthorObserver { duration_minutes: u32 })`, `KickAuthor(KickAuthor { delete_all_messages: bool })`); code outside `rules` names one through `ports::actions`. Like conditions, the PascalCase variant name is the serde `type` tag (URL hash, `rules-schema.json`, and the `moderation_actions.type` column), and its snake_case form is the `<name>` used for the `moderation_action__<name>` settings table.
+`ModerationAction` (in `domain/moderator/rules/moderation_action.rs`) is the **single source of truth** for actions: a `#[serde(tag = "type")]` enum, built by the `actions!` registry, whose variants each wrap a type of their own carrying the action's settings (`SendMemberMessage(SendMemberMessage { text: String })`, `ModerateMessage(ModerateMessage {})`, `SetAuthorObserver(SetAuthorObserver { duration_minutes: u32 })`, `KickAuthor(KickAuthor { delete_all_messages: bool })`); code outside `rules` names one through `ports::actions`. Like conditions, the PascalCase variant name is the serde `type` tag (URL hash, `rules-schema.json`, and the `moderation_actions.type` column), and its snake_case form is the `<name>` used for the `moderation_action__<name>` settings table.
 
-A rule carries a **list** of actions, and every variant must stay one indivisible thing the bot can do. Do **not** add a setting to an action that means "and also do that other action": the owner combines actions by listing them, and a bundled sub-action cannot be deduplicated against the same action coming from another rule. The list is a **set**, not a sequence: `action_planner` drops actions a stronger one already covers and orders the rest by `execution_rank` — observer, then moderate, then kick, so the author is kicked last — and applies the same merge to a single rule's list when an owner saves it (`ModerationRule::normalize_and_validate`). The planner names no action: coverage is derived from what each one says it achieves (`Action::effect` — the message deleted, the author's history deleted, how long the author is silenced, whether they are removed), one action covering another when its effect is at least as strong on every count. So a new action is placed among the others by its `effect`, never by a new pair in `covers`; if what it achieves cannot be said in those terms, add the term to `Effect`.
+A rule carries a **list** of actions, and every variant must stay one indivisible thing the bot can do. Do **not** add a setting to an action that means "and also do that other action": the owner combines actions by listing them, and a bundled sub-action cannot be deduplicated against the same action coming from another rule. The list is a **set**, not a sequence: `action_planner` drops actions a stronger one already covers and orders the rest by `execution_rank` — the message to the member first, while they can still get it, then observer, then moderate, then kick, so the author is kicked last — and applies the same merge to a single rule's list when an owner saves it (`ModerationRule::normalize_and_validate`). The planner names no action: coverage is derived from what each one says it achieves (`Action::effect` — the message deleted, the author's history deleted, how long the author is silenced, whether they are removed, whether they were sent a message; one message to the member covers another whatever its text, so the member gets the first matched rule's alone), one action covering another when its effect is at least as strong on every count. So a new action is placed among the others by its `effect`, never by a new pair in `covers`; if what it achieves cannot be said in those terms, add the term to `Effect`.
 
 1. **Domain:** create the module `rules/moderation_action/<snake_name>.rs`, with its tests in `<snake_name>/tests.rs`, holding a `pub struct` named after the variant with its settings, and implement `Action` for it — `normalize_and_validate` (its settings are checked when an owner saves the rule), `effect`, `execution_rank` — and `ActionOn<S>` for what it is carried out on: `execute` (on `ctx.subject`, the `GroupMessage` or any `Member`, through `ctx.ports` — the `GroupModerator` and `MemberRestoreRepository` outbound ports; a failure of the bot's own records goes into `ActionReport::bookkeeping_error` rather than the error, so it does not call off the moderation). Then add one `Variant => module` line to `actions!` in `rules/moderation_action.rs`, and its name to the list of each trigger that takes it in `rules/trigger/<trigger>.rs` — the application carries out whatever the planner hands it (`execute_actions`) and needs no change. An action never imports another one. If the action needs a capability the messenger doesn't expose yet, add a method to `GroupModerator` in `domain/moderator/ports/outbound.rs` and implement it in `infrastructure/adapters/simplex_adapter.rs` (+ the `drivers/simplex` driver).
 2. **Cross-context (owner notifications):** mirror the variant in `bot_dm::ModerationAction` (`domain/bot_dm/ports.rs`), map it in `infrastructure/adapters/moderation_notification_router.rs`, and render its notification text in `domain/bot_dm/application.rs`.
@@ -322,7 +323,7 @@ The whole schema the migrations produce. Generated by `cd bot && UPDATE_SCHEMA=1
 
 <!-- schema:begin -->
 ```sql
--- user_version 38
+-- user_version 39
 
 CREATE TABLE "moderation_action__kick_author" (
     action_id           INTEGER PRIMARY KEY
@@ -333,6 +334,12 @@ CREATE TABLE "moderation_action__kick_author" (
 CREATE TABLE moderation_action__moderate_message (
     action_id INTEGER PRIMARY KEY
         REFERENCES moderation_actions(id) ON DELETE CASCADE
+);
+
+CREATE TABLE moderation_action__send_member_message (
+    action_id INTEGER PRIMARY KEY
+        REFERENCES moderation_actions(id) ON DELETE CASCADE,
+    text      TEXT NOT NULL CHECK (length(text) BETWEEN 1 AND 1000)
 );
 
 CREATE TABLE "moderation_action__set_author_observer" (

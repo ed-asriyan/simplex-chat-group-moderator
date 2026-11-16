@@ -31,11 +31,12 @@ impl Action for KickAuthor {
             history_deleted: self.delete_all_messages,
             author_silenced: Silence::Forever,
             author_removed: true,
+            ..Effect::default()
         }
     }
 
     fn execution_rank(&self) -> u8 {
-        2
+        3
     }
 
     fn title(&self) -> &'static str {

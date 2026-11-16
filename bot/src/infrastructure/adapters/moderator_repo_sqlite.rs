@@ -1,4 +1,6 @@
-use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
+use crate::domain::moderator::ports::actions::{
+    KickAuthor, ModerateMessage, SendMemberMessage, SetAuthorObserver,
+};
 use crate::domain::moderator::ports::conditions::{
     AuthorHitsCharacterRateLimit, AuthorHitsLineRateLimit, AuthorHitsMessageRateLimit,
     AuthorHitsModerationRateLimit, AuthorJoinedRecently, ContainsFile, ContainsImage,
@@ -43,6 +45,13 @@ fn insert_actions(
         .map_err(|e| -> Err { e.to_string().into() })?;
         let action_id = tx.last_insert_rowid();
         match action {
+            ModerationAction::SendMemberMessage(SendMemberMessage { text }) => {
+                tx.execute(
+                    "INSERT INTO moderation_action__send_member_message (action_id, text) VALUES (?1, ?2)",
+                    params![action_id, text],
+                )
+                .map_err(|e| -> Err { e.to_string().into() })?;
+            }
             ModerationAction::ModerateMessage(ModerateMessage {}) => {
                 tx.execute(
                     "INSERT INTO moderation_action__moderate_message (action_id) VALUES (?1)",

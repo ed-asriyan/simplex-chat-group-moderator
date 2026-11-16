@@ -25,7 +25,7 @@ impl Action for ModerateMessage {
     }
 
     fn execution_rank(&self) -> u8 {
-        1
+        2
     }
 
     fn title(&self) -> &'static str {

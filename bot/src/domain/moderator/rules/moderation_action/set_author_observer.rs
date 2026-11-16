@@ -49,7 +49,7 @@ impl Action for SetAuthorObserver {
     }
 
     fn execution_rank(&self) -> u8 {
-        0
+        1
     }
 
     fn title(&self) -> &'static str {

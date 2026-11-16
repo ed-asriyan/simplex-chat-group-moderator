@@ -393,6 +393,8 @@ fn action_phrases(actions: &[ModerationAction], dry_mode: bool) -> String {
     let phrases: Vec<String> = actions
         .iter()
         .map(|action| match (action, dry_mode) {
+            (ModerationAction::SendMemberMessage, false) => "messaged the member privately".to_owned(),
+            (ModerationAction::SendMemberMessage, true) => "message the member privately".to_owned(),
             (ModerationAction::ModerateMessage, false) => "moderated the message".to_owned(),
             (ModerationAction::ModerateMessage, true) => "moderate the message".to_owned(),
             // "set" reads the same in both tenses.

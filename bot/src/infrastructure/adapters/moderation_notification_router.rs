@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use async_trait::async_trait;
 use std::sync::{Arc, OnceLock};
 
@@ -55,6 +58,7 @@ impl ModerationNotifier for ModerationNotificationRouter {
             actions
                 .iter()
                 .map(|action| match action {
+                    ModAction::SendMemberMessage(_) => BotDmAction::SendMemberMessage,
                     ModAction::ModerateMessage(ModerateMessage {}) => BotDmAction::ModerateMessage,
                     ModAction::SetAuthorObserver(SetAuthorObserver { duration_minutes }) => {
                         BotDmAction::SetAuthorObserver {

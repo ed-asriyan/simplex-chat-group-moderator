@@ -146,7 +146,7 @@ pub struct ModerationMatch<A> {
     pub reasons: Vec<RuleReason>,
 }
 
-impl<A: Copy> ModerationMatch<A>
+impl<A: Clone> ModerationMatch<A>
 where
     ModerationAction: From<A>,
 {
@@ -154,7 +154,7 @@ where
     pub fn actions_as_written(&self) -> Vec<ModerationAction> {
         self.actions
             .iter()
-            .copied()
+            .cloned()
             .map(ModerationAction::from)
             .collect()
     }
@@ -164,7 +164,7 @@ where
     pub fn performed_as_written(&self) -> Vec<ModerationAction> {
         self.performed
             .iter()
-            .copied()
+            .cloned()
             .map(ModerationAction::from)
             .collect()
     }
@@ -174,7 +174,7 @@ where
     pub fn would_perform_as_written(&self) -> Vec<ModerationAction> {
         self.would_perform
             .iter()
-            .copied()
+            .cloned()
             .map(ModerationAction::from)
             .collect()
     }
@@ -255,7 +255,7 @@ async fn evaluate_rules<T, A>(
 ) -> Result<Option<ModerationMatch<A>>, Err>
 where
     T: TriggerCondition,
-    A: Copy + TryFrom<ModerationAction, Error = Err>,
+    A: Clone + TryFrom<ModerationAction, Error = Err>,
     ModerationAction: From<A>,
 {
     let mut evaluation = Evaluation::<T>::new(subject, ports);
@@ -298,7 +298,7 @@ where
     let mut reasons: Vec<RuleReason> = Vec::new();
 
     for rule in rules {
-        let written: Vec<ModerationAction> = rule.actions.iter().copied().map(Into::into).collect();
+        let written: Vec<ModerationAction> = rule.actions.iter().cloned().map(Into::into).collect();
         let covering = if rule.enabled {
             &carried_out
         } else {

@@ -20,7 +20,7 @@ async fn test_migrations_apply_successfully() {
     let version: i64 = guard
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 38);
+    assert_eq!(version, 39);
 }
 
 /// 0037 gives every rule a trigger, an optional name and a switch. A rule stored
@@ -1006,4 +1006,70 @@ async fn test_0038_moves_the_groups_mode_onto_its_rules() {
         )
         .unwrap();
     assert_eq!(new, (true, true));
+}
+
+/// 0039 stores the text of a message to the member. No story states this constraint:
+/// the text a rule may hold, 1 to 1000 characters (US-F5, US-C2), is held by the
+/// database as well, so a row written by any other path cannot hold what a rule may
+/// not, and the length is counted in characters, as the rule counts it.
+#[tokio::test]
+async fn test_0039_holds_a_message_to_the_member_of_1_to_1000_characters() {
+    let mut conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+    apply(&mut conn).unwrap();
+    conn.execute_batch(
+        "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name)
+         VALUES (1, 100, 10, 'Group');
+         INSERT INTO moderation_rules (id, group_id, rank) VALUES (1, 1, 0);
+         INSERT INTO moderation_actions (id, rule_id, rank, type)
+         VALUES (1, 1, 0, 'SendMemberMessage'), (2, 1, 1, 'SendMemberMessage'),
+                (3, 1, 2, 'SendMemberMessage'), (4, 1, 3, 'SendMemberMessage'),
+                (5, 1, 4, 'SendMemberMessage');",
+    )
+    .unwrap();
+    let insert = |id: i64, text: &str| {
+        conn.execute(
+            "INSERT INTO moderation_action__send_member_message (action_id, text) VALUES (?1, ?2)",
+            rusqlite::params![id, text],
+        )
+    };
+    insert(1, "x").unwrap();
+    insert(2, &"я".repeat(1000)).unwrap();
+    assert!(insert(3, "").is_err(), "an empty text");
+    assert!(insert(4, &"x".repeat(1001)).is_err(), "1001 characters");
+    assert!(
+        conn.execute(
+            "INSERT INTO moderation_action__send_member_message (action_id) VALUES (5)",
+            [],
+        )
+        .is_err(),
+        "no text"
+    );
+}
+
+/// 0039 hangs the text off its action, so it goes with the rule and with the group
+/// (US-B6).
+#[tokio::test]
+async fn test_0039_the_text_goes_with_its_action() {
+    let mut conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+    apply(&mut conn).unwrap();
+    conn.execute_batch(
+        "INSERT INTO moderation_groups (group_id, messenger_group_id, owner_id, group_name)
+         VALUES (1, 100, 10, 'Group');
+         INSERT INTO moderation_rules (id, group_id, rank) VALUES (1, 1, 0);
+         INSERT INTO moderation_actions (id, rule_id, rank, type) VALUES (1, 1, 0, 'SendMemberMessage');
+         INSERT INTO moderation_action__send_member_message (action_id, text) VALUES (1, 'hi');",
+    )
+    .unwrap();
+    conn.execute("DELETE FROM moderation_groups WHERE group_id = 1", [])
+        .unwrap();
+    let left: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM moderation_action__send_member_message",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(left, 0);
 }

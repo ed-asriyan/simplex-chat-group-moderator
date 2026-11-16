@@ -2,6 +2,10 @@
   {
     "actions": [
       {
+        "type": "SendMemberMessage",
+        "text": "Your message was removed: no spam here.\nPlease read the pinned rules."
+      },
+      {
         "type": "SetAuthorObserver",
         "duration_minutes": 30
       },

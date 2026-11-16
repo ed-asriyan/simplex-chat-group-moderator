@@ -15,6 +15,7 @@ pub enum PortCall {
     SetObserver(GroupId, UserId),
     DeleteMessage(GroupId, MessageId),
     KickMember(GroupId, UserId),
+    SendMemberMessage(GroupId, UserId, String),
     NotifyAction(UserId, GroupId, Vec<ModerationAction>),
 }
 
@@ -26,6 +27,10 @@ pub struct MockGroupModerator {
     pub restored_members: Arc<Mutex<Vec<(GroupId, UserId)>>>,
     pub call_log: Arc<Mutex<Vec<PortCall>>>,
     pub fail_role_change: bool,
+    /// Every message sent to a member, in the group's chat with admins.
+    pub sent_member_messages: Arc<Mutex<Vec<(GroupId, UserId, String)>>>,
+    /// Whether a message to a member cannot be delivered.
+    pub fail_member_message: bool,
 }
 
 #[async_trait]
@@ -56,6 +61,31 @@ impl GroupModerator for MockGroupModerator {
             .lock()
             .unwrap()
             .push(PortCall::KickMember(*group_id, *user_id));
+        Ok(())
+    }
+
+    async fn send_member_message(
+        &self,
+        group_id: &GroupId,
+        user_id: &UserId,
+        text: &str,
+    ) -> Result<(), Err> {
+        // Written down even when it does not reach the member: the call was made.
+        self.sent_member_messages
+            .lock()
+            .unwrap()
+            .push((*group_id, *user_id, text.to_owned()));
+        self.call_log
+            .lock()
+            .unwrap()
+            .push(PortCall::SendMemberMessage(
+                *group_id,
+                *user_id,
+                text.to_owned(),
+            ));
+        if self.fail_member_message {
+            return Err("the message did not reach the member".into());
+        }
         Ok(())
     }
 

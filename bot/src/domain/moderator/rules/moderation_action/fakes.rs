@@ -56,12 +56,22 @@ pub fn at(minutes: i64) -> DateTime<Utc> {
 pub struct Recorder {
     pub calls: Mutex<Vec<String>>,
     pub fail_restores: bool,
+    /// Whether a message to a member cannot be delivered.
+    pub fail_sends: bool,
 }
 
 impl Recorder {
     pub fn failing_restores() -> Self {
         Self {
             fail_restores: true,
+            ..Self::default()
+        }
+    }
+
+    /// A recorder whose messages to a member never reach them.
+    pub fn failing_sends() -> Self {
+        Self {
+            fail_sends: true,
             ..Self::default()
         }
     }
@@ -132,6 +142,19 @@ impl GroupModerator for Recorder {
         self.record(format!(
             "kick {user_id} from {group_id}, delete all: {delete_all_messages}"
         ));
+        Ok(())
+    }
+
+    async fn send_member_message(
+        &self,
+        group_id: &GroupId,
+        user_id: &UserId,
+        text: &str,
+    ) -> Result<(), Err> {
+        self.record(format!("send {user_id} in {group_id}: {text}"));
+        if self.fail_sends {
+            return Err("the message did not reach the member".into());
+        }
         Ok(())
     }
 

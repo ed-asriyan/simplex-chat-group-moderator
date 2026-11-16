@@ -12,6 +12,45 @@
             "oneOf": [
                 {
                     "type": "object",
+                    "title": "✉️ Send the member a private message",
+                    "description": "Sends the message's author your text as a private message, in the group's *chat with admins*, which only they and the group's admins see — nobody else in the group does. It goes before every other action of the rule, so a member the rule also makes an observer or kicks still gets it. It works only in rules for when a member posts.",
+                    "required": [
+                        "type",
+                        "text"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "SendMemberMessage",
+                            "default": "SendMemberMessage",
+                            "options": {
+                                "hidden": true
+                            }
+                        },
+                        "text": {
+                            "type": "string",
+                            "format": "textarea",
+                            "minLength": 1,
+                            "maxLength": 1000,
+                            "title": "Message",
+                            "default": "",
+                            "description": "What the member reads, exactly as you write it here, in SimpleX Markdown (**bold**, _italic_). It cannot be left empty: the bot refuses a rule whose message is.",
+                            "options": {
+                                "missing": "private message to the member"
+                            }
+                        }
+                    },
+                    "options": {
+                        "execution_rank": 0,
+                        "phrase": "message member privately",
+                        "triggers": [
+                            "message_posted"
+                        ]
+                    }
+                },
+                {
+                    "type": "object",
                     "title": "🗑 Moderate the message",
                     "description": "Marks the message as moderated. The bot must have the **Moderator or higher** role in the group to perform this action. It works only in rules for when a member posts.",
                     "required": [
@@ -1777,6 +1816,10 @@
                     "trigger": "message_posted",
                     "actions": [
                         {
+                            "type": "SendMemberMessage",
+                            "text": "Your message was deleted because it was empty or contained invisible characters."
+                        },
+                        {
                             "type": "ModerateMessage"
                         }
                     ],
@@ -1816,6 +1859,10 @@
                     "name": "Delete messages with bad words",
                     "trigger": "message_posted",
                     "actions": [
+                        {
+                            "type": "SendMemberMessage",
+                            "text": "Your message was deleted because it contained language that is not allowed in this chat."
+                        },
                         {
                             "type": "ModerateMessage"
                         }
@@ -2179,6 +2226,10 @@
                     "name": "Delete links to unknown websites",
                     "trigger": "message_posted",
                     "actions": [
+                        {
+                            "type": "SendMemberMessage",
+                            "text": "Your message was deleted because it contained a link to a website that is not allowed in this chat."
+                        },
                         {
                             "type": "ModerateMessage"
                         }

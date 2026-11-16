@@ -1058,10 +1058,10 @@ test('a rule for when someone joins needs only an action', async ({ page }) => {
 
 // The templates of US-G15, in the order the sheet lists them: their title and what they do.
 const MESSAGE_TEMPLATES: [string, string][] = [
-  ["👻 Delete blank and invisible messages", "THEN 🗑 moderate"],
+  ["👻 Delete blank and invisible messages", "THEN ✉️ message member privately · 🗑 moderate"],
   ["🔁 Delete messages with repeated text", "THEN 🗑 moderate"],
-  ["🤬 Delete messages with bad words", "THEN 🗑 moderate"],
-  ["🔗 Delete links to unknown websites", "THEN 🗑 moderate"],
+  ["🤬 Delete messages with bad words", "THEN ✉️ message member privately · 🗑 moderate"],
+  ["🔗 Delete links to unknown websites", "THEN ✉️ message member privately · 🗑 moderate"],
   ["🔗 Delete links from newcomers", "THEN 🗑 moderate"],
   ["📏 Delete walls of text", "THEN 🗑 moderate"],
   ["🌊 Kick members who flood", "THEN 🚪 kick"],
@@ -1144,13 +1144,13 @@ test('a template is added at the end of its section, named after itself, and ope
   const saved = (await savedConfig(page)).rules;
   const by = (title: string) => saved.find((r: any) => r.name === templateName(title));
   const KICK_ALL = [{ type: 'KickAuthor', delete_all_messages: true }];
-  expect(by(blank)).toMatchObject({ trigger: 'message_posted', condition: { type: 'Any', conditions: [{ type: 'IsBlank' }, { type: 'ContainsInvisibleCharacters' }] }, actions: [{ type: 'ModerateMessage' }] });
+  expect(by(blank)).toMatchObject({ trigger: 'message_posted', condition: { type: 'Any', conditions: [{ type: 'IsBlank' }, { type: 'ContainsInvisibleCharacters' }] }, actions: [{ type: 'SendMemberMessage', text: 'Your message was deleted because it was empty or contained invisible characters.' }, { type: 'ModerateMessage' }] });
   expect(by(repeated)).toMatchObject({ condition: { type: 'ContainsRepeatedSequence', min_repeats: 4, min_length: 5 }, actions: [{ type: 'ModerateMessage' }] });
   const bad = by(badWords);
-  expect(bad).toMatchObject({ trigger: 'message_posted', condition: { type: 'ContainsWords' }, actions: [{ type: 'ModerateMessage' }] });
+  expect(bad).toMatchObject({ trigger: 'message_posted', condition: { type: 'ContainsWords' }, actions: [{ type: 'SendMemberMessage', text: 'Your message was deleted because it contained language that is not allowed in this chat.' }, { type: 'ModerateMessage' }] });
   expect(bad.condition.keywords.length).toBeGreaterThan(100);
   expect(bad.condition.keywords).toEqual(expect.arrayContaining(['fuck', 'porn', 'bdsm']));
-  expect(by(unknownLinks)).toMatchObject({ condition: { type: 'ContainsLinksOutsideTop100', domains: [] }, actions: [{ type: 'ModerateMessage' }] });
+  expect(by(unknownLinks)).toMatchObject({ condition: { type: 'ContainsLinksOutsideTop100', domains: [] }, actions: [{ type: 'SendMemberMessage', text: 'Your message was deleted because it contained a link to a website that is not allowed in this chat.' }, { type: 'ModerateMessage' }] });
   expect(by(newcomerLinks).condition).toMatchObject({ type: 'All', conditions: [{ type: 'AuthorJoinedRecently', time_window_minutes: 60 }, { type: 'ContainsLinksOutsideTop100', domains: [] }] });
   expect(by(newcomerLinks).actions).toEqual([{ type: 'ModerateMessage' }]);
   expect(by(walls)).toMatchObject({ condition: { type: 'ExceedsMaxLines', max_lines: 10, chars_per_line: 40 }, actions: [{ type: 'ModerateMessage' }] });
@@ -1443,4 +1443,46 @@ test('a group\'s own link opens no demo', async ({ page }) => {
   const dialog = await applyDialog(page);
   await expect(dialog.getByRole('button', { name: 'Copy the link' })).toBeVisible();
   await expect(dialog).not.toContainText(DEMO_NOTE);
+});
+
+const EMPTY_MESSAGE = 'Write the private message to the member — the bot takes no rule with it empty.';
+
+// US-G20
+test('a rule whose private message to the member is empty is not finished until it is written', async ({ page }) => {
+  await open(page, editorUrl(rules(named('Warn about casinos', 'message_posted', msg(['casino']), MODERATE))));
+  await openRule(page, 'Warn about casinos');
+  await page.getByRole('button', { name: 'Add action', exact: true }).click();
+  await pickable(page, 'Send the member a private message').click();
+  await expect(page.getByRole('status').filter({ hasText: EMPTY_MESSAGE })).toBeVisible();
+  await looks(page, 'rule-message-empty');
+  await toGroup(page);
+  await expect(row(page, 'Warn about casinos')).toContainText('Incomplete');
+  const dialog = await applyDialog(page);
+  await expect(dialog).toContainText('“Warn about casinos” has no private message to the member yet. Finish it or delete it before sending.');
+  await expect(dialog.getByRole('button', { name: 'Copy the link' })).toHaveCount(0);
+  await looks(page, 'apply-incomplete-message');
+  await dialog.getByRole('button', { name: 'Open “Warn about casinos”' }).click();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Warn about casinos');
+  // Written, the rule is finished and can be sent.
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('No casino ads here, please.');
+  await page.getByRole('textbox', { name: 'Message', exact: true }).press('Tab');
+  await expect(page.getByText(EMPTY_MESSAGE)).toHaveCount(0);
+  await toGroup(page);
+  await expect(row(page, 'Warn about casinos')).not.toContainText('Incomplete');
+  const saved = await savedConfig(page);
+  expect(saved.rules[0].actions).toContainEqual({ type: 'SendMemberMessage', text: 'No casino ads here, please.' });
+});
+
+// US-G20
+test('a private message to the member cleared makes the rule unfinished again', async ({ page }) => {
+  await open(page, editorUrl(rules(named('Warn about casinos', 'message_posted', msg(['casino']), [{ type: 'SendMemberMessage', text: 'No casino ads.' }]))));
+  await expect(row(page, 'Warn about casinos')).not.toContainText('Incomplete');
+  await openRule(page, 'Warn about casinos');
+  const field = page.getByRole('textbox', { name: 'Message', exact: true });
+  await field.fill('');
+  await field.press('Tab');
+  await expect(page.getByText(EMPTY_MESSAGE)).toBeVisible();
+  await toGroup(page);
+  await expect(row(page, 'Warn about casinos')).toContainText('Incomplete');
+  await expect(await applyDialog(page)).toContainText('“Warn about casinos” has no private message to the member yet. Finish it or delete it before sending.');
 });

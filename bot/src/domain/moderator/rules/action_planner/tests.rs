@@ -1,6 +1,8 @@
 use super::planner::*;
 use crate::domain::moderator::ports::ModerationAction;
-use crate::domain::moderator::ports::actions::{KickAuthor, ModerateMessage, SetAuthorObserver};
+use crate::domain::moderator::ports::actions::{
+    KickAuthor, ModerateMessage, SendMemberMessage, SetAuthorObserver,
+};
 
 const MODERATE: ModerationAction = ModerationAction::ModerateMessage(ModerateMessage {});
 const OBSERVER: ModerationAction = ModerationAction::SetAuthorObserver(SetAuthorObserver {
@@ -12,6 +14,12 @@ const KICK: ModerationAction = ModerationAction::KickAuthor(KickAuthor {
 const KICK_ALL: ModerationAction = ModerationAction::KickAuthor(KickAuthor {
     delete_all_messages: true,
 });
+
+fn send(text: &str) -> ModerationAction {
+    ModerationAction::SendMemberMessage(SendMemberMessage {
+        text: text.to_string(),
+    })
+}
 
 #[test]
 fn test_normalize_single_action_is_unchanged() {
@@ -196,25 +204,81 @@ fn test_coverage_between_every_pair_of_actions() {
         OBSERVER,
         KICK,
         KICK_ALL,
+        send("hello"),
     ];
     // Row: the action already planned. Column: the action it may make redundant.
+    // The message to the member (US-F4) covers nothing but a message, and no
+    // other action, kicking and deleting everything included, covers it.
     #[rustfmt::skip]
     let expected = [
-        // MODERATE OBS_10M OBS_30M OBSERVER KICK  KICK_ALL
-        [true,     false,  false,  false,   false, false], // MODERATE
-        [false,    true,   false,  false,   false, false], // OBSERVER_10M
-        [false,    true,   true,   false,   false, false], // OBSERVER_30M
-        [false,    true,   true,   true,    false, false], // OBSERVER
-        [false,    true,   true,   true,    true,  false], // KICK
-        [true,     true,   true,   true,    true,  true ], // KICK_ALL
+        // MODERATE OBS_10M OBS_30M OBSERVER KICK  KICK_ALL SEND
+        [true,     false,  false,  false,   false, false,   false], // MODERATE
+        [false,    true,   false,  false,   false, false,   false], // OBSERVER_10M
+        [false,    true,   true,   false,   false, false,   false], // OBSERVER_30M
+        [false,    true,   true,   true,    false, false,   false], // OBSERVER
+        [false,    true,   true,   true,    true,  false,   false], // KICK
+        [true,     true,   true,   true,    true,  true,    false], // KICK_ALL
+        [false,    false,  false,  false,   false, false,   true ], // SEND
     ];
     for (row, planned) in actions.iter().enumerate() {
         for (column, candidate) in actions.iter().enumerate() {
             assert_eq!(
-                plan_next_actions(&[*planned], &[*candidate]).is_none(),
+                plan_next_actions(
+                    std::slice::from_ref(planned),
+                    std::slice::from_ref(candidate)
+                )
+                .is_none(),
                 expected[row][column],
                 "does {planned:?} cover {candidate:?}?"
             );
         }
     }
+}
+
+// US-F4: the message to the member goes before every other action, so it is sent
+// while the member can still get it.
+#[test]
+fn test_the_message_to_the_member_goes_first() {
+    assert_eq!(
+        normalize_actions(&[MODERATE, send("hi")]),
+        vec![send("hi"), MODERATE]
+    );
+    assert_eq!(
+        normalize_actions(&[KICK, MODERATE, send("hi")]),
+        vec![send("hi"), MODERATE, KICK]
+    );
+    assert_eq!(
+        normalize_actions(&[MODERATE, OBSERVER_10M, send("hi")]),
+        vec![send("hi"), OBSERVER_10M, MODERATE]
+    );
+}
+
+// US-F4: the member gets one message, the first matched rule's: a second one is
+// dropped whatever its text.
+#[test]
+fn test_a_second_message_to_the_member_is_dropped_whatever_its_text() {
+    assert_eq!(
+        normalize_actions(&[send("first"), send("second")]),
+        vec![send("first")]
+    );
+    assert_eq!(
+        normalize_actions(&[send("same"), send("same")]),
+        vec![send("same")]
+    );
+    // A later rule with a message of its own adds nothing to a plan that has one...
+    assert_eq!(plan_next_actions(&[send("first")], &[send("second")]), None);
+    // ...but what else it calls for is added, and the first message stays.
+    assert_eq!(
+        plan_next_actions(&[send("first")], &[send("second"), KICK]),
+        Some(vec![send("first"), KICK])
+    );
+}
+
+// US-F4: a kick that covers every other action does not cover the message.
+#[test]
+fn test_the_message_to_the_member_survives_a_kick_that_covers_everything_else() {
+    assert_eq!(
+        normalize_actions(&[MODERATE, OBSERVER, KICK_ALL, send("hi")]),
+        vec![send("hi"), KICK_ALL]
+    );
 }

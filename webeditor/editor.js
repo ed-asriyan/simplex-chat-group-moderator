@@ -179,8 +179,10 @@ function fieldOf(key, pr) {
         max: pr.maximum ?? (num && num.maximum),
         maxItems: pr.maxItems,
         maxLength: pr.items ? pr.items.maxLength : pr.maxLength,
+        minLength: pr.items ? pr.items.minLength : pr.minLength,
         choices: branches.filter((b) => "const" in b).map((b) => ({ v: b.const, t: b.title || String(b.const), o: b.options || {} })),
         num,
+        missing: (pr.options && pr.options.missing) || (pr.title || key).toLowerCase(),
         unit: (num && num.options && num.options.unit) || "",
         def: defaultOf(pr),
     };
@@ -262,19 +264,25 @@ const isOn = (r) => r.enabled !== false;
 const notifies = (r) => r.notify !== false;
 const fits = (spec, r) => spec.unknown || spec.triggers.includes(triggerOf(r).v);
 
-/* What keeps the bot from taking a rule (US-G14). */
+/* What keeps the bot from taking a rule (US-G14), or a required text one of
+   its actions leaves empty (US-G20). */
 function missing(r) {
     if (!r.condition && !triggerOf(r).optional) return "condition";
     if (!(r.actions || []).length) return "action";
+    for (const a of r.actions) {
+        const f = act(a.type).fields.find((f) => f.minLength && !String(a[f.key] ?? "").trim());
+        if (f) return f.missing;
+    }
     return null;
 }
+const unfinished = (r) => !r.condition && !triggerOf(r).optional || !(r.actions || []).length;
 
 const actionWords = (r) => (r.actions || []).map((a) => `${act(a.type).emoji} ${act(a.type).phrase(a)}`).join(" · ");
 const condWords = (r) => (r.condition ? phraseOf(r.condition) : triggerOf(r).everyone);
 const sentence = (r) => `IF ${condWords(r)} THEN ${actionWords(r)}`;
 
 /* A rule is called by its name, or by what it does (US-G1). */
-const titleOf = (r) => r.name || (missing(r) ? "New rule" : sentence(r));
+const titleOf = (r) => r.name || (unfinished(r) ? "New rule" : sentence(r));
 
 const inSection = (v) => st.rules.map((r, i) => [r, i]).filter(([r]) => triggerOf(r).v === v);
 
@@ -611,7 +619,7 @@ function fieldsHtml(fields, value, path) {
 
             if (f.kind === "prose")
                 return `<div class="field wide"><div class="label-row">${label}<span class="count">${String(v ?? "").length}${f.maxLength ? ` / ${f.maxLength}` : ""}</span></div>
-          <textarea id="${id}" rows="5" ${f.maxLength ? `maxlength="${f.maxLength}"` : ""}${desc} data-op="text" ${data}>${esc(v)}</textarea>${hint}</div>`;
+          <textarea id="${id}" rows="5" ${f.maxLength ? `maxlength="${f.maxLength}"` : ""}${f.minLength ? " required" : ""}${f.minLength && !String(v ?? "").trim() ? ' aria-invalid="true"' : ""}${desc} data-op="text" ${data}>${esc(v)}</textarea>${hint}</div>`;
 
             if (f.kind === "secret") {
                 const key = `${path}.${f.key}`, shown = st.shown.has(key);
@@ -775,7 +783,7 @@ function rulePage() {
       <div class="name">
         <label class="label" for="r-name">${esc(R.name.title)}</label>
         <input type="text" id="r-name" class="title-input" maxlength="${R.name.maxLength || 60}" value="${esc(r.name)}"
-          placeholder="${esc(gap ? "New rule" : sentence(r))}" data-op="name">
+          placeholder="${esc(unfinished(r) ? "New rule" : sentence(r))}" data-op="name">
       </div>
       <div class="rule-tools">
         <button class="btn" type="button" id="rule-ai" data-op="ai-rule">✨ Edit with AI</button>
@@ -783,7 +791,7 @@ function rulePage() {
       </div>
     </div>
     ${switchesHtml(r)}
-    ${gap ? `<p class="alert warn" role="status">${esc(t.incomplete)}</p>` : ""}
+    ${gap ? `<p class="alert warn" role="status">${esc(unfinished(r) ? t.incomplete : `Write the ${gap} — the bot takes no rule with it empty.`)}</p>` : ""}
 
     <ol class="flow">
       <li class="step when">
@@ -1483,7 +1491,7 @@ function detailHtml(x) {
 }
 
 function ruleLine(r) {
-    const name = r.name || (missing(r) ? "New rule" : "");
+    const name = r.name || (unfinished(r) ? "New rule" : "");
     const words = !r.condition && !(r.actions || []).length ? ""
         : `<span class="kw if">IF</span> ${esc(condWords(r))} <span class="kw then">THEN</span> ${esc(actionWords(r) || "—")}`;
     return `${name ? `<b>${esc(name)}</b> ` : ""}${words}`;

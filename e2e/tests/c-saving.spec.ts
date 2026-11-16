@@ -2,7 +2,7 @@
 import { expect, test } from '@playwright/test';
 import { Person, settingsLink } from '../harness/person';
 import { EDITOR } from '../harness/stack';
-import { anotherMember, apply, joinNotice, joinRule, moderated, named, rule, rules, scene, untouched } from './helpers';
+import { anotherMember, apply, joinNotice, joinRule, message, moderated, named, rule, rules, scene, untouched } from './helpers';
 
 const failed = (reason: string) => `❌ **Failed to update group settings:**\n\n> ${reason}`;
 const SPAM = rules(rule({ type: 'ContainsWords', keywords: ['spam'] }));
@@ -109,4 +109,24 @@ test('a link to the editor without its settings is no settings', async () => {
   for (const text of [`${EDITOR}/`, `${EDITOR}/#config=abc`, `${EDITOR}/#bot_id=${s.id}`]) {
     expect(await s.owner.ask(text), text).toBe('Unknown command. Send /help to see what I can do.');
   }
+});
+
+// US-C2
+test('a private message to the member that is empty or longer than 1000 characters is refused, and so is one in a rule for joins', async () => {
+  const s = await scene(SPAM);
+  const words = { type: 'ContainsWords', keywords: ['spam'] };
+  const refused: [unknown, string][] = [
+    [rules(rule(words, [message('')])), 'A private message to the member is empty. Write it, or remove the action.'],
+    [rules(rule(words, [message('x'.repeat(1001))])), 'A private message to the member is longer than 1000 characters.'],
+    [{ rules: [joinRule(undefined, [message('Welcome!')])] }, "'Send the member a private message' does not work in a rule for when someone joins."],
+  ];
+  for (const [config, reason] of refused) {
+    expect(await s.owner.ask(settingsLink(s.id, config))).toBe(failed(reason));
+  }
+  // 1000 characters is within the limit.
+  await apply(s, rules(rule(words, [message('x'.repeat(1000)), { type: 'ModerateMessage' }])));
+  // Nothing of the refused ones was saved before it: the last saved rule acts.
+  const item = await s.member.post(s.memberGroup, 'spam');
+  expect(await s.member.seesInGroup()).toEqual({ kind: 'admins', text: 'x'.repeat(1000) });
+  expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
 });
