@@ -28,7 +28,7 @@ ENV LD_PRELOAD=/usr/lib/libfaketimeMT.so.1 \
     FAKETIME_NO_CACHE=1 \
     FAKETIME_DONT_FAKE_MONOTONIC=1
 
-FROM rust:1.99-bookworm AS dev
+FROM rust:1.100-bookworm AS dev
 WORKDIR /app/bot
 COPY bot/Cargo.toml bot/Cargo.lock ./
 COPY bot/src/ src/
