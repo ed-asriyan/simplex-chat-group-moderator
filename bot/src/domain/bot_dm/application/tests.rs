@@ -462,7 +462,7 @@ async fn test_a_notification_quotes_the_message_and_lists_the_reasons() {
         sent[0]
     );
     assert!(
-        sent[0].contains("**The message:**\n> buy now  \n> - cheap\n\n"),
+        sent[0].contains("**The member:** Bob\n\n**The message:**\n> buy now  \n> - cheap\n\n"),
         "{}",
         sent[0]
     );
@@ -576,8 +576,34 @@ async fn test_a_notification_names_the_rules_that_matched() {
     assert_eq!(
         text,
         format!(
-            "🛡 I set the member as observer for 60 minutes and moderated the message in **Crypto Chat**.\n\n**The message:**\n> Buy cheap followers at https://spam.example\n\n**Reason:**\n- **Links from newcomers**: spam.example\n- contains word: 'buy'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
+            "🛡 I set the member as observer for 60 minutes and moderated the message in **Crypto Chat**.\n\n**The member:** Bob\n\n**The message:**\n> Buy cheap followers at https://spam.example\n\n**Reason:**\n- **Links from newcomers**: spam.example\n- contains word: 'buy'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
         )
+    );
+}
+
+// US-D2
+#[tokio::test]
+async fn test_a_message_notification_names_the_author_by_their_display_name() {
+    let text = notified(ModerationNotification {
+        member_name: "Free Casino Bonus".to_string(),
+        ..message_notification(true, "hi", &["contains word: 'hi'"])
+    })
+    .await;
+    assert!(
+        text.contains(
+            "in **Crypto Chat**.\n\n**The member:** Free Casino Bonus\n\n**The message:**\n> hi\n\n"
+        ),
+        "{text}"
+    );
+}
+
+// US-D2
+#[tokio::test]
+async fn test_the_member_comes_before_a_message_without_text() {
+    let text = notified(message_notification(false, "", &["contains an image"])).await;
+    assert!(
+        text.contains("**The member:** Bob\n\n**The message:**\n_(no text)_\n\n"),
+        "{text}"
     );
 }
 
@@ -679,7 +705,7 @@ async fn test_a_rule_whose_actions_are_off_is_marked_in_its_reason_line() {
     assert_eq!(
         text,
         format!(
-            "🛡 I would moderate the message in **Crypto Chat**.\n\n**The message:**\n> spam\n\n**Reason:**\n- **Flood** _(off)_: author sent 12 messages in 1 min\n- _(off)_ contains word: 'spam'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
+            "🛡 I would moderate the message in **Crypto Chat**.\n\n**The member:** Bob\n\n**The message:**\n> spam\n\n**Reason:**\n- **Flood** _(off)_: author sent 12 messages in 1 min\n- _(off)_ contains word: 'spam'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
         )
     );
 }
@@ -705,7 +731,7 @@ async fn test_a_message_that_rules_act_on_and_rules_only_tell_about_is_one_notif
     assert_eq!(
         text,
         format!(
-            "🛡 I moderated the message in **Crypto Chat**, and would also kick the member.\n\n**The message:**\n> spam\n\n**Reason:**\n- **Banned words**: contains word: 'spam'\n- **Trial kick** _(off)_: contains word: 'spam'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
+            "🛡 I moderated the message in **Crypto Chat**, and would also kick the member.\n\n**The member:** Bob\n\n**The message:**\n> spam\n\n**Reason:**\n- **Banned words**: contains word: 'spam'\n- **Trial kick** _(off)_: contains word: 'spam'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
         )
     );
 }
@@ -812,7 +838,7 @@ async fn test_a_notification_names_the_message_sent_to_the_member() {
     assert_eq!(
         text,
         format!(
-            "🛡 I messaged the member privately and moderated the message in **Crypto Chat**.\n\n**The message:**\n> cheap spam here\n\n**Reason:**\n- **Banned words**: contains word: 'spam'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
+            "🛡 I messaged the member privately and moderated the message in **Crypto Chat**.\n\n**The member:** Bob\n\n**The message:**\n> cheap spam here\n\n**Reason:**\n- **Banned words**: contains word: 'spam'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
         )
     );
 }
@@ -833,7 +859,7 @@ async fn test_a_notification_says_the_bot_would_send_the_member_a_message() {
     assert_eq!(
         text,
         format!(
-            "🛡 I would message the member privately and moderate the message in **Crypto Chat**.\n\n**The message:**\n> spam\n\n**Reason:**\n- **Trial** _(off)_: contains word: 'spam'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
+            "🛡 I would message the member privately and moderate the message in **Crypto Chat**.\n\n**The member:** Bob\n\n**The message:**\n> spam\n\n**Reason:**\n- **Trial** _(off)_: contains word: 'spam'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
         )
     );
 }
@@ -858,7 +884,7 @@ async fn test_a_message_the_bot_would_also_send_follows_what_it_did() {
     assert_eq!(
         text,
         format!(
-            "🛡 I moderated the message in **Crypto Chat**, and would also message the member privately.\n\n**The message:**\n> spam\n\n**Reason:**\n- **Banned words**: contains word: 'spam'\n- **Warn** _(off)_: contains word: 'spam'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
+            "🛡 I moderated the message in **Crypto Chat**, and would also message the member privately.\n\n**The member:** Bob\n\n**The message:**\n> spam\n\n**Reason:**\n- **Banned words**: contains word: 'spam'\n- **Warn** _(off)_: contains word: 'spam'\n\nIf it's a false positive, please [file an issue]({ISSUE})."
         )
     );
 }
