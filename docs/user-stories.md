@@ -9,7 +9,7 @@ A group owner adds the bot to their [SimpleX Chat](https://simplex.chat) group w
 
 ## Roles
 - **Owner** — the person who invited the bot to a group. They configure it, and only they get its notifications. The owner of the group in the bot's sense need not be the group's owner in SimpleX.
-- **Member** — anyone in the group whose SimpleX role is *member*. Only a member's messages are checked, and only someone who joins as a member or an observer; a moderator's, an admin's and an owner's messages and joining never are, and an observer cannot write.
+- **Member** — anyone in the group whose SimpleX role is *member*. Only a member's messages in the group itself are checked, never what they write in its *chat with admins*, and only someone who joins as a member or an observer; a moderator's, an admin's and an owner's messages and joining never are, and an observer cannot write.
 
 ## Conventions
 - The owner talks to the bot in a direct chat, in English. The bot writes in standard Markdown, as SimpleX renders it (`**bold**`, `_italic_`, never a single `*` for bold); a bare `/command` in its text is tappable.
@@ -137,6 +137,7 @@ A group owner adds the bot to their [SimpleX Chat](https://simplex.chat) group w
   ```
 
   The actions are named as in US-D2 (`set the member as observer for 60 minutes`, `kicked the member`, `kicked the member and deleted all their messages`), and the reason lines too; a rule with no condition gives `everyone who joins` (`- **Quarantine newcomers**: everyone who joins`). With *Notifications* off, the bot acts and does not tell me; with *Actions* off and *Notifications* on, it does nothing in the group and tells me `🛡 I would kick the member when they joined **Crypto Chat**.`, with the reason line `- **Spam names** _(off)_: name contains word: 'casino'`.
+- **US-D7.** As a member of Crypto Chat, when I write to the bot in Crypto Chat's *chat with admins* — where its private messages reach me (US-F6) —, e.g. `cheap spam here`, or edit a message there into it, the bot ignores it whatever the rules say: it does not answer me, my message stays, Alice is not told, and it counts toward no rate limit, neither mine nor the group's.
 
 ## E. Conditions
 A rule's condition is one of the conditions below, or a combination of them (US-E27–US-E30). The conditions work in rules for *💬 When someone sends a message*, and the editor offers no other there; those of *The member's name* (US-E31, US-E32) and the combinations work in rules for *🚪 When someone joins* too, and are the only ones offered there. Each story starts with what I see when I add the condition in the editor: its title, and its fields as the editor labels them, with their defaults and limits. A matched condition gives the reason line of my notification (US-D2, US-D6), shown here after it.

@@ -2,7 +2,7 @@
 import { expect, test } from '@playwright/test';
 import { Person } from '../harness/person';
 import { advance } from '../harness/stack';
-import { apply, joinNotice, joinRule, message, mixedNotice, moderated, moderatedAnyway, named, notice, rule, rules, scene, turnedOff, untouched } from './helpers';
+import { anotherMember, apply, joinNotice, joinRule, message, mixedNotice, moderated, moderatedAnyway, named, notice, rule, rules, scene, turnedOff, untouched } from './helpers';
 
 // US-D1
 test('a rule the earlier matches already cover is not checked, and an edit is checked again', async () => {
@@ -247,6 +247,58 @@ test('someone the owner adds as a moderator, an admin or an owner is never check
     await person.seesNothing(5000);
     await s.owner.hearsNothing(0);
   }
+});
+
+// US-D7
+test('a member writing to the bot in the chat with admins is ignored: no answer, nothing deleted, the owner not told', async () => {
+  const s = await scene(rules(rule({ type: 'ContainsWords', keywords: ['spam'] }, [message('Your message was removed.'), { type: 'ModerateMessage' }])), 'moderator');
+  const carol = await anotherMember(s);
+  await s.member.postToAdmins(s.memberGroup, 'cheap spam here');
+  await s.member.seesNothing(4000);
+  await s.owner.hearsNothing(4000);
+  // Nothing of it reaches the group: Carol, a member too, sees no message from Bob there.
+  await carol.person.seesNothing(3000, []);
+});
+
+// US-D7
+test('an edit in the chat with admins into a message a rule matches is ignored too', async () => {
+  const s = await scene(rules(rule({ type: 'ContainsWords', keywords: ['spam'] }, [message('Your message was removed.'), { type: 'ModerateMessage' }])), 'moderator');
+  const item = await s.member.postToAdmins(s.memberGroup, 'hello');
+  await s.member.seesNothing(3000);
+  await s.member.editInAdmins(s.memberGroup, item, 'cheap spam here');
+  await s.member.seesNothing(4000);
+  await s.owner.hearsNothing(4000);
+});
+
+// US-D7
+test('the chat with admins does not count toward the author\'s rate limit', async () => {
+  const s = await scene(rules(rule({ type: 'AuthorHitsMessageRateLimit', message_count: 3, time_window_minutes: 1 })));
+  await s.member.postToAdmins(s.memberGroup, 'one');
+  await s.member.postToAdmins(s.memberGroup, 'two');
+  await s.member.seesNothing(3000);
+  // Two messages in the group, then the third: had the two in the chat with admins counted, the first of these would already match.
+  await s.member.post(s.memberGroup, 'a');
+  await s.member.post(s.memberGroup, 'b');
+  await s.member.seesNothing(4000);
+  await s.owner.hearsNothing(4000);
+  const item = await s.member.post(s.memberGroup, 'c');
+  expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
+  expect(await s.owner.message()).toBe(notice('moderated the message', 'c', ['author sent 3 messages in 1 min']));
+});
+
+// US-D7
+test('the chat with admins does not count toward the group\'s rate limit', async () => {
+  const s = await scene(rules(rule({ type: 'GroupHitsMessageRateLimit', message_count: 3, time_window_minutes: 1 })));
+  await s.member.postToAdmins(s.memberGroup, 'one');
+  await s.member.postToAdmins(s.memberGroup, 'two');
+  await s.member.seesNothing(3000);
+  await s.member.post(s.memberGroup, 'a');
+  await s.member.post(s.memberGroup, 'b');
+  await s.member.seesNothing(4000);
+  await s.owner.hearsNothing(4000);
+  const item = await s.member.post(s.memberGroup, 'c');
+  expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
+  expect(await s.owner.message()).toBe(notice('moderated the message', 'c', ['group received 3 messages in 1 min']));
 });
 
 // ---- When someone joins ----

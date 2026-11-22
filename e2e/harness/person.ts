@@ -271,6 +271,21 @@ export class Person {
     if (r.type !== 'chatItemUpdated') throw new Error(`edit: ${JSON.stringify(r)}`);
   }
 
+  /** Posts `text` in the group's chat with admins, which only this person and the group's admins see; returns its id in this person's CLI. */
+  async postToAdmins(group: number, text: string): Promise<number> {
+    await this.activate();
+    const r = await this.cli.command(`/_send #${group}(_support) json ${JSON.stringify([{ msgContent: { type: 'text', text } }])}`);
+    if (r.type !== 'newChatItems') throw new Error(`post to the admins: ${JSON.stringify(r)}`);
+    return r.chatItems[0].chatItem.meta.itemId;
+  }
+
+  /** Edits one of this person's messages in the group's chat with admins. */
+  async editInAdmins(group: number, item: number, text: string) {
+    await this.activate();
+    const r = await this.cli.command(`/_update item #${group}(_support) ${item} json ${JSON.stringify({ msgContent: { type: 'text', text }, mentions: {} })}`);
+    if (r.type !== 'chatItemUpdated') throw new Error(`edit in the admins: ${JSON.stringify(r)}`);
+  }
+
   /** Gives a member of the group another role. */
   async setRole(group: number, member: string, role: string) {
     await this.activate();
