@@ -517,8 +517,14 @@ impl ModerationNotificationReceiver for BotDmApplication {
                     quote(&message)
                 };
                 format!(
-                    "{} in **{}**{}.\n\n**The message:**\n{}\n\n**Reason:**\n{}\n\nIf it's a false positive, please [file an issue]({}).",
-                    actions_text, group.name, also, message, reasons, ISSUE_URL,
+                    "{} in **{}**{}.\n\n**The member:** {}\n\n**The message:**\n{}\n\n**Reason:**\n{}\n\nIf it's a false positive, please [file an issue]({}).",
+                    actions_text,
+                    group.name,
+                    also,
+                    notification.member_name,
+                    message,
+                    reasons,
+                    ISSUE_URL,
                 )
             }
             TriggerEvent::MemberJoined => format!(
