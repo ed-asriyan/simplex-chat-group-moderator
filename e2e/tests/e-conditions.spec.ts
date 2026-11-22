@@ -268,7 +268,7 @@ test('a message a rule that is off would moderate does not count toward the mode
   // The rule that is off only tells; nothing is moderated, so nothing is counted.
   for (const text of ['spam 1', 'spam 2']) {
     const item = await s.member.post(s.memberGroup, text);
-    expect(await s.owner.message()).toBe(notice('would moderate the message', text, ["_(off)_ contains word: 'spam'"]));
+    expect(await s.owner.message()).toBe(notice(s.member, 'would moderate the message', text, ["_(off)_ contains word: 'spam'"]));
     await s.member.seesNothing(3000);
     expect(item).toBeDefined();
   }
@@ -296,7 +296,7 @@ test('author joined recently', async ({ page }) => {
   const bobGroup = await bob.joinGroup(await alice.groupLink(group));
   const item = await bob.post(bobGroup, 'hi');
   expect(await bob.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
-  expect(await alice.message()).toMatch(/^🛡 I moderated the message in \*\*Crypto Chat\*\*\.\n\n\*\*The message:\*\*\n> hi\n\n\*\*Reason:\*\*\n- author joined \d+ min ago \(less than 60 min\)\n/);
+  expect(await alice.message()).toMatch(new RegExp(String.raw`^🛡 I moderated the message in \*\*Crypto Chat\*\*\.\n\n\*\*The member:\*\* ${bob.name}\n\n\*\*The message:\*\*\n> hi\n\n\*\*Reason:\*\*\n- author joined \d+ min ago \(less than 60 min\)\n`));
   advance(61);
   await bob.post(bobGroup, 'an hour later');
   await bob.seesNothing(4000);

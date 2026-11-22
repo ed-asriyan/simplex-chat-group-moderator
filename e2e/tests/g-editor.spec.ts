@@ -925,7 +925,7 @@ test('a rule with Actions off is sent, kept by the bot, and only tells what it w
   expect(await s.owner.ask(await clipboard(page))).toBe('✅ Group settings updated.');
   // The bot carries out none of its actions, and tells...
   await s.member.post(s.memberGroup, 'spam');
-  expect(await s.owner.message()).toBe(notice('would moderate the message', 'spam', ["**Banned words** _(off)_: contains word: 'spam'"]));
+  expect(await s.owner.message()).toBe(notice(s.member, 'would moderate the message', 'spam', ["**Banned words** _(off)_: contains word: 'spam'"]));
   await s.member.seesNothing(4000);
   // ...and keeps the rule: the next link has it, with Actions off.
   await s.owner.send('/groups');

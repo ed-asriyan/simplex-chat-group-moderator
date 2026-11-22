@@ -34,7 +34,7 @@ test('moderate the message', async ({ page }) => {
   const s = await scene(rules(rule({ type: 'ContainsWords', keywords: ['spam'] })), 'moderator');
   const item = await s.member.post(s.memberGroup, 'spam');
   expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
-  expect(await s.owner.message()).toBe(notice('moderated the message', 'spam', ["contains word: 'spam'"]));
+  expect(await s.owner.message()).toBe(notice(s.member, 'moderated the message', 'spam', ["contains word: 'spam'"]));
 });
 
 // US-F2
@@ -49,13 +49,13 @@ test('set the member as observer, for a while or for good', async ({ page }) => 
   ), 'admin');
   await s.member.post(s.memberGroup, 'brief');
   expect(await s.member.seesInGroup()).toEqual({ kind: 'role', role: 'observer' });
-  expect(await s.owner.message()).toBe(notice('set the member as observer for 1 minute', 'brief', ["contains word: 'brief'"]));
+  expect(await s.owner.message()).toBe(notice(s.member, 'set the member as observer for 1 minute', 'brief', ["contains word: 'brief'"]));
   // The message stays; the member is a member again when the minute is up.
   advance(2);
   expect(await s.member.seesInGroup(120_000)).toEqual({ kind: 'role', role: 'member' });
   await s.member.post(s.memberGroup, 'forever');
   expect(await s.member.seesInGroup()).toEqual({ kind: 'role', role: 'observer' });
-  expect(await s.owner.message()).toBe(notice('set the member as observer', 'forever', ["contains word: 'forever'"]));
+  expect(await s.owner.message()).toBe(notice(s.member, 'set the member as observer', 'forever', ["contains word: 'forever'"]));
   advance(10);
   await s.member.seesNothing(90_000);
 });
@@ -67,7 +67,7 @@ test('kick the member, with or without their history', async ({ page }) => {
   const keeps = await scene(rules(rule({ type: 'ContainsWords', keywords: ['kick'] }, [{ type: 'KickAuthor', delete_all_messages: false }])));
   await keeps.member.post(keeps.memberGroup, 'kick me');
   expect(await keeps.member.seesInGroup()).toEqual({ kind: 'removed' });
-  expect(await keeps.owner.message()).toBe(notice('kicked the member', 'kick me', ["contains word: 'kick'"]));
+  expect(await keeps.owner.message()).toBe(notice(keeps.member, 'kicked the member', 'kick me', ["contains word: 'kick'"]));
   // The message stays: the owner still sees it.
   expect(await keeps.owner.history(keeps.ownerGroup)).toContainEqual({ text: 'kick me', deleted: false });
   // With the history: the owner sees every message of the member's deleted.
@@ -76,7 +76,7 @@ test('kick the member, with or without their history', async ({ page }) => {
   await wipes.member.seesNothing(3000);
   await wipes.member.post(wipes.memberGroup, 'kick me');
   expect(await wipes.member.seesInGroup()).toEqual({ kind: 'removed' });
-  expect(await wipes.owner.message()).toBe(notice('kicked the member and deleted all their messages', 'kick me', ["contains word: 'kick'"]));
+  expect(await wipes.owner.message()).toBe(notice(wipes.member, 'kicked the member and deleted all their messages', 'kick me', ["contains word: 'kick'"]));
   await expect
     .poll(() => wipes.owner.history(wipes.ownerGroup), { timeout: 60_000 })
     .toEqual(expect.arrayContaining([{ text: 'an earlier message', deleted: true }, { text: 'kick me', deleted: true }]));
@@ -90,14 +90,14 @@ test('overlapping actions are done once, in order', async () => {
     rule({ type: 'ContainsLinksInList', domains: ['spam.example'] }, [{ type: 'SetAuthorObserver', duration_minutes: 60 }]),
   ));
   await s.member.post(s.memberGroup, 'spam at https://spam.example');
-  expect(await s.owner.message()).toBe(notice('set the member as observer for 60 minutes and moderated the message', 'spam at https://spam.example', ["contains word: 'spam'", 'spam.example']));
+  expect(await s.owner.message()).toBe(notice(s.member, 'set the member as observer for 60 minutes and moderated the message', 'spam at https://spam.example', ["contains word: 'spam'", 'spam.example']));
   // A kick that deletes every message covers Moderate the message.
   const u = await scene(rules(
     rule({ type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'ModerateMessage' }]),
     rule({ type: 'ContainsWords', keywords: ['spam'] }, [{ type: 'KickAuthor', delete_all_messages: true }]),
   ));
   await u.member.post(u.memberGroup, 'spam');
-  expect(await u.owner.message()).toBe(notice('kicked the member and deleted all their messages', 'spam', ["contains word: 'spam'", "contains word: 'spam'"]));
+  expect(await u.owner.message()).toBe(notice(u.member, 'kicked the member and deleted all their messages', 'spam', ["contains word: 'spam'", "contains word: 'spam'"]));
   // A configuration saved is merged the same way.
   const t = await scene(rules(rule({ type: 'ContainsWords', keywords: ['x'] }, [
     { type: 'ModerateMessage' }, { type: 'SetAuthorObserver', duration_minutes: 5 }, { type: 'SetAuthorObserver', duration_minutes: 30 },
@@ -166,7 +166,7 @@ test('the member whose message breaks a rule gets the message in the chat with a
   const item = await s.member.post(s.memberGroup, 'cheap spam here');
   expect(await s.member.seesInGroup()).toEqual({ kind: 'admins', text: WARNING });
   expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
-  expect(await s.owner.message()).toBe(notice('messaged the member privately and moderated the message', 'cheap spam here', ["**Banned words**: contains word: 'spam'"]));
+  expect(await s.owner.message()).toBe(notice(s.member, 'messaged the member privately and moderated the message', 'cheap spam here', ["**Banned words**: contains word: 'spam'"]));
   await s.member.seesNothing(3000);
 });
 
@@ -177,7 +177,7 @@ test('a warning alone: the member is told, the message stays, and nobody else in
   const carol = await anotherMember(s);
   await s.member.post(s.memberGroup, 'look at https://spam.example');
   expect(await s.member.seesInGroup()).toEqual({ kind: 'admins', text: warning });
-  expect(await s.owner.message()).toBe(notice('messaged the member privately', 'look at https://spam.example', ['**No links**: spam.example']));
+  expect(await s.owner.message()).toBe(notice(s.member, 'messaged the member privately', 'look at https://spam.example', ['**No links**: spam.example']));
   // Nothing else is done, and Carol, a member too, sees nothing of it: not in the chat with admins, not in the group.
   const posted = ['look at https://spam.example'];
   await s.member.seesNothing(3000);
@@ -190,7 +190,7 @@ test('a warning alone: the member is told, the message stays, and nobody else in
   // Edited into one it matches, it is checked again, and the member is told again.
   await s.member.edit(s.memberGroup, item, 'see https://spam.example');
   expect(await s.member.seesInGroup()).toEqual({ kind: 'admins', text: warning });
-  expect(await s.owner.message()).toBe(notice('messaged the member privately', 'see https://spam.example', ['**No links**: spam.example']));
+  expect(await s.owner.message()).toBe(notice(s.member, 'messaged the member privately', 'see https://spam.example', ['**No links**: spam.example']));
   await carol.person.seesNothing(3000, [...posted, 'see https://simplex.chat/blog']);
   expect((await s.owner.history(s.ownerGroup)).map((m) => m.text)).toEqual([...posted, 'see https://spam.example']);
 });
@@ -223,7 +223,7 @@ test('the member gets the message before being made an observer', async () => {
   await s.member.post(s.memberGroup, 'spam');
   expect(await s.member.seesInGroup()).toEqual({ kind: 'admins', text: WARNING });
   expect(await s.member.seesInGroup()).toEqual({ kind: 'role', role: 'observer' });
-  expect(await s.owner.message()).toBe(notice('messaged the member privately and set the member as observer for 10 minutes', 'spam', ["contains word: 'spam'"]));
+  expect(await s.owner.message()).toBe(notice(s.member, 'messaged the member privately and set the member as observer for 10 minutes', 'spam', ["contains word: 'spam'"]));
 });
 
 // US-F6
@@ -234,7 +234,7 @@ test('the member gets the message before being kicked, and before their messages
   await s.member.post(s.memberGroup, 'spam');
   expect(await s.member.seesInGroup()).toEqual({ kind: 'admins', text: WARNING });
   expect(await s.member.seesInGroup()).toEqual({ kind: 'removed' });
-  expect(await s.owner.message()).toBe(notice('messaged the member privately and kicked the member and deleted all their messages', 'spam', ["contains word: 'spam'"]));
+  expect(await s.owner.message()).toBe(notice(s.member, 'messaged the member privately and kicked the member and deleted all their messages', 'spam', ["contains word: 'spam'"]));
   await expect
     .poll(() => s.owner.history(s.ownerGroup), { timeout: 60_000 })
     .toEqual(expect.arrayContaining([{ text: 'an earlier message', deleted: true }, { text: 'spam', deleted: true }]));
@@ -243,7 +243,7 @@ test('the member gets the message before being kicked, and before their messages
   await k.member.post(k.memberGroup, 'spam');
   expect(await k.member.seesInGroup()).toEqual({ kind: 'admins', text: WARNING });
   expect(await k.member.seesInGroup()).toEqual({ kind: 'removed' });
-  expect(await k.owner.message()).toBe(notice('messaged the member privately and kicked the member', 'spam', ["contains word: 'spam'"]));
+  expect(await k.owner.message()).toBe(notice(k.member, 'messaged the member privately and kicked the member', 'spam', ["contains word: 'spam'"]));
   expect(await k.owner.history(k.ownerGroup)).toContainEqual({ text: 'spam', deleted: false });
 });
 
@@ -261,6 +261,7 @@ test('a message that matches several rules with a message gets the member one, t
     { kind: 'deleted', itemIds: [item] },
   ]);
   expect(await s.owner.message()).toBe(notice(
+    s.member,
     'messaged the member privately, set the member as observer for 10 minutes and moderated the message',
     'spam at https://spam.example',
     ["**Banned words**: contains word: 'spam'", '**Links**: spam.example'],
@@ -280,7 +281,7 @@ test('with the rule\'s Notifications off, the member still gets the message and 
 test('with the rule\'s Actions off, the member gets nothing', async () => {
   const s = await scene(rules(turnedOff(rule(SPAM, [message(WARNING), { type: 'ModerateMessage' }]), 'enabled')));
   await s.member.post(s.memberGroup, 'spam');
-  expect(await s.owner.message()).toBe(notice('would message the member privately and moderate the message', 'spam', ["_(off)_ contains word: 'spam'"]));
+  expect(await s.owner.message()).toBe(notice(s.member, 'would message the member privately and moderate the message', 'spam', ["_(off)_ contains word: 'spam'"]));
   await s.member.seesNothing(5000);
 });
 
@@ -293,7 +294,7 @@ test('a message that cannot reach the member: the rule\'s other actions are carr
   const item = await s.member.post(s.memberGroup, 'spam');
   expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
   // The notification names the message whether it reached Bob or not (US-D2).
-  expect(await s.owner.message()).toBe(notice('messaged the member privately and moderated the message', 'spam', ["contains word: 'spam'"]));
+  expect(await s.owner.message()).toBe(notice(s.member, 'messaged the member privately and moderated the message', 'spam', ["contains word: 'spam'"]));
   await s.member.seesNothing(3000);
 });
 
@@ -307,7 +308,7 @@ test('a private message to the member covers another, and a configuration saved 
   expect(saved.rules[0].actions).toEqual([message('First.'), { type: 'SetAuthorObserver', duration_minutes: 5 }, { type: 'ModerateMessage' }]);
   await s.member.post(s.memberGroup, 'spam');
   expect(await s.member.seesInGroup()).toEqual({ kind: 'admins', text: 'First.' });
-  expect(await s.owner.message()).toBe(notice('messaged the member privately, set the member as observer for 5 minutes and moderated the message', 'spam', ["contains word: 'spam'"]));
+  expect(await s.owner.message()).toBe(notice(s.member, 'messaged the member privately, set the member as observer for 5 minutes and moderated the message', 'spam', ["contains word: 'spam'"]));
 });
 
 // US-F5, US-G8, US-F6
@@ -334,5 +335,5 @@ test('the owner sets the message up in the editor, sends the link, and the membe
   const item = await s.member.post(s.memberGroup, 'cheap spam here');
   expect(await s.member.seesInGroup()).toEqual({ kind: 'admins', text: WARNING });
   expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
-  expect(lineEnds(await s.owner.message())).toBe(lineEnds(notice('messaged the member privately and moderated the message', 'cheap spam here', ["contains word: 'spam'"])));
+  expect(lineEnds(await s.owner.message())).toBe(lineEnds(notice(s.member, 'messaged the member privately and moderated the message', 'cheap spam here', ["contains word: 'spam'"])));
 });

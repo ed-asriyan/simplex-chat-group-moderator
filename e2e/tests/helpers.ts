@@ -62,17 +62,17 @@ export function rules(...list: unknown[]) {
   return { rules: list };
 }
 
-/** The owner's notification of US-D2. */
-export function notice(did: string, message: string | null, reasons: string[], group = 'Crypto Chat') {
+/** The owner's notification of US-D2: the member is the message's author, by their display name. */
+export function notice(member: Person, did: string, message: string | null, reasons: string[], group = 'Crypto Chat') {
   // Each line quoted; the story does not say how a line break inside a quote is written.
   const quoted = message === null ? '_(no text)_' : message.split('\n').map((l) => `> ${l}`).join('\n');
-  return `🛡 I ${did} in **${group}**.\n\n**The message:**\n${quoted}\n\n**Reason:**\n${reasons.map((r) => `- ${r}`).join('\n')}\n\nIf it's a false positive, please [file an issue](${ISSUE}).`;
+  return `🛡 I ${did} in **${group}**.\n\n**The member:** ${member.name}\n\n**The message:**\n${quoted}\n\n**Reason:**\n${reasons.map((r) => `- ${r}`).join('\n')}\n\nIf it's a false positive, please [file an issue](${ISSUE}).`;
 }
 
 /** The notification of a message that matched rules that act and rules that only tell (US-D4): what was done, then what would have been. */
-export function mixedNotice(did: string, would: string, message: string | null, reasons: string[], group = 'Crypto Chat') {
+export function mixedNotice(member: Person, did: string, would: string, message: string | null, reasons: string[], group = 'Crypto Chat') {
   const quoted = message === null ? '_(no text)_' : message.split('\n').map((l) => `> ${l}`).join('\n');
-  return `🛡 I ${did} in **${group}**, and would also ${would}.\n\n**The message:**\n${quoted}\n\n**Reason:**\n${reasons.map((r) => `- ${r}`).join('\n')}\n\nIf it's a false positive, please [file an issue](${ISSUE}).`;
+  return `🛡 I ${did} in **${group}**, and would also ${would}.\n\n**The member:** ${member.name}\n\n**The message:**\n${quoted}\n\n**Reason:**\n${reasons.map((r) => `- ${r}`).join('\n')}\n\nIf it's a false positive, please [file an issue](${ISSUE}).`;
 }
 
 /** Bob posts `content`; it is moderated, and the owner is told why. */
@@ -80,7 +80,7 @@ export async function moderated(s: Scene, content: string | Record<string, unkno
   const item = await s.member.post(s.memberGroup, content);
   expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
   const text = message !== undefined ? message : quoted(typeof content === 'string' ? content : (content.text as string) || null);
-  expect(lineEnds(await s.owner.message())).toBe(lineEnds(notice('moderated the message', text, reasons)));
+  expect(lineEnds(await s.owner.message())).toBe(lineEnds(notice(s.member, 'moderated the message', text, reasons)));
   // No rule wrote to Bob: nothing in his chat with admins (US-F6).
   await s.member.seesNothing(1000);
 }
@@ -104,7 +104,7 @@ export function lineEnds(text: string): string {
 export async function moderatedAnyway(s: Scene, content: string | Record<string, unknown>) {
   const item = await s.member.post(s.memberGroup, content);
   expect(await s.member.seesInGroup()).toEqual({ kind: 'deleted', itemIds: [item] });
-  expect(await s.owner.message()).toMatch(/^🛡 I moderated the message in \*\*Crypto Chat\*\*\.\n/);
+  expect(await s.owner.message()).toContain(`🛡 I moderated the message in **Crypto Chat**.\n\n**The member:** ${s.member.name}\n\n**The message:**\n`);
 }
 
 /** Another member who joins the scene's group. */
